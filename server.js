@@ -15,6 +15,7 @@ const { registerAuthRoutes } = require('./routes/auth');
 const { registerP2POrderRoutes } = require('./routes/p2p-orders');
 const { createAuditLogService } = require('./services/audit-log-service');
 const { createP2POrderExpiryService } = require('./services/p2p-order-expiry-service');
+const { createAuthEmailService } = require('./services/auth-email-service');
 const tokenService = require('./services/tokenService');
 const { createP2POrderController } = require('./controllers/p2p-order-controller');
 const { createAdminStore } = require('./admin/services/admin-store');
@@ -48,7 +49,10 @@ const P2P_REFRESH_COOKIE_NAME = 'p2p_refresh_token';
 const P2P_ORDER_TTL_MS = 1000 * 60 * 15;
 const P2P_EXPIRY_SWEEP_INTERVAL_MS = 30 * 1000;
 const MERCHANT_ACTIVATION_DEPOSIT = 200;
-const SIGNUP_OTP_TTL_MS = 1000 * 60 * 10;
+const SIGNUP_OTP_TTL_MS = Math.max(
+  60 * 1000,
+  Number.parseInt(String(process.env.SIGNUP_OTP_TTL_MS || '600000'), 10) || 600000
+);
 const P2P_ORDER_ACTIVE_STATUSES = ['CREATED', 'PENDING', 'PAID', 'PAYMENT_SENT', 'DISPUTED'];
 const IS_PRODUCTION = String(process.env.NODE_ENV || '')
   .trim()
@@ -81,6 +85,7 @@ let adminControllers = null;
 let auditLogService = null;
 let p2pOrderExpiryService = null;
 let p2pOrderController = null;
+let authEmailService = null;
 let persistenceReady = false;
 let httpServer = null;
 let shuttingDown = false;
@@ -329,8 +334,37 @@ async function trySendSignupEmailOtp(email, code) {
   const text = `Your verification code is ${code}. This code expires in 10 minutes.`;
   const html = `<p>Your verification code is <strong>${code}</strong>.</p><p>This code expires in 10 minutes.</p>`;
 
-  const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
-  const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || '').trim();
+  const resendApiKey = String(process.env.RESEND_API_KEY || process.env.RESEND || '').trim();
+  const resendFromEmail = String(
+    process.env.RESEND_FROM_EMAIL || process.env.MAIL_FROM || process.env.SMTP_FROM_EMAIL || ''
+  ).trim();
+  const smtpHost = String(process.env.SMTP_HOST || '').trim();
+  const smtpPortRaw = String(process.env.SMTP_PORT || '').trim();
+  const smtpUser = String(process.env.SMTP_USER || '').trim();
+  const smtpPass = String(process.env.SMTP_PASS || '').trim();
+  const smtpFromEmail = String(
+    process.env.SMTP_FROM_EMAIL || process.env.MAIL_FROM || ''
+  ).trim();
+  const smtpSecureRaw = String(process.env.SMTP_SECURE || '')
+    .trim()
+    .toLowerCase();
+  const gmailUser = String(process.env.GMAIL_USER || '').trim();
+  const gmailAppPassword = String(process.env.GMAIL_APP_PASSWORD || '').trim();
+
+  console.log('[otp-email] runtime provider env detection', {
+    hasResendApiKey: Boolean(resendApiKey),
+    hasResendFromEmail: Boolean(resendFromEmail),
+    hasResendAliasKey: Boolean(String(process.env.RESEND || '').trim()),
+    hasMailFromAlias: Boolean(String(process.env.MAIL_FROM || '').trim()),
+    hasSmtpHost: Boolean(smtpHost),
+    hasSmtpUser: Boolean(smtpUser),
+    hasSmtpPass: Boolean(smtpPass),
+    hasSmtpFromEmail: Boolean(smtpFromEmail),
+    hasGmailUser: Boolean(gmailUser),
+    hasGmailAppPassword: Boolean(gmailAppPassword),
+    nodeEnv: String(process.env.NODE_ENV || 'development')
+  });
+
   if (resendApiKey && resendFromEmail) {
     try {
       const response = await fetch('https://api.resend.com/emails', {
@@ -357,18 +391,6 @@ async function trySendSignupEmailOtp(email, code) {
       return { delivered: false, reason: `resend_error:${error.message}` };
     }
   }
-
-  const smtpHost = String(process.env.SMTP_HOST || '').trim();
-  const smtpPortRaw = String(process.env.SMTP_PORT || '').trim();
-  const smtpUser = String(process.env.SMTP_USER || '').trim();
-  const smtpPass = String(process.env.SMTP_PASS || '').trim();
-  const smtpFromEmail = String(process.env.SMTP_FROM_EMAIL || '').trim();
-  const smtpSecureRaw = String(process.env.SMTP_SECURE || '')
-    .trim()
-    .toLowerCase();
-
-  const gmailUser = String(process.env.GMAIL_USER || '').trim();
-  const gmailAppPassword = String(process.env.GMAIL_APP_PASSWORD || '').trim();
 
   let transporter = null;
   let fromEmail = '';
@@ -965,10 +987,10 @@ app.post('/api/signup/send-code', async (req, res) => {
     } else {
       if (!ALLOW_DEMO_OTP) {
         await repos.deleteSignupOtp(contactInfo.value);
+        const failureReason = String(sendResult.reason || 'email_provider_unavailable').trim();
         return res.status(503).json({
-          message:
-            'Email OTP service is not configured. Set RESEND or SMTP env vars, then redeploy.',
-          reason: sendResult.reason
+          message: 'Unable to send email OTP right now.',
+          reason: failureReason
         });
       }
       delivery = 'simulated';
@@ -2012,6 +2034,7 @@ async function boot() {
     const collections = getCollections();
     repos = createRepositories(collections);
     auditLogService = createAuditLogService(collections);
+    authEmailService = createAuthEmailService();
     walletService = createWalletService(collections, getMongoClient(), {
       hooks: {
         afterOperation: async (payload) => {
@@ -2080,7 +2103,10 @@ async function boot() {
         legacyP2PSession: P2P_USER_COOKIE_NAME
       },
       p2pUserTtlMs: P2P_USER_TTL_MS,
-      auditLogService
+      auditLogService,
+      authEmailService,
+      otpTtlMs: SIGNUP_OTP_TTL_MS,
+      allowDemoOtp: ALLOW_DEMO_OTP
     });
 
     p2pOrderController = createP2POrderController({
