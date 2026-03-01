@@ -110,7 +110,7 @@ a {
 }
 
 .cf-brand {
-  font-size: clamp(1.3rem, 2.6vw, 2.05rem);
+  font-size: clamp(1.05rem, 2vw, 1.45rem);
   font-weight: 800;
   color: var(--cf-brand);
   text-decoration: none;
@@ -146,14 +146,14 @@ a {
 .cf-login,
 .cf-signup,
 .cf-signup-link {
-  min-height: 40px;
+  min-height: 36px;
   border-radius: 999px;
-  padding: 0 1rem;
+  padding: 0 0.85rem;
   border: 1px solid var(--cf-line);
   background: transparent;
   color: var(--cf-text);
   font-weight: 700;
-  font-size: 0.88rem;
+  font-size: 0.8rem;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -740,17 +740,17 @@ a {
 .cf-hot-market-tabs {
   display: flex;
   align-items: center;
-  gap: 1.1rem;
+  gap: 0.75rem;
   border-bottom: 1px solid rgba(224, 234, 248, 0.15);
-  padding-bottom: 0.52rem;
+  padding-bottom: 0.4rem;
 }
 
 .cf-hot-market-tabs button {
-  min-height: 36px;
+  min-height: 30px;
   border: 0;
   background: transparent;
   color: #9aa8c1;
-  font-size: 0.95rem;
+  font-size: 0.84rem;
   font-weight: 700;
   padding: 0;
   border-bottom: 2px solid transparent;
@@ -2036,21 +2036,21 @@ a {
 
 @media (max-width: 768px) {
   .cf-header-inner {
-    min-height: 72px;
+    min-height: 64px;
   }
 
   .cf-brand {
-    font-size: 2.05rem;
+    font-size: 1.55rem;
   }
 
   .cf-actions {
-    gap: 0.7rem;
+    gap: 0.45rem;
   }
 
   .cf-signup {
-    min-height: 54px;
-    padding: 0 1.45rem;
-    font-size: 1rem;
+    min-height: 40px;
+    padding: 0 0.95rem;
+    font-size: 0.82rem;
     font-weight: 800;
     background: #9cff00;
   }

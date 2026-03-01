@@ -13,10 +13,13 @@ try {
   rateLimitFactory = null;
 }
 
-function createFallbackRateLimiter({ windowMs, max, message }) {
+function createFallbackRateLimiter({ windowMs, max, message, skip }) {
   const state = new Map();
 
   return function fallbackRateLimiter(req, res, next) {
+    if (req.method === 'OPTIONS' || (typeof skip === 'function' && skip(req))) {
+      return next();
+    }
     const forwardedRaw = String(req.headers['x-forwarded-for'] || '').trim();
     const ip = forwardedRaw.split(',')[0].trim() || String(req.ip || req.connection?.remoteAddress || 'unknown');
     const now = Date.now();
@@ -42,9 +45,9 @@ function createFallbackRateLimiter({ windowMs, max, message }) {
   };
 }
 
-function buildRateLimiter({ windowMs, max, message }) {
+function buildRateLimiter({ windowMs, max, message, skip }) {
   if (!rateLimitFactory) {
-    return createFallbackRateLimiter({ windowMs, max, message });
+    return createFallbackRateLimiter({ windowMs, max, message, skip });
   }
 
   return rateLimitFactory({
@@ -52,7 +55,7 @@ function buildRateLimiter({ windowMs, max, message }) {
     max,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.method === 'OPTIONS',
+    skip: (req) => req.method === 'OPTIONS' || (typeof skip === 'function' && skip(req)),
     handler: (req, res) => {
       const retryAfterFromHeader = Number(res.getHeader('Retry-After'));
       const retryAfterFromRateLimit = req?.rateLimit?.resetTime
@@ -76,8 +79,19 @@ function createRateLimiters() {
   return {
     global: buildRateLimiter({
       windowMs: 15 * 60 * 1000,
-      max: 600,
-      message: 'Too many requests. Please try again in a few minutes.'
+      max: 2000,
+      message: 'Too many requests. Please try again in a few minutes.',
+      skip: (req) => {
+        if (req.method !== 'GET') {
+          return false;
+        }
+        const url = String(req.originalUrl || req.url || '');
+        return (
+          url.startsWith('/api/p2p/market-depth') ||
+          url.startsWith('/api/p2p/klines') ||
+          url.startsWith('/api/p2p/exchange-ticker')
+        );
+      }
     }),
     login: buildRateLimiter({
       windowMs: 10 * 60 * 1000,
@@ -109,11 +123,33 @@ function applySecurityHeaders(app) {
             useDefaults: true,
             directives: {
               defaultSrc: ["'self'"],
-              scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'],
-              styleSrc: ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'],
+              scriptSrc: [
+                "'self'",
+                "'unsafe-inline'",
+                'https://cdn.tailwindcss.com',
+                'https://cdn.jsdelivr.net',
+                'https://s3.tradingview.com',
+                'https://*.tradingview.com'
+              ],
+              styleSrc: [
+                "'self'",
+                "'unsafe-inline'",
+                'https://cdn.tailwindcss.com',
+                'https://cdn.jsdelivr.net',
+                'https://s3.tradingview.com',
+                'https://*.tradingview.com'
+              ],
               imgSrc: ["'self'", 'data:', 'https:'],
-              connectSrc: ["'self'", 'https://api.binance.com', 'https://api.resend.com'],
+              connectSrc: [
+                "'self'",
+                'https://api.binance.com',
+                'https://api.resend.com',
+                'https://*.tradingview.com',
+                'wss://*.tradingview.com'
+              ],
+              frameSrc: ["'self'", 'https://*.tradingview.com'],
               fontSrc: ["'self'", 'https:', 'data:'],
+              workerSrc: ["'self'", 'blob:'],
               objectSrc: ["'none'"],
               frameAncestors: ["'none'"],
               baseUri: ["'self'"]
@@ -141,7 +177,7 @@ function applySecurityHeaders(app) {
       (req, res, next) => {
         res.setHeader(
           'Content-Security-Policy',
-          "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; img-src 'self' data: https:; connect-src 'self' https://api.binance.com https://api.resend.com; font-src 'self' https: data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+          "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://s3.tradingview.com https://*.tradingview.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://s3.tradingview.com https://*.tradingview.com; img-src 'self' data: https:; connect-src 'self' https://api.binance.com https://api.resend.com https://*.tradingview.com wss://*.tradingview.com; frame-src 'self' https://*.tradingview.com; font-src 'self' https: data:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
         );
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('X-Content-Type-Options', 'nosniff');
