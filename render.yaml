@@ -1,33 +1,26 @@
 services:
   - type: web
-    name: new-landing-page
-    env: docker
+    name: bitegit-wallet-engine
+    env: node
     plan: free
     branch: main
-    dockerfilePath: ./Dockerfile
+    rootDir: phase4-wallet-engine
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
-      - key: MONGODB_URI
+      - key: NODE_ENV
+        value: production
+      - key: DB_HOST
         sync: false
-      - key: MONGODB_DB_NAME
-        value: bitegit
-      - key: ADMIN_USERNAME
+      - key: DB_PORT
         sync: false
-      - key: ADMIN_PASSWORD
+      - key: DB_NAME
         sync: false
-      - key: ADMIN_EMAIL
+      - key: DB_USER
         sync: false
-      - key: ADMIN_ROLE
-        value: SUPER_ADMIN
-      - key: ADMIN_SESSION_TTL_MINUTES
-        value: "120"
-      - key: ADMIN_IP_WHITELIST
+      - key: DB_PASSWORD
         sync: false
-      - key: ADMIN_FORCE_PASSWORD_SYNC
-        value: "false"
-      - key: ADMIN_FORCE_ROLE_SYNC
-        value: "false"
-      - key: ADMIN_FORCE_ACTIVATE
-        value: "false"
       - key: JWT_SECRET
         sync: false

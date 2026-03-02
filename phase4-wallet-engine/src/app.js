@@ -16,6 +16,10 @@ app.get('/health', (req, res) => {
   res.json({ success: true, message: 'OK', data: {} });
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK' });
+});
+
 app.use('/api', authRoutes);
 app.use('/api', walletRoutes);
 app.use('/api', depositRoutes);
