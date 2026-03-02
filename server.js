@@ -58,7 +58,7 @@ const IS_PRODUCTION = String(process.env.NODE_ENV || '')
   .toLowerCase() === 'production';
 const ALLOW_DEMO_OTP = String(process.env.ALLOW_DEMO_OTP || '')
   .trim()
-  .toLowerCase() === 'true';
+  .toLowerCase() === 'true' && !IS_PRODUCTION;
 
 const p2pOrderStreams = new Map();
 const DEFAULT_TICKER_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT'];
@@ -133,17 +133,41 @@ function validateStartupConfig() {
 }
 
 function logEmailProviderRuntimeEnv() {
+  const effectiveResendApiKey = String(process.env.RESEND_API_KEY || process.env.RESEND || '').trim();
+  const effectiveResendFromEmail = String(
+    process.env.RESEND_FROM_EMAIL || process.env.MAIL_FROM || process.env.SMTP_FROM_EMAIL || ''
+  ).trim();
+  const effectiveSmtpHost = String(process.env.SMTP_HOST || '').trim();
+  const effectiveSmtpUser = String(process.env.SMTP_USER || '').trim();
+  const effectiveSmtpPass = String(process.env.SMTP_PASS || '').trim();
+  const effectiveGmailUser = String(process.env.GMAIL_USER || '').trim();
+  const effectiveGmailAppPassword = String(process.env.GMAIL_APP_PASSWORD || '').trim();
+
+  let effectiveProvider = 'none';
+  if (effectiveResendApiKey && effectiveResendFromEmail) {
+    effectiveProvider = 'resend';
+  } else if (effectiveSmtpHost && effectiveSmtpUser && effectiveSmtpPass) {
+    effectiveProvider = 'smtp';
+  } else if (effectiveGmailUser && effectiveGmailAppPassword) {
+    effectiveProvider = 'gmail';
+  }
+
   console.log('Email provider env status:', {
+    nodeEnv: String(process.env.NODE_ENV || 'development'),
+    allowDemoOtp: ALLOW_DEMO_OTP,
     hasResendApiKey: Boolean(String(process.env.RESEND_API_KEY || '').trim()),
     hasResendAliasKey: Boolean(String(process.env.RESEND || '').trim()),
     hasResendFromEmail: Boolean(String(process.env.RESEND_FROM_EMAIL || '').trim()),
     hasMailFromAlias: Boolean(String(process.env.MAIL_FROM || '').trim()),
+    hasEffectiveResendApiKey: Boolean(effectiveResendApiKey),
+    hasEffectiveResendFromEmail: Boolean(effectiveResendFromEmail),
     hasSmtpHost: Boolean(String(process.env.SMTP_HOST || '').trim()),
     hasSmtpUser: Boolean(String(process.env.SMTP_USER || '').trim()),
     hasSmtpPass: Boolean(String(process.env.SMTP_PASS || '').trim()),
     hasSmtpFromEmail: Boolean(String(process.env.SMTP_FROM_EMAIL || '').trim()),
     hasGmailUser: Boolean(String(process.env.GMAIL_USER || '').trim()),
-    hasGmailAppPassword: Boolean(String(process.env.GMAIL_APP_PASSWORD || '').trim())
+    hasGmailAppPassword: Boolean(String(process.env.GMAIL_APP_PASSWORD || '').trim()),
+    effectiveProvider
   });
 }
 
