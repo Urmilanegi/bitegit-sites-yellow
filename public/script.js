@@ -52,8 +52,8 @@ const COIN_NAMES = {
   BNBUSDT: 'BNB',
   XRPUSDT: 'XRP',
   SOLUSDT: 'Solana',
-  ADAUSDT: 'Cardano',
   TRXUSDT: 'TRON',
+  ADAUSDT: 'Cardano',
   DOGEUSDT: 'Dogecoin',
   WIFUSDT: 'Dogwifhat'
 };
@@ -94,6 +94,16 @@ const NEWS_ITEMS = [
 ];
 
 const MARKET_REFRESH_INTERVAL_MS = 5000;
+const COINGECKO_IDS = {
+  BTCUSDT: 'bitcoin',
+  ETHUSDT: 'ethereum',
+  BNBUSDT: 'binancecoin',
+  XRPUSDT: 'ripple',
+  SOLUSDT: 'solana',
+  TRXUSDT: 'tron',
+  DOGEUSDT: 'dogecoin',
+  WIFUSDT: 'dogwifcoin'
+};
 
 let pendingContact = '';
 let pendingName = 'Website Lead';
@@ -102,6 +112,7 @@ let depthRefreshTimer = null;
 let marketTab = 'hotspot';
 let eventsAutoSlide = null;
 let marketRefreshTimer = null;
+let marketLoadSeq = 0;
 
 const openSignupFromQuery = new URLSearchParams(window.location.search).get('signup') === '1';
 
@@ -878,7 +889,92 @@ function startMarketAutoRefresh() {
   }, MARKET_REFRESH_INTERVAL_MS);
 }
 
+function normalizeTickerRows(symbols, rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+
+  const bySymbol = new Map(
+    rows
+      .map((item) => ({
+        symbol: String(item?.symbol || '').toUpperCase(),
+        lastPrice: Number(item?.lastPrice || 0),
+        change24h: Number(item?.change24h || 0)
+      }))
+      .filter((item) => symbols.includes(item.symbol) && Number.isFinite(item.lastPrice) && item.lastPrice > 0)
+      .map((item) => [item.symbol, item])
+  );
+
+  return symbols.map((symbol) => bySymbol.get(symbol)).filter(Boolean);
+}
+
+async function fetchBinanceClientTicker(symbols, host = 'api.binance.com') {
+  const encodedSymbols = encodeURIComponent(JSON.stringify(symbols));
+  const url = `https://${host}/api/v3/ticker/24hr?symbols=${encodedSymbols}`;
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok || !Array.isArray(data)) {
+    throw new Error(`Client ticker unavailable from ${host}`);
+  }
+
+  const mapped = data.map((item) => ({
+    symbol: item.symbol,
+    lastPrice: Number(item.lastPrice),
+    change24h: Number(item.priceChangePercent)
+  }));
+  return normalizeTickerRows(symbols, mapped);
+}
+
+async function fetchCoinGeckoTicker(symbols) {
+  const idEntries = symbols.map((symbol) => [symbol, COINGECKO_IDS[symbol]]).filter(([, id]) => Boolean(id));
+  if (!idEntries.length) {
+    return [];
+  }
+
+  const ids = idEntries.map(([, id]) => id).join(',');
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+    ids
+  )}&vs_currencies=usd&include_24hr_change=true`;
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok || !data || typeof data !== 'object') {
+    throw new Error('CoinGecko ticker unavailable');
+  }
+
+  const mapped = idEntries
+    .map(([symbol, id]) => ({
+      symbol,
+      lastPrice: Number(data?.[id]?.usd || 0),
+      change24h: Number(data?.[id]?.usd_24h_change || 0)
+    }))
+    .filter((item) => Number.isFinite(item.lastPrice) && item.lastPrice > 0);
+
+  return normalizeTickerRows(symbols, mapped);
+}
+
+async function fetchClientSideLiveTicker(symbols) {
+  const attempts = [
+    () => fetchBinanceClientTicker(symbols, 'api.binance.com'),
+    () => fetchBinanceClientTicker(symbols, 'data-api.binance.vision'),
+    () => fetchCoinGeckoTicker(symbols)
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const ticker = await attempt();
+      if (ticker.length) {
+        return ticker;
+      }
+    } catch (_) {
+      // Try next provider
+    }
+  }
+
+  return [];
+}
+
 async function loadMarket() {
+  const requestId = ++marketLoadSeq;
   try {
     const params = new URLSearchParams({
       symbols: MARKET_SYMBOLS.join(',')
@@ -889,15 +985,36 @@ async function loadMarket() {
     });
     const data = await response.json();
 
-    if (!response.ok || !Array.isArray(data.ticker)) {
+    if (requestId !== marketLoadSeq) {
+      return;
+    }
+
+    let tickerRows = Array.isArray(data?.ticker) ? normalizeTickerRows(MARKET_SYMBOLS, data.ticker) : [];
+    const needsClientFallback = !response.ok || data?.source === 'fallback' || tickerRows.length === 0;
+
+    if (needsClientFallback) {
+      const clientTicker = await fetchClientSideLiveTicker(MARKET_SYMBOLS);
+      if (requestId !== marketLoadSeq) {
+        return;
+      }
+      if (clientTicker.length) {
+        tickerRows = clientTicker;
+      }
+    }
+
+    if (!tickerRows.length) {
       throw new Error('Ticker unavailable');
     }
 
-    renderMiniMarketRows(data.ticker);
-    renderExchangeTicker(data.ticker);
-    renderOpportunities(data.ticker);
+    renderMiniMarketRows(tickerRows);
+    renderExchangeTicker(tickerRows);
+    renderOpportunities(tickerRows);
   } catch (error) {
+    if (requestId !== marketLoadSeq) {
+      return;
+    }
     renderMiniMarketRows([]);
+    renderExchangeTicker([]);
     renderOpportunities([]);
   }
 }
