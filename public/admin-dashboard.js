@@ -92,6 +92,29 @@ function showMessage(text, type = 'info') {
   }
 }
 
+function setActionButtonLoading(button, loading, loadingText = 'Processing...') {
+  if (!button) {
+    return;
+  }
+
+  const isLoading = Boolean(loading);
+
+  if (isLoading) {
+    if (!button.dataset.originalLabel) {
+      button.dataset.originalLabel = button.textContent || 'Action';
+    }
+    button.disabled = true;
+    button.textContent = loadingText;
+    return;
+  }
+
+  button.disabled = false;
+  if (button.dataset.originalLabel) {
+    button.textContent = button.dataset.originalLabel;
+    delete button.dataset.originalLabel;
+  }
+}
+
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
@@ -770,20 +793,25 @@ async function handleSpotAction(event) {
   }
   const action = button.getAttribute('data-spot-action');
   const symbol = button.getAttribute('data-symbol');
+  const isToggleAction = action === 'toggle';
+  const isSaveAction = action === 'save';
+
+  if (!isToggleAction && !isSaveAction) {
+    return;
+  }
 
   try {
-    if (action === 'toggle') {
+    if (isToggleAction) {
       const enabled = button.getAttribute('data-enabled') === '1';
+      setActionButtonLoading(button, true, enabled ? 'Disabling...' : 'Enabling...');
       await apiRequest(`/spot/pairs/${encodeURIComponent(symbol)}`, {
         method: 'PUT',
         body: JSON.stringify({ enabled: !enabled })
       });
       showMessage(`${symbol} ${enabled ? 'disabled' : 'enabled'} successfully.`, 'success');
       await loadSpot();
-      return;
-    }
-
-    if (action === 'save') {
+    } else if (isSaveAction) {
+      setActionButtonLoading(button, true, 'Saving...');
       const makerInput = document.querySelector(`[data-spot-field="makerFee"][data-symbol="${symbol}"]`);
       const takerInput = document.querySelector(`[data-spot-field="takerFee"][data-symbol="${symbol}"]`);
       const precisionInput = document.querySelector(`[data-spot-field="pricePrecision"][data-symbol="${symbol}"]`);
@@ -800,6 +828,8 @@ async function handleSpotAction(event) {
     }
   } catch (error) {
     showMessage(error.message || 'Spot update failed.', 'error');
+  } finally {
+    setActionButtonLoading(button, false);
   }
 }
 

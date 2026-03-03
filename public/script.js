@@ -123,6 +123,16 @@ function setSignupPromptMessage(text, type = '') {
   }
 }
 
+function syncHomeInteractionState() {
+  const hasBlockingLayer =
+    document.body.classList.contains('cf-nav-open') ||
+    document.body.classList.contains('cf-signup-open') ||
+    Boolean(chartModal && !chartModal.classList.contains('hidden'));
+
+  document.body.style.overflow = hasBlockingLayer ? 'hidden' : 'auto';
+  document.body.style.pointerEvents = 'auto';
+}
+
 function setSignupPromptOpen(open) {
   if (!signupPromptModal) {
     return;
@@ -135,6 +145,7 @@ function setSignupPromptOpen(open) {
     setSignupPromptMessage('');
     window.requestAnimationFrame(() => signupPromptEmail?.focus());
   }
+  syncHomeInteractionState();
 }
 
 function focusLeadForm() {
@@ -156,6 +167,7 @@ function setHomeNavOpen(open) {
   homeNavDrawer.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
   homeNavOverlay.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
   homeNavToggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  syncHomeInteractionState();
 }
 
 function setupHomeNav() {
@@ -386,6 +398,7 @@ function openChart(symbol) {
   }
   refreshDepth();
   depthRefreshTimer = setInterval(refreshDepth, 3000);
+  syncHomeInteractionState();
 }
 
 function closeChart() {
@@ -399,6 +412,7 @@ function closeChart() {
   }
   chartModal.classList.add('hidden');
   chartModal.setAttribute('aria-hidden', 'true');
+  syncHomeInteractionState();
 }
 
 function openTradePage(symbol, marketType = 'spot') {
@@ -795,12 +809,18 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+window.addEventListener('pagehide', () => {
+  document.body.style.overflow = 'auto';
+  document.body.style.pointerEvents = 'auto';
+});
+
 setupHomeNav();
 setupEventsCarousel();
 setMarketTab('hotspot');
 animateCounter(309497423);
 renderNews();
 initScrollReveal();
+syncHomeInteractionState();
 loadMarket();
 setInterval(loadMarket, 12000);
 

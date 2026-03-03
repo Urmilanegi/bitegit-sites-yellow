@@ -210,6 +210,19 @@ function getPostLoginRedirectPath() {
   }
 }
 
+function syncBodyInteractionState() {
+  const hasBlockingLayer =
+    document.body.classList.contains('p2p-nav-open') ||
+    document.body.classList.contains('p2p-order-open') ||
+    document.body.classList.contains('p2p-deal-open') ||
+    document.body.classList.contains('p2p-cancel-open') ||
+    Boolean(authModal && !authModal.classList.contains('hidden')) ||
+    Boolean(imagePreviewModal && !imagePreviewModal.classList.contains('hidden'));
+
+  document.body.style.overflow = hasBlockingLayer ? 'hidden' : 'auto';
+  document.body.style.pointerEvents = 'auto';
+}
+
 function normalizeStatusForUi(status) {
   if (status === 'PENDING' || status === 'OPEN') {
     return 'CREATED';
@@ -1077,6 +1090,7 @@ function setP2PNavOpen(open) {
   p2pNavDrawer.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
   p2pNavOverlay.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
   p2pMenuToggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  syncBodyInteractionState();
 }
 
 function setUserStatus(text, type = '') {
@@ -1104,6 +1118,7 @@ function setDealModalOpen(open) {
     dealModal.classList.add('hidden');
     dealModal.setAttribute('aria-hidden', 'true');
   }
+  syncBodyInteractionState();
 }
 
 function setDealHint(text, type = '') {
@@ -1295,6 +1310,7 @@ function setAuthModalOpen(open) {
     authModal.classList.add('hidden');
     authModal.setAttribute('aria-hidden', 'true');
   }
+  syncBodyInteractionState();
 }
 
 function updateUserUi() {
@@ -1338,6 +1354,7 @@ function setModalOpen(open) {
     orderModal.classList.add('hidden');
     orderModal.setAttribute('aria-hidden', 'true');
   }
+  syncBodyInteractionState();
 }
 
 function setPaymentPanelOpen(open) {
@@ -1363,6 +1380,7 @@ function setCancelModalOpen(open) {
     cancelNoPaymentCheck.checked = false;
   }
   refreshCancelConfirmState();
+  syncBodyInteractionState();
 }
 
 function refreshCancelConfirmState() {
@@ -2111,6 +2129,7 @@ function setImagePreviewOpen(open, src = '') {
   if (imagePreviewEl) {
     imagePreviewEl.src = shouldOpen ? src : '';
   }
+  syncBodyInteractionState();
 }
 
 async function handleChatImageSelected(event) {
@@ -2757,6 +2776,11 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+window.addEventListener('pagehide', () => {
+  document.body.style.overflow = 'auto';
+  document.body.style.pointerEvents = 'auto';
+});
+
 (async function init() {
   initTheme();
   await loadCurrentUser();
@@ -2766,6 +2790,7 @@ window.addEventListener('keydown', (event) => {
   await loadProfilePanel({ refreshWallet: true });
   await loadExchangeTicker();
   syncMobileTabFromHash();
+  syncBodyInteractionState();
 })();
 
 setInterval(() => {
