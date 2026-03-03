@@ -1626,11 +1626,9 @@ a {
   line-height: 0.95;
   letter-spacing: -0.04em;
   color: #b7ff35;
-  text-shadow: none;
-  background: linear-gradient(90deg, #d9ff56, #8bf300 44%, #5ec800);
-  -webkit-text-fill-color: transparent;
-  -webkit-background-clip: text;
-  background-clip: text;
+  text-shadow: 0 0 18px rgba(139, 243, 0, 0.26);
+  background: none;
+  -webkit-text-fill-color: currentColor;
 }
 
 .cf-mobile-promo-video {
@@ -2256,11 +2254,17 @@ a {
     margin-top: 0;
   }
 
-  .cf-neon-strip,
-  .cf-partners,
+  .cf-main section,
   .cf-footer {
     border: 0 !important;
     box-shadow: none !important;
+  }
+
+  .cf-neon-strip p {
+    color: #b7ff35;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    text-shadow: 0 0 22px rgba(139, 243, 0, 0.34);
   }
 }
 
