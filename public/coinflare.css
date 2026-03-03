@@ -1621,6 +1621,11 @@ a {
   font-size: 0.95rem;
 }
 
+.cf-copy-section h2 {
+  font-size: clamp(1.45rem, 3.2vw, 2.45rem);
+  max-width: 18ch;
+}
+
 .cf-copy-grid {
   margin-top: 1rem;
   display: grid;
@@ -1647,10 +1652,17 @@ a {
   gap: 0.62rem;
 }
 
+.cf-copy-head > div {
+  min-width: 0;
+}
+
 .cf-copy-head h4 {
   margin: 0;
   font-size: 1rem;
   color: #f4f8ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cf-copy-head p {
@@ -1714,6 +1726,10 @@ a {
   font-weight: 700;
   font-size: 0.96rem;
   cursor: pointer;
+}
+
+.cf-copy-btn:hover {
+  border-color: rgba(139, 243, 0, 0.55);
 }
 
 .cf-neon-strip {
@@ -2052,11 +2068,22 @@ a {
   }
 
   .cf-copy-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .cf-copy-card {
+    height: 100%;
   }
 
   .cf-partners {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1240px) {
+  .cf-copy-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
