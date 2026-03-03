@@ -42,6 +42,12 @@ let currentTab = 'popular';
 let cacheRows = [];
 let currentUser = null;
 
+function syncMarketsInteractionState() {
+  const hasOverlay = Boolean(marketsNavOverlay && !marketsNavOverlay.classList.contains('hidden'));
+  document.body.style.overflow = hasOverlay ? 'hidden' : 'auto';
+  document.body.style.pointerEvents = 'auto';
+}
+
 function formatPrice(value) {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 5 });
 }
@@ -145,7 +151,8 @@ function setMarketsNavOpen(open) {
   marketsNavDrawer.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
   marketsNavOverlay.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
   marketsMenuToggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
-  document.body.classList.toggle('trade-nav-open', shouldOpen);
+  document.body.classList.toggle('markets-nav-open', shouldOpen);
+  syncMarketsInteractionState();
 }
 
 function setLoginUi() {
@@ -235,8 +242,14 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+window.addEventListener('pagehide', () => {
+  document.body.style.overflow = 'auto';
+  document.body.style.pointerEvents = 'auto';
+});
+
 initThemeControls();
 setTab('popular');
 loadCurrentUser();
 loadMarkets();
 setInterval(loadMarkets, 10000);
+syncMarketsInteractionState();

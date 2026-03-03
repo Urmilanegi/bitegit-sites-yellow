@@ -44,6 +44,14 @@ body.markets-page {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
+body.markets-nav-open {
+  overflow: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .markets-header {
   position: sticky;
   top: 0;
