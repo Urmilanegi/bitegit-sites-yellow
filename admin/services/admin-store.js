@@ -4,6 +4,7 @@ const ADMIN_ROLES = ['SUPER_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN', 'COMPLIANC
 const USER_STATUSES = ['ACTIVE', 'FROZEN', 'BANNED'];
 const WITHDRAWAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
 const DEPOSIT_STATUSES = ['PENDING', 'COMPLETED', 'REJECTED'];
+const USDT_NETWORKS = ['TRC20', 'ERC20', 'BEP20'];
 
 function toDate(value, fallback = Date.now()) {
   const parsed = new Date(value);
@@ -78,6 +79,127 @@ function normalizeDepositDecision(decision) {
     return normalized;
   }
   return '';
+}
+
+function normalizeNetwork(rawNetwork) {
+  const normalized = String(rawNetwork || '')
+    .trim()
+    .toUpperCase();
+  if (USDT_NETWORKS.includes(normalized)) {
+    return normalized;
+  }
+  return '';
+}
+
+function sanitizeAddress(value) {
+  const address = String(value || '').trim();
+  if (!address) {
+    return '';
+  }
+  if (address.length < 6 || address.length > 256) {
+    throw new Error('Address format is invalid');
+  }
+  return address;
+}
+
+function createEmptyNetworkMap() {
+  return USDT_NETWORKS.reduce((acc, network) => {
+    acc[network] = '';
+    return acc;
+  }, {});
+}
+
+function createDefaultConfirmationsMap() {
+  return {
+    TRC20: 20,
+    ERC20: 12,
+    BEP20: 15
+  };
+}
+
+function normalizeSupportedNetworks(rawNetworks) {
+  if (!Array.isArray(rawNetworks)) {
+    return [...USDT_NETWORKS];
+  }
+
+  const unique = new Set();
+  for (const rawNetwork of rawNetworks) {
+    const network = normalizeNetwork(rawNetwork);
+    if (network) {
+      unique.add(network);
+    }
+  }
+
+  return Array.from(unique);
+}
+
+function normalizeDepositAddresses(rawAddresses = {}) {
+  const source = rawAddresses && typeof rawAddresses === 'object' ? rawAddresses : {};
+  const output = createEmptyNetworkMap();
+
+  for (const network of USDT_NETWORKS) {
+    output[network] = sanitizeAddress(source[network]);
+  }
+
+  return output;
+}
+
+function normalizeMinDepositConfirmations(rawMap = {}) {
+  const source = rawMap && typeof rawMap === 'object' ? rawMap : {};
+  const defaults = createDefaultConfirmationsMap();
+  const result = { ...defaults };
+
+  for (const network of USDT_NETWORKS) {
+    const rawValue = Number(source[network]);
+    if (Number.isFinite(rawValue) && rawValue > 0) {
+      result[network] = Math.max(1, Math.round(rawValue));
+    }
+  }
+
+  return result;
+}
+
+function normalizeWalletConfigDoc(doc = {}) {
+  const coin = String(doc.coin || '').trim().toUpperCase();
+  const isUsdt = coin === 'USDT';
+  const supportedNetworksRaw = normalizeSupportedNetworks(doc.supportedNetworks);
+  const supportedNetworks = isUsdt ? (supportedNetworksRaw.length > 0 ? supportedNetworksRaw : [...USDT_NETWORKS]) : [];
+  const depositAddresses = isUsdt ? normalizeDepositAddresses(doc.depositAddresses || {}) : {};
+  const minDepositConfirmations = isUsdt ? normalizeMinDepositConfirmations(doc.minDepositConfirmations || {}) : {};
+
+  const defaultNetwork = isUsdt ? normalizeNetwork(doc.defaultNetwork) || supportedNetworks[0] || 'TRC20' : '';
+
+  return {
+    coin,
+    withdrawalsEnabled: Boolean(doc.withdrawalsEnabled !== false),
+    depositsEnabled: Boolean(doc.depositsEnabled !== false),
+    networkFee: toNumber(doc.networkFee, 0),
+    minWithdrawal: toNumber(doc.minWithdrawal, 0),
+    maxWithdrawal: toNumber(doc.maxWithdrawal, 0),
+    supportedNetworks,
+    defaultNetwork,
+    depositAddresses,
+    minDepositConfirmations,
+    updatedAt: doc.updatedAt || null
+  };
+}
+
+function buildDefaultWalletConfig(coin) {
+  const normalizedCoin = String(coin || '').trim().toUpperCase();
+  const isUsdt = normalizedCoin === 'USDT';
+
+  return normalizeWalletConfigDoc({
+    coin: normalizedCoin,
+    withdrawalsEnabled: true,
+    depositsEnabled: true,
+    networkFee: isUsdt ? 1 : 0,
+    minWithdrawal: isUsdt ? 10 : 0,
+    maxWithdrawal: isUsdt ? 100000 : 0,
+    supportedNetworks: isUsdt ? USDT_NETWORKS : [],
+    defaultNetwork: isUsdt ? 'TRC20' : '',
+    depositAddresses: isUsdt ? createEmptyNetworkMap() : {},
+    minDepositConfirmations: isUsdt ? createDefaultConfirmationsMap() : {}
+  });
 }
 
 function makeP2PUserId(email) {
@@ -253,9 +375,21 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     const walletConfigCount = await adminWalletConfig.countDocuments({});
     if (walletConfigCount === 0) {
       await adminWalletConfig.insertMany([
-        { coin: 'USDT', withdrawalsEnabled: true, networkFee: 1, minWithdrawal: 10, maxWithdrawal: 100000, updatedAt: new Date() },
-        { coin: 'BTC', withdrawalsEnabled: true, networkFee: 0.0003, minWithdrawal: 0.001, maxWithdrawal: 50, updatedAt: new Date() },
-        { coin: 'ETH', withdrawalsEnabled: true, networkFee: 0.003, minWithdrawal: 0.01, maxWithdrawal: 500, updatedAt: new Date() }
+        {
+          coin: 'USDT',
+          withdrawalsEnabled: true,
+          depositsEnabled: true,
+          networkFee: 1,
+          minWithdrawal: 10,
+          maxWithdrawal: 100000,
+          supportedNetworks: [...USDT_NETWORKS],
+          defaultNetwork: 'TRC20',
+          depositAddresses: createEmptyNetworkMap(),
+          minDepositConfirmations: createDefaultConfirmationsMap(),
+          updatedAt: new Date()
+        },
+        { coin: 'BTC', withdrawalsEnabled: true, depositsEnabled: true, networkFee: 0.0003, minWithdrawal: 0.001, maxWithdrawal: 50, updatedAt: new Date() },
+        { coin: 'ETH', withdrawalsEnabled: true, depositsEnabled: true, networkFee: 0.003, minWithdrawal: 0.01, maxWithdrawal: 500, updatedAt: new Date() }
       ]);
     }
 
@@ -999,9 +1133,18 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
       throw new Error('Coin is required');
     }
 
-    const patch = {};
+    const existing = await adminWalletConfig.findOne({ coin: normalizedCoin });
+    const baseConfig = existing ? normalizeWalletConfigDoc(existing) : buildDefaultWalletConfig(normalizedCoin);
+
+    const patch = {
+      updatedAt: new Date()
+    };
+
     if (payload.withdrawalsEnabled !== undefined) {
       patch.withdrawalsEnabled = Boolean(payload.withdrawalsEnabled);
+    }
+    if (payload.depositsEnabled !== undefined) {
+      patch.depositsEnabled = Boolean(payload.depositsEnabled);
     }
     if (payload.networkFee !== undefined) {
       patch.networkFee = toNumber(payload.networkFee, 0);
@@ -1012,26 +1155,95 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     if (payload.maxWithdrawal !== undefined) {
       patch.maxWithdrawal = toNumber(payload.maxWithdrawal, 0);
     }
+    if (normalizedCoin === 'USDT') {
+      if (payload.supportedNetworks !== undefined) {
+        patch.supportedNetworks = normalizeSupportedNetworks(payload.supportedNetworks);
+      }
+      if (payload.defaultNetwork !== undefined) {
+        const candidate = normalizeNetwork(payload.defaultNetwork);
+        if (!candidate) {
+          throw new Error('Invalid default network');
+        }
+        const effectiveNetworks = Array.isArray(patch.supportedNetworks) ? patch.supportedNetworks : baseConfig.supportedNetworks;
+        if (!effectiveNetworks.includes(candidate)) {
+          throw new Error('Default network must be included in supported networks');
+        }
+        patch.defaultNetwork = candidate;
+      }
+      if (payload.depositAddresses !== undefined) {
+        const incomingAddresses = normalizeDepositAddresses(payload.depositAddresses);
+        patch.depositAddresses = {
+          ...baseConfig.depositAddresses,
+          ...incomingAddresses
+        };
+      }
+      if (payload.minDepositConfirmations !== undefined) {
+        const incomingConfirmations = normalizeMinDepositConfirmations(payload.minDepositConfirmations);
+        patch.minDepositConfirmations = {
+          ...baseConfig.minDepositConfirmations,
+          ...incomingConfirmations
+        };
+      }
+    }
 
     await adminWalletConfig.updateOne(
       { coin: normalizedCoin },
       {
         $set: {
           ...patch,
-          coin: normalizedCoin,
-          updatedAt: new Date()
+          coin: normalizedCoin
         },
         $setOnInsert: {
-          withdrawalsEnabled: true,
-          networkFee: 0,
-          minWithdrawal: 0,
-          maxWithdrawal: 0
+          ...buildDefaultWalletConfig(normalizedCoin),
+          coin: normalizedCoin
         }
       },
       { upsert: true }
     );
 
-    return adminWalletConfig.findOne({ coin: normalizedCoin });
+    const updated = await adminWalletConfig.findOne({ coin: normalizedCoin });
+    return normalizeWalletConfigDoc(updated || buildDefaultWalletConfig(normalizedCoin));
+  }
+
+  async function getCoinWalletConfig(coin) {
+    const normalizedCoin = String(coin || '').trim().toUpperCase();
+    if (!normalizedCoin) {
+      throw new Error('Coin is required');
+    }
+
+    const doc = await adminWalletConfig.findOne({ coin: normalizedCoin });
+    return normalizeWalletConfigDoc(doc || buildDefaultWalletConfig(normalizedCoin));
+  }
+
+  async function getUserDepositConfig(coin = 'USDT') {
+    const normalizedCoin = String(coin || 'USDT')
+      .trim()
+      .toUpperCase();
+    const config = await getCoinWalletConfig(normalizedCoin);
+
+    if (normalizedCoin !== 'USDT') {
+      return {
+        coin: normalizedCoin,
+        depositsEnabled: Boolean(config.depositsEnabled),
+        defaultNetwork: '',
+        networks: []
+      };
+    }
+
+    const networks = config.supportedNetworks.map((network) => ({
+      network,
+      address: sanitizeAddress(config.depositAddresses?.[network]),
+      minConfirmations: Math.max(1, Number(config.minDepositConfirmations?.[network] || 1)),
+      enabled: Boolean(config.depositsEnabled) && Boolean(sanitizeAddress(config.depositAddresses?.[network]))
+    }));
+
+    return {
+      coin: normalizedCoin,
+      token: 'USDT',
+      depositsEnabled: Boolean(config.depositsEnabled),
+      defaultNetwork: config.defaultNetwork || 'TRC20',
+      networks
+    };
   }
 
   async function listHotWalletBalances() {
@@ -1734,6 +1946,8 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     reviewDeposit,
     listWithdrawals,
     reviewWithdrawal,
+    getCoinWalletConfig,
+    getUserDepositConfig,
     setCoinWithdrawalConfig,
     listHotWalletBalances,
     listSpotPairs,

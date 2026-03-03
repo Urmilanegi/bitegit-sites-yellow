@@ -445,6 +445,12 @@ function createAdminControllers({
     return res.json({ hotWallets: data });
   }
 
+  async function getCoinConfig(req, res) {
+    const coin = String(req.params.coin || '').trim().toUpperCase();
+    const config = await adminStore.getCoinWalletConfig(coin);
+    return res.json({ config });
+  }
+
   async function listSpotPairs(req, res) {
     const data = await adminStore.listSpotPairs();
     return res.json({ pairs: data });
@@ -749,6 +755,7 @@ function createAdminControllers({
     listWithdrawals,
     reviewWithdrawal,
     setCoinConfig,
+    getCoinConfig,
     listHotWallets,
     listSpotPairs,
     updateSpotPair,

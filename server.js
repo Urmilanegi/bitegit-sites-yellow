@@ -75,9 +75,9 @@ const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
 const ENCRYPTION_IV_LENGTH = 16;
 
 function getMasterEncryptionKey() {
-  const masterKey = String(process.env.MASTER_ENCRYPTION_KEY || '').trim();
+  const masterKey = String(process.env.MASTER_ENCRYPTION_KEY || process.env.JWT_SECRET || '').trim();
   if (!masterKey) {
-    throw new Error('MASTER_ENCRYPTION_KEY is required');
+    throw new Error('MASTER_ENCRYPTION_KEY or JWT_SECRET is required');
   }
   return crypto.createHash('sha256').update(masterKey, 'utf8').digest();
 }
@@ -235,6 +235,94 @@ function normalizeMarketSymbol(rawSymbol) {
     return 'BTCUSDT';
   }
   return symbol;
+}
+
+function normalizeUsdtNetwork(rawNetwork) {
+  const normalized = String(rawNetwork || '')
+    .trim()
+    .toUpperCase();
+  if (['TRC20', 'ERC20', 'BEP20'].includes(normalized)) {
+    return normalized;
+  }
+  return 'TRC20';
+}
+
+function isValidAddressForNetwork(address, network) {
+  const rawAddress = String(address || '').trim();
+  if (!rawAddress) {
+    return false;
+  }
+
+  const normalizedNetwork = normalizeUsdtNetwork(network);
+  if (normalizedNetwork === 'TRC20') {
+    return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(rawAddress);
+  }
+
+  return /^0x[a-fA-F0-9]{40}$/.test(rawAddress);
+}
+
+async function getUsdtDepositConfigForUser() {
+  const fallbackNetworks = [
+    {
+      network: 'TRC20',
+      address: String(process.env.USDT_TRC20_DEPOSIT_ADDRESS || '').trim(),
+      minConfirmations: 20
+    },
+    {
+      network: 'ERC20',
+      address: String(process.env.USDT_ERC20_DEPOSIT_ADDRESS || '').trim(),
+      minConfirmations: 12
+    },
+    {
+      network: 'BEP20',
+      address: String(process.env.USDT_BEP20_DEPOSIT_ADDRESS || '').trim(),
+      minConfirmations: 15
+    }
+  ];
+  const fallbackDefaultNetwork = normalizeUsdtNetwork(process.env.USDT_DEFAULT_NETWORK || 'TRC20');
+
+  let config = null;
+  if (adminStore && typeof adminStore.getUserDepositConfig === 'function') {
+    try {
+      config = await adminStore.getUserDepositConfig('USDT');
+    } catch (error) {
+      config = null;
+    }
+  }
+
+  const defaultNetwork = normalizeUsdtNetwork(config?.defaultNetwork || fallbackDefaultNetwork);
+  const rawNetworks = Array.isArray(config?.networks) ? config.networks : fallbackNetworks;
+
+  const networks = rawNetworks
+    .map((item) => {
+      const network = normalizeUsdtNetwork(item?.network || item?.chain || item?.name || item);
+      const address = String(item?.address || '').trim();
+      const minConfirmations = Math.max(1, Number.parseInt(String(item?.minConfirmations || item?.confirmations || 1), 10) || 1);
+      const enabled = item?.enabled !== undefined ? Boolean(item.enabled) : Boolean(address);
+      return { network, address, minConfirmations, enabled };
+    })
+    .filter((item, index, arr) => arr.findIndex((candidate) => candidate.network === item.network) === index);
+
+  const activeNetwork =
+    networks.find((item) => item.network === defaultNetwork && item.enabled && item.address) ||
+    networks.find((item) => item.enabled && item.address) || {
+      network: defaultNetwork,
+      address: '',
+      minConfirmations: 1,
+      enabled: false
+    };
+
+  const depositsEnabled = config?.depositsEnabled !== undefined ? Boolean(config.depositsEnabled) : true;
+
+  return {
+    coin: 'USDT',
+    token: 'USDT',
+    depositsEnabled,
+    defaultNetwork,
+    networks,
+    activeNetwork,
+    depositAddress: activeNetwork.address || ''
+  };
 }
 
 function createFallbackOrderBook(symbol) {
@@ -1137,11 +1225,49 @@ app.get('/api/p2p/wallet', requiresP2PUser, async (req, res) => {
     const ensured = await walletService.ensureWallet(req.p2pUser.id, {
       username: req.p2pUser.username
     });
+    const depositConfig = await getUsdtDepositConfigForUser();
     return res.json({
-      wallet: ensured
+      wallet: {
+        ...ensured,
+        depositAddress: depositConfig.depositAddress,
+        depositNetwork: depositConfig.activeNetwork?.network || depositConfig.defaultNetwork,
+        depositNetworks: depositConfig.networks
+      },
+      depositConfig
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error while loading wallet.' });
+  }
+});
+
+app.get('/api/wallet/summary', requiresP2PUser, async (req, res) => {
+  try {
+    const wallet = await walletService.ensureWallet(req.p2pUser.id, {
+      username: req.p2pUser.username
+    });
+    const depositConfig = await getUsdtDepositConfigForUser();
+
+    return res.json({
+      summary: {
+        total_balance: Number(wallet.totalBalance || 0),
+        available_balance: Number(wallet.availableBalance || wallet.balance || 0),
+        locked_balance: Number(wallet.lockedBalance || wallet.p2pLocked || 0),
+        spot_balance: Number(wallet.availableBalance || wallet.balance || 0),
+        funding_balance: Number(wallet.availableBalance || wallet.balance || 0),
+        deposit_address: depositConfig.depositAddress,
+        deposit_network: depositConfig.activeNetwork?.network || depositConfig.defaultNetwork,
+        deposit_networks: depositConfig.networks
+      },
+      wallet: {
+        ...wallet,
+        depositAddress: depositConfig.depositAddress,
+        depositNetwork: depositConfig.activeNetwork?.network || depositConfig.defaultNetwork,
+        depositNetworks: depositConfig.networks
+      },
+      depositConfig
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error while loading wallet summary.' });
   }
 });
 
@@ -1160,7 +1286,15 @@ app.post(
       .trim()
       .toUpperCase();
     const address = String(req.body.address || '').trim();
+    const requestedNetwork = String(req.body.network || req.body.chain || req.body.blockchain || '').trim();
+    const network = normalizeUsdtNetwork(requestedNetwork || 'TRC20');
     const requestIp = getRequestIp(req);
+
+    if (currency === 'USDT' && !isValidAddressForNetwork(address, network)) {
+      return res.status(400).json({
+        message: `Invalid ${network} withdrawal address format.`
+      });
+    }
 
     try {
       const withdrawal = await walletService.createWithdrawalRequest(req.p2pUser.id, {
@@ -1170,6 +1304,7 @@ app.post(
         address,
         metadata: {
           source: 'api_withdrawals',
+          network,
           ipAddress: requestIp,
           userAgent: String(req.headers['user-agent'] || '').trim()
         }
@@ -1183,7 +1318,8 @@ app.post(
           metadata: {
             requestId: withdrawal.requestId,
             amount: withdrawal.amount,
-            currency: withdrawal.currency
+            currency: withdrawal.currency,
+            network
           }
         });
       }
@@ -1201,6 +1337,7 @@ app.post(
           metadata: {
             amount,
             currency,
+            network,
             address,
             errorCode: String(error.code || 'WITHDRAWAL_ERROR'),
             errorMessage: String(error.message || 'Withdrawal request failed')

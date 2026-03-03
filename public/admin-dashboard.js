@@ -402,11 +402,32 @@ async function loadWallet() {
     withdrawalsQuery.set('status', selectedWithdrawalStatus);
   }
 
-  const [overview, deposits, withdrawals, hotBalances] = await Promise.all([
+  const [overview, deposits, withdrawals, hotBalances, usdtConfigPayload] = await Promise.all([
     apiRequest('/wallet/overview'),
     apiRequest(`/wallet/deposits?${depositsQuery.toString()}`),
     apiRequest(`/wallet/withdrawals?${withdrawalsQuery.toString()}`),
-    apiRequest('/wallet/hot-balances')
+    apiRequest('/wallet/hot-balances'),
+    apiRequest('/wallet/config/USDT').catch(() => ({
+      config: {
+        coin: 'USDT',
+        defaultNetwork: 'TRC20',
+        withdrawalsEnabled: true,
+        depositsEnabled: true,
+        networkFee: 1,
+        minWithdrawal: 10,
+        maxWithdrawal: 100000,
+        depositAddresses: {
+          TRC20: '',
+          ERC20: '',
+          BEP20: ''
+        },
+        minDepositConfirmations: {
+          TRC20: 20,
+          ERC20: 12,
+          BEP20: 15
+        }
+      }
+    }))
   ]);
 
   const depositRows = Array.isArray(deposits.deposits) ? deposits.deposits : [];
@@ -501,6 +522,26 @@ async function loadWallet() {
 
   if (wallets.length === 0) {
     hotWalletList.innerHTML = '<p class="text-sm text-slate-500">No hot wallets configured.</p>';
+  }
+
+  const coinConfigForm = document.getElementById('coinConfigForm');
+  const usdtConfig = usdtConfigPayload?.config || {};
+  const depositAddresses = usdtConfig.depositAddresses || {};
+  const confirmations = usdtConfig.minDepositConfirmations || {};
+  if (coinConfigForm) {
+    coinConfigForm.coin.value = usdtConfig.coin || 'USDT';
+    coinConfigForm.defaultNetwork.value = usdtConfig.defaultNetwork || 'TRC20';
+    coinConfigForm.networkFee.value = usdtConfig.networkFee ?? 1;
+    coinConfigForm.minWithdrawal.value = usdtConfig.minWithdrawal ?? 10;
+    coinConfigForm.maxWithdrawal.value = usdtConfig.maxWithdrawal ?? 100000;
+    coinConfigForm.withdrawalsEnabled.checked = Boolean(usdtConfig.withdrawalsEnabled !== false);
+    coinConfigForm.depositsEnabled.checked = Boolean(usdtConfig.depositsEnabled !== false);
+    coinConfigForm.trc20Address.value = String(depositAddresses.TRC20 || '');
+    coinConfigForm.erc20Address.value = String(depositAddresses.ERC20 || '');
+    coinConfigForm.bep20Address.value = String(depositAddresses.BEP20 || '');
+    coinConfigForm.trc20Confirmations.value = Number(confirmations.TRC20 || 20);
+    coinConfigForm.erc20Confirmations.value = Number(confirmations.ERC20 || 12);
+    coinConfigForm.bep20Confirmations.value = Number(confirmations.BEP20 || 15);
   }
 }
 
@@ -1082,7 +1123,22 @@ function wireEventListeners() {
       networkFee: Number(form.networkFee.value),
       minWithdrawal: Number(form.minWithdrawal.value),
       maxWithdrawal: Number(form.maxWithdrawal.value),
-      withdrawalsEnabled: Boolean(form.withdrawalsEnabled.checked)
+      withdrawalsEnabled: Boolean(form.withdrawalsEnabled.checked),
+      depositsEnabled: Boolean(form.depositsEnabled.checked),
+      defaultNetwork: String(form.defaultNetwork.value || 'TRC20')
+        .trim()
+        .toUpperCase(),
+      depositAddresses: {
+        TRC20: String(form.trc20Address.value || '').trim(),
+        ERC20: String(form.erc20Address.value || '').trim(),
+        BEP20: String(form.bep20Address.value || '').trim()
+      },
+      minDepositConfirmations: {
+        TRC20: Number(form.trc20Confirmations.value || 20),
+        ERC20: Number(form.erc20Confirmations.value || 12),
+        BEP20: Number(form.bep20Confirmations.value || 15)
+      },
+      supportedNetworks: ['TRC20', 'ERC20', 'BEP20']
     };
 
     try {
@@ -1090,9 +1146,8 @@ function wireEventListeners() {
         method: 'PUT',
         body: JSON.stringify(payload)
       });
-      showMessage('Coin withdrawal config updated.', 'success');
+      showMessage('Coin wallet config updated (TRC20/ERC20/BEP20).', 'success');
       await loadWallet();
-      form.reset();
     } catch (error) {
       showMessage(error.message || 'Failed to update coin config.', 'error');
     }

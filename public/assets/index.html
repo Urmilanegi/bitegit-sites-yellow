@@ -254,6 +254,16 @@
         font-size: 0.9rem;
       }
 
+      .assets-select {
+        width: 100%;
+        min-height: 40px;
+        border-radius: 10px;
+        border: 1px solid var(--assets-line);
+        background: #0f1522;
+        color: var(--assets-text);
+        padding: 0 0.72rem;
+      }
+
       .assets-address-box {
         margin-top: 0.75rem;
         border: 1px solid var(--assets-line);
@@ -302,10 +312,72 @@
         cursor: not-allowed;
       }
 
+      .assets-qr-wrap {
+        margin-top: 0.75rem;
+        border: 1px solid var(--assets-line);
+        border-radius: 10px;
+        background: #0f1522;
+        padding: 0.75rem;
+        display: grid;
+        place-items: center;
+        gap: 0.45rem;
+      }
+
+      .assets-qr-img {
+        width: 190px;
+        height: 190px;
+        border-radius: 10px;
+        border: 1px solid var(--assets-line);
+        background: #fff;
+        object-fit: contain;
+      }
+
+      .assets-qr-meta {
+        margin: 0;
+        font-size: 0.8rem;
+        color: var(--assets-muted);
+        text-align: center;
+      }
+
       .assets-withdraw-form {
         margin-top: 0.45rem;
         display: grid;
         gap: 0.62rem;
+      }
+
+      .assets-inline-row {
+        display: flex;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+      }
+
+      .assets-inline-row .assets-input {
+        flex: 1;
+      }
+
+      .assets-inline-row .assets-btn {
+        min-width: 130px;
+      }
+
+      .assets-scanner {
+        margin-top: 0.4rem;
+        border: 1px dashed var(--assets-line);
+        border-radius: 10px;
+        padding: 0.65rem;
+        background: rgba(9, 14, 24, 0.75);
+      }
+
+      .assets-scanner video {
+        width: 100%;
+        border-radius: 10px;
+        border: 1px solid var(--assets-line);
+        background: #000;
+      }
+
+      .assets-scanner-actions {
+        margin-top: 0.6rem;
+        display: flex;
+        justify-content: flex-end;
       }
 
       .assets-input {
@@ -417,14 +489,25 @@
           <h2 id="depositModalTitle">Deposit</h2>
           <button type="button" class="assets-modal-close" data-modal-close="depositModal" aria-label="Close deposit">✕</button>
         </div>
-        <p class="assets-note">Network: TRON (TRC20) | Token: USDT</p>
+        <p class="assets-note">Select network and deposit only USDT on that exact chain.</p>
+        <label class="assets-field-label" for="assetsDepositNetwork">Deposit Network</label>
+        <select id="assetsDepositNetwork" class="assets-select">
+          <option value="TRC20">USDT - TRC20</option>
+          <option value="ERC20">USDT - ERC20</option>
+          <option value="BEP20">USDT - BEP20</option>
+        </select>
         <div class="assets-address-box">
           <p class="assets-field-label">Deposit Address</p>
           <div class="assets-address-row">
             <code id="assetsDepositAddressValue" class="assets-address-code">Admin will provide deposit address shortly.</code>
             <button id="assetsDepositCopyBtn" type="button" class="assets-copy-btn" disabled>Copy</button>
           </div>
-          <p class="assets-summary-line">Send only USDT on TRC20 network to this address.</p>
+          <p id="assetsDepositNetworkWarning" class="assets-summary-line">Send only USDT on selected network to this address.</p>
+          <p id="assetsDepositConfirmations" class="assets-summary-line">Required confirmations: -</p>
+        </div>
+        <div class="assets-qr-wrap">
+          <img id="assetsDepositQrImage" class="assets-qr-img" alt="Deposit QR Code" />
+          <p id="assetsDepositQrMeta" class="assets-qr-meta">QR will appear after address is configured.</p>
         </div>
       </article>
     </section>
@@ -436,10 +519,26 @@
           <h2 id="withdrawModalTitle">Withdraw</h2>
           <button type="button" class="assets-modal-close" data-modal-close="withdrawModal" aria-label="Close withdraw">✕</button>
         </div>
-        <p class="assets-note">Withdraw USDT to TRON (TRC20) address.</p>
+        <p class="assets-note">Choose network and paste/scan destination address.</p>
         <form id="assetsWithdrawForm" class="assets-withdraw-form">
+          <label class="assets-field-label" for="assetsWithdrawNetwork">Withdraw Network</label>
+          <select id="assetsWithdrawNetwork" class="assets-select">
+            <option value="TRC20">USDT - TRC20</option>
+            <option value="ERC20">USDT - ERC20</option>
+            <option value="BEP20">USDT - BEP20</option>
+          </select>
           <label class="assets-field-label" for="assetsWithdrawAddress">Recipient Address</label>
-          <input id="assetsWithdrawAddress" class="assets-input" type="text" placeholder="T..." autocomplete="off" required />
+          <div class="assets-inline-row">
+            <input id="assetsWithdrawAddress" class="assets-input" type="text" placeholder="T... / 0x..." autocomplete="off" required />
+            <button id="assetsWithdrawScanBtn" type="button" class="assets-btn">Scan QR</button>
+          </div>
+          <div id="assetsWithdrawScanner" class="assets-scanner hidden" aria-hidden="true">
+            <video id="assetsWithdrawScannerVideo" autoplay muted playsinline></video>
+            <p id="assetsWithdrawScannerHint" class="assets-summary-line">Point camera to address QR code.</p>
+            <div class="assets-scanner-actions">
+              <button id="assetsWithdrawScannerCloseBtn" type="button" class="assets-btn">Stop Scan</button>
+            </div>
+          </div>
           <label class="assets-field-label" for="assetsWithdrawAmount">Amount (USDT)</label>
           <input id="assetsWithdrawAmount" class="assets-input" type="number" min="0.000001" step="0.000001" placeholder="0.00" required />
           <button id="assetsWithdrawSubmitBtn" type="submit" class="assets-btn primary">Submit Withdrawal</button>
@@ -448,6 +547,6 @@
       </article>
     </section>
 
-    <script src="/assets.js?v=20260303b"></script>
+    <script src="/assets.js?v=20260303c"></script>
   </body>
 </html>

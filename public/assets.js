@@ -16,10 +16,22 @@ const transferBtn = document.getElementById('assetsTransferBtn');
 
 const depositModal = document.getElementById('depositModal');
 const withdrawModal = document.getElementById('withdrawModal');
+const depositNetworkSelect = document.getElementById('assetsDepositNetwork');
 const depositAddressValueEl = document.getElementById('assetsDepositAddressValue');
+const depositNetworkWarningEl = document.getElementById('assetsDepositNetworkWarning');
+const depositConfirmationsEl = document.getElementById('assetsDepositConfirmations');
+const depositQrImageEl = document.getElementById('assetsDepositQrImage');
+const depositQrMetaEl = document.getElementById('assetsDepositQrMeta');
 const depositCopyBtn = document.getElementById('assetsDepositCopyBtn');
+
+const withdrawNetworkSelect = document.getElementById('assetsWithdrawNetwork');
 const withdrawForm = document.getElementById('assetsWithdrawForm');
 const withdrawAddressInput = document.getElementById('assetsWithdrawAddress');
+const withdrawScanBtn = document.getElementById('assetsWithdrawScanBtn');
+const withdrawScannerEl = document.getElementById('assetsWithdrawScanner');
+const withdrawScannerVideoEl = document.getElementById('assetsWithdrawScannerVideo');
+const withdrawScannerHintEl = document.getElementById('assetsWithdrawScannerHint');
+const withdrawScannerCloseBtn = document.getElementById('assetsWithdrawScannerCloseBtn');
 const withdrawAmountInput = document.getElementById('assetsWithdrawAmount');
 const withdrawResultEl = document.getElementById('assetsWithdrawResult');
 const withdrawSubmitBtn = document.getElementById('assetsWithdrawSubmitBtn');
@@ -28,31 +40,45 @@ const WALLET_ENDPOINTS = ['/api/wallet/summary', '/api/wallet', '/api/p2p/wallet
 const WITHDRAW_ENDPOINTS = [
   {
     url: '/api/withdrawals',
-    buildBody: (amount, address) => ({
+    buildBody: (amount, address, network) => ({
       amount,
       currency: 'USDT',
-      address
+      address,
+      network
     })
   },
   {
     url: '/api/withdraw/request',
-    buildBody: (amount, address) => ({
+    buildBody: (amount, address, network) => ({
       amount,
       coin: 'USDT',
-      to_address: address
+      to_address: address,
+      network
     })
   }
 ];
+
+const SUPPORTED_USDT_NETWORKS = ['TRC20', 'ERC20', 'BEP20'];
 
 const state = {
   activeTab: 'overview',
   loading: false,
   walletApiEndpoint: '',
-  depositAddress: '',
+  depositConfig: {
+    defaultNetwork: 'TRC20',
+    networks: []
+  },
+  selectedDepositNetwork: 'TRC20',
+  selectedWithdrawNetwork: 'TRC20',
   balances: {
     total: 0,
     spot: 0,
     funding: 0
+  },
+  scanner: {
+    active: false,
+    stream: null,
+    frameId: null
   }
 };
 
@@ -82,6 +108,94 @@ function pickNumber(...candidates) {
     }
   }
   return 0;
+}
+
+function normalizeNetwork(network) {
+  const normalized = String(network || '')
+    .trim()
+    .toUpperCase();
+  if (SUPPORTED_USDT_NETWORKS.includes(normalized)) {
+    return normalized;
+  }
+  return '';
+}
+
+function normalizeNetworkAddress(address) {
+  const normalized = String(address || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.length < 6 || normalized.length > 256) {
+    return '';
+  }
+  return normalized;
+}
+
+function normalizeDepositNetworks(rawNetworks = []) {
+  const source = Array.isArray(rawNetworks) ? rawNetworks : [];
+  const result = [];
+
+  for (const candidate of source) {
+    const network = normalizeNetwork(candidate?.network || candidate?.chain || candidate?.name || candidate);
+    if (!network) {
+      continue;
+    }
+
+    const address = normalizeNetworkAddress(candidate?.address);
+    const confirmations = Math.max(1, Number.parseInt(String(candidate?.minConfirmations || candidate?.confirmations || 1), 10) || 1);
+    const enabled = candidate?.enabled !== undefined ? Boolean(candidate.enabled) : Boolean(address);
+
+    if (!result.some((item) => item.network === network)) {
+      result.push({
+        network,
+        address,
+        minConfirmations: confirmations,
+        enabled
+      });
+    }
+  }
+
+  for (const network of SUPPORTED_USDT_NETWORKS) {
+    if (!result.some((item) => item.network === network)) {
+      result.push({
+        network,
+        address: '',
+        minConfirmations: network === 'TRC20' ? 20 : network === 'ERC20' ? 12 : 15,
+        enabled: false
+      });
+    }
+  }
+
+  return result;
+}
+
+function findNetworkConfig(network) {
+  const normalizedNetwork = normalizeNetwork(network) || state.depositConfig.defaultNetwork || 'TRC20';
+  const networks = Array.isArray(state.depositConfig.networks) ? state.depositConfig.networks : [];
+  return (
+    networks.find((item) => item.network === normalizedNetwork) || {
+      network: normalizedNetwork,
+      address: '',
+      minConfirmations: 1,
+      enabled: false
+    }
+  );
+}
+
+function getCurrentDepositNetworkConfig() {
+  return findNetworkConfig(state.selectedDepositNetwork);
+}
+
+function getCurrentWithdrawNetwork() {
+  return normalizeNetwork(state.selectedWithdrawNetwork) || state.depositConfig.defaultNetwork || 'TRC20';
+}
+
+function buildQrUrl(payload) {
+  const text = String(payload || '').trim();
+  if (!text) {
+    return '';
+  }
+  return `https://quickchart.io/qr?size=240&margin=1&text=${encodeURIComponent(text)}`;
 }
 
 function formatUsdt(value) {
@@ -122,6 +236,7 @@ function normalizeWalletPayload(payload) {
   const root = payload?.data && typeof payload.data === 'object' ? payload.data : payload || {};
   const wallet = root?.wallet && typeof root.wallet === 'object' ? root.wallet : {};
   const summary = root?.summary && typeof root.summary === 'object' ? root.summary : root;
+  const depositConfigRoot = root?.depositConfig && typeof root.depositConfig === 'object' ? root.depositConfig : {};
 
   const available = pickNumber(
     summary.available_balance,
@@ -166,14 +281,48 @@ function normalizeWalletPayload(payload) {
     available
   );
 
-  const depositAddress = pickString(
-    summary.deposit_address,
-    summary.depositAddress,
-    wallet.deposit_address,
-    wallet.depositAddress,
-    payload?.deposit_address,
-    payload?.depositAddress
+  const defaultNetwork = normalizeNetwork(
+    pickString(
+      depositConfigRoot.defaultNetwork,
+      summary.deposit_network,
+      summary.depositNetwork,
+      wallet.deposit_network,
+      wallet.depositNetwork,
+      'TRC20'
+    )
+  ) || 'TRC20';
+
+  const networksPayload =
+    depositConfigRoot.networks ||
+    summary.deposit_networks ||
+    summary.depositNetworks ||
+    wallet.deposit_networks ||
+    wallet.depositNetworks ||
+    payload?.deposit_networks ||
+    payload?.depositNetworks ||
+    [];
+
+  const normalizedNetworks = normalizeDepositNetworks(networksPayload);
+
+  const legacyAddress = normalizeNetworkAddress(
+    pickString(
+      depositConfigRoot.depositAddress,
+      summary.deposit_address,
+      summary.depositAddress,
+      wallet.deposit_address,
+      wallet.depositAddress,
+      payload?.deposit_address,
+      payload?.depositAddress
+    )
   );
+
+  if (legacyAddress) {
+    const match = normalizedNetworks.find((item) => item.network === defaultNetwork);
+    if (match && !match.address) {
+      match.address = legacyAddress;
+      match.enabled = true;
+    }
+  }
 
   return {
     balances: {
@@ -181,7 +330,10 @@ function normalizeWalletPayload(payload) {
       spot: toNumber(spot),
       funding: toNumber(funding)
     },
-    depositAddress
+    depositConfig: {
+      defaultNetwork,
+      networks: normalizedNetworks
+    }
   };
 }
 
@@ -189,18 +341,31 @@ function renderDepositAddress() {
   if (!depositAddressValueEl) {
     return;
   }
+  const current = getCurrentDepositNetworkConfig();
+  const hasAddress = Boolean(current.address);
 
-  if (state.depositAddress) {
-    depositAddressValueEl.textContent = state.depositAddress;
-    if (depositCopyBtn) {
-      depositCopyBtn.disabled = false;
-    }
-    return;
+  depositAddressValueEl.textContent = hasAddress ? current.address : 'Admin will provide deposit address shortly.';
+  if (depositCopyBtn) {
+    depositCopyBtn.disabled = !hasAddress;
   }
 
-  depositAddressValueEl.textContent = 'Admin will provide deposit address shortly.';
-  if (depositCopyBtn) {
-    depositCopyBtn.disabled = true;
+  if (depositNetworkWarningEl) {
+    depositNetworkWarningEl.textContent = `Send only USDT on ${current.network} network to this address.`;
+  }
+  if (depositConfirmationsEl) {
+    depositConfirmationsEl.textContent = `Required confirmations: ${current.minConfirmations}`;
+  }
+
+  if (depositQrImageEl) {
+    const qrPayload = hasAddress ? `${current.address}` : '';
+    const qrUrl = buildQrUrl(qrPayload);
+    depositQrImageEl.src = qrUrl || 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+    depositQrImageEl.style.opacity = hasAddress ? '1' : '0.45';
+  }
+  if (depositQrMetaEl) {
+    depositQrMetaEl.textContent = hasAddress
+      ? `Scan QR in your wallet app (${current.network})`
+      : 'QR will appear after address is configured.';
   }
 }
 
@@ -221,6 +386,16 @@ function renderBalances() {
     fundingInlineEl.textContent = formatUsdt(state.balances.funding);
   }
   renderDepositAddress();
+}
+
+function renderWithdrawNetworkUi() {
+  const network = getCurrentWithdrawNetwork();
+  if (withdrawNetworkSelect) {
+    withdrawNetworkSelect.value = network;
+  }
+  if (withdrawAddressInput) {
+    withdrawAddressInput.placeholder = network === 'TRC20' ? 'T...' : '0x...';
+  }
 }
 
 function setActiveTab(tab) {
@@ -261,6 +436,7 @@ function setModalOpen(modal, open) {
 }
 
 function closeAllModals() {
+  stopWithdrawScanner();
   setModalOpen(depositModal, false);
   setModalOpen(withdrawModal, false);
   document.body.style.overflow = 'auto';
@@ -312,7 +488,15 @@ async function loadWalletSummary() {
       const normalized = normalizeWalletPayload(payload);
       state.walletApiEndpoint = endpoint;
       state.balances = normalized.balances;
-      state.depositAddress = normalized.depositAddress || '';
+      state.depositConfig = normalized.depositConfig;
+      state.selectedDepositNetwork =
+        normalizeNetwork(state.selectedDepositNetwork) ||
+        normalized.depositConfig.defaultNetwork ||
+        'TRC20';
+      state.selectedWithdrawNetwork =
+        normalizeNetwork(state.selectedWithdrawNetwork) ||
+        normalized.depositConfig.defaultNetwork ||
+        'TRC20';
       loaded = true;
       break;
     }
@@ -322,6 +506,10 @@ async function loadWalletSummary() {
     }
 
     renderBalances();
+    if (depositNetworkSelect) {
+      depositNetworkSelect.value = state.selectedDepositNetwork;
+    }
+    renderWithdrawNetworkUi();
     setStatus('Balances synced.');
   } catch (error) {
     console.error(error);
@@ -336,13 +524,13 @@ async function loadWalletSummary() {
   }
 }
 
-async function requestWithdrawal(amount, address) {
+async function requestWithdrawal(amount, address, network) {
   let fallbackError = 'Unable to submit withdrawal request.';
 
   for (const endpoint of WITHDRAW_ENDPOINTS) {
     const { response, payload } = await requestJson(endpoint.url, {
       method: 'POST',
-      body: JSON.stringify(endpoint.buildBody(amount, address))
+      body: JSON.stringify(endpoint.buildBody(amount, address, network))
     });
 
     if (response.status === 404) {
@@ -364,8 +552,13 @@ async function requestWithdrawal(amount, address) {
   throw new Error(fallbackError);
 }
 
-function isValidTronAddress(address) {
-  return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(address || '').trim());
+function isValidAddressForNetwork(address, network) {
+  const normalizedAddress = String(address || '').trim();
+  const normalizedNetwork = normalizeNetwork(network) || 'TRC20';
+  if (normalizedNetwork === 'TRC20') {
+    return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(normalizedAddress);
+  }
+  return /^0x[a-fA-F0-9]{40}$/.test(normalizedAddress);
 }
 
 async function handleWithdrawSubmit(event) {
@@ -373,9 +566,10 @@ async function handleWithdrawSubmit(event) {
 
   const address = String(withdrawAddressInput?.value || '').trim();
   const amount = toNumber(withdrawAmountInput?.value);
+  const network = getCurrentWithdrawNetwork();
 
-  if (!isValidTronAddress(address)) {
-    setWithdrawResult('Enter a valid TRON (TRC20) address.', 'error');
+  if (!isValidAddressForNetwork(address, network)) {
+    setWithdrawResult(`Enter a valid ${network} address.`, 'error');
     return;
   }
 
@@ -391,7 +585,7 @@ async function handleWithdrawSubmit(event) {
   setWithdrawResult('');
 
   try {
-    await requestWithdrawal(amount, address);
+    await requestWithdrawal(amount, address, network);
     setWithdrawResult('Withdrawal request submitted successfully.', 'success');
     if (withdrawForm) {
       withdrawForm.reset();
@@ -408,6 +602,124 @@ async function handleWithdrawSubmit(event) {
   }
 }
 
+function extractAddressFromQrPayload(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  let parsed = raw;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(parsed)) {
+    const withoutScheme = parsed.split(':').slice(1).join(':');
+    parsed = withoutScheme || parsed;
+  }
+
+  parsed = parsed.replace(/^\/\//, '');
+  if (parsed.includes('?')) {
+    parsed = parsed.split('?')[0];
+  }
+  if (parsed.includes('@')) {
+    parsed = parsed.split('@')[0];
+  }
+
+  return String(parsed || raw).trim();
+}
+
+function stopWithdrawScanner() {
+  if (state.scanner.frameId) {
+    cancelAnimationFrame(state.scanner.frameId);
+    state.scanner.frameId = null;
+  }
+
+  if (state.scanner.stream) {
+    for (const track of state.scanner.stream.getTracks()) {
+      track.stop();
+    }
+    state.scanner.stream = null;
+  }
+
+  state.scanner.active = false;
+  if (withdrawScannerVideoEl) {
+    withdrawScannerVideoEl.srcObject = null;
+  }
+  if (withdrawScannerEl) {
+    withdrawScannerEl.classList.add('hidden');
+    withdrawScannerEl.setAttribute('aria-hidden', 'true');
+  }
+}
+
+async function startWithdrawScanner() {
+  if (!withdrawScannerEl || !withdrawScannerVideoEl) {
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setWithdrawResult('Camera scan is not supported on this browser.', 'error');
+    return;
+  }
+
+  if (typeof window.BarcodeDetector !== 'function') {
+    const manualValue = window.prompt('QR scan not supported. Paste wallet address:', '') || '';
+    if (manualValue) {
+      withdrawAddressInput.value = manualValue.trim();
+      setWithdrawResult('Address pasted from manual input.', 'success');
+    }
+    return;
+  }
+
+  stopWithdrawScanner();
+
+  try {
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+
+    state.scanner.active = true;
+    state.scanner.stream = stream;
+    withdrawScannerVideoEl.srcObject = stream;
+    await withdrawScannerVideoEl.play().catch(() => {});
+
+    withdrawScannerEl.classList.remove('hidden');
+    withdrawScannerEl.setAttribute('aria-hidden', 'false');
+    if (withdrawScannerHintEl) {
+      withdrawScannerHintEl.textContent = 'Point camera to address QR code.';
+    }
+
+    const scanFrame = async () => {
+      if (!state.scanner.active || !withdrawScannerVideoEl) {
+        return;
+      }
+
+      try {
+        if (withdrawScannerVideoEl.readyState >= 2) {
+          const barcodes = await detector.detect(withdrawScannerVideoEl);
+          if (Array.isArray(barcodes) && barcodes.length > 0) {
+            const rawValue = String(barcodes[0]?.rawValue || '').trim();
+            const extracted = extractAddressFromQrPayload(rawValue);
+            if (extracted) {
+              withdrawAddressInput.value = extracted;
+              setWithdrawResult('QR scanned. Verify network and address before submitting.', 'success');
+              stopWithdrawScanner();
+              return;
+            }
+          }
+        }
+      } catch (_) {
+        // Ignore frame decode errors, continue scanning.
+      }
+
+      state.scanner.frameId = requestAnimationFrame(scanFrame);
+    };
+
+    state.scanner.frameId = requestAnimationFrame(scanFrame);
+  } catch (error) {
+    stopWithdrawScanner();
+    setWithdrawResult('Unable to access camera for scanning.', 'error');
+  }
+}
+
 function bindEvents() {
   tabs.forEach((tabButton) => {
     tabButton.addEventListener('click', () => {
@@ -417,12 +729,14 @@ function bindEvents() {
 
   depositBtn?.addEventListener('click', () => {
     setActionMessage('');
+    renderDepositAddress();
     setModalOpen(depositModal, true);
   });
 
   withdrawBtn?.addEventListener('click', () => {
     setActionMessage('');
     setWithdrawResult('');
+    renderWithdrawNetworkUi();
     setModalOpen(withdrawModal, true);
   });
 
@@ -436,33 +750,55 @@ function bindEvents() {
       if (modalId === 'depositModal') {
         setModalOpen(depositModal, false);
       } else if (modalId === 'withdrawModal') {
+        stopWithdrawScanner();
         setModalOpen(withdrawModal, false);
       }
     });
   });
 
+  depositNetworkSelect?.addEventListener('change', () => {
+    state.selectedDepositNetwork = normalizeNetwork(depositNetworkSelect.value) || state.depositConfig.defaultNetwork || 'TRC20';
+    renderDepositAddress();
+  });
+
+  withdrawNetworkSelect?.addEventListener('change', () => {
+    state.selectedWithdrawNetwork = normalizeNetwork(withdrawNetworkSelect.value) || state.depositConfig.defaultNetwork || 'TRC20';
+    renderWithdrawNetworkUi();
+    setWithdrawResult('');
+  });
+
   depositCopyBtn?.addEventListener('click', async () => {
-    if (!state.depositAddress) {
+    const current = getCurrentDepositNetworkConfig();
+    if (!current.address) {
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(state.depositAddress);
+      await navigator.clipboard.writeText(current.address);
       setActionMessage('Deposit address copied.');
     } catch (_) {
       setActionMessage('Unable to copy address on this device.');
     }
   });
 
+  withdrawScanBtn?.addEventListener('click', async () => {
+    await startWithdrawScanner();
+  });
+  withdrawScannerCloseBtn?.addEventListener('click', () => {
+    stopWithdrawScanner();
+  });
+
   withdrawForm?.addEventListener('submit', handleWithdrawSubmit);
 
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
+      stopWithdrawScanner();
       closeAllModals();
     }
   });
 
   window.addEventListener('pagehide', () => {
+    stopWithdrawScanner();
     document.body.style.overflow = 'auto';
     document.body.style.pointerEvents = 'auto';
   });
@@ -472,6 +808,7 @@ function bindEvents() {
   setActiveTab('overview');
   renderDepositAddress();
   renderBalances();
+  renderWithdrawNetworkUi();
   bindEvents();
   loadWalletSummary();
 })();
