@@ -2187,6 +2187,11 @@ a {
     min-height: 64px;
   }
 
+  .cf-header {
+    backdrop-filter: none;
+    background: rgba(6, 10, 15, 0.98);
+  }
+
   .cf-brand {
     font-size: 1.55rem;
   }
@@ -2452,6 +2457,12 @@ a {
   .cf-footer {
     border: 0 !important;
     box-shadow: none !important;
+  }
+
+  .cf-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 
   .cf-neon-strip p {

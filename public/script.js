@@ -92,12 +92,15 @@ const NEWS_ITEMS = [
   'Institutional desks increase crypto allocation with tighter risk models.'
 ];
 
+const MARKET_REFRESH_INTERVAL_MS = 20000;
+
 let pendingContact = '';
 let pendingName = 'Website Lead';
 let activeBookSymbol = '';
 let depthRefreshTimer = null;
 let marketTab = 'hotspot';
 let eventsAutoSlide = null;
+let marketRefreshTimer = null;
 
 const openSignupFromQuery = new URLSearchParams(window.location.search).get('signup') === '1';
 
@@ -616,35 +619,35 @@ function setupCopyTradingCarousel() {
     return;
   }
 
-  let frameId = null;
+  let scrollTimer = null;
   let resumeTimer = null;
-  const speed = 0.45;
+  let sectionVisible = true;
+  const speed = 1.25;
+  const tickMs = 40;
 
   const stopAutoScroll = () => {
     if (resumeTimer) {
       clearTimeout(resumeTimer);
       resumeTimer = null;
     }
-    if (frameId !== null) {
-      cancelAnimationFrame(frameId);
-      frameId = null;
+    if (scrollTimer !== null) {
+      clearInterval(scrollTimer);
+      scrollTimer = null;
     }
-  };
-
-  const tick = () => {
-    const max = Math.max(0, copyTrack.scrollWidth - copyTrack.clientWidth);
-    if (max > 1) {
-      const next = copyTrack.scrollLeft + speed;
-      copyTrack.scrollLeft = next >= max ? 0 : next;
-    }
-    frameId = requestAnimationFrame(tick);
   };
 
   const startAutoScroll = () => {
-    if (frameId !== null || document.hidden) {
+    if (scrollTimer !== null || document.hidden || !sectionVisible) {
       return;
     }
-    frameId = requestAnimationFrame(tick);
+    scrollTimer = setInterval(() => {
+      const max = Math.max(0, copyTrack.scrollWidth - copyTrack.clientWidth);
+      if (max <= 1) {
+        return;
+      }
+      const next = copyTrack.scrollLeft + speed;
+      copyTrack.scrollLeft = next >= max ? 0 : next;
+    }, tickMs);
   };
 
   const pauseThenResume = () => {
@@ -661,6 +664,20 @@ function setupCopyTradingCarousel() {
   copyTrack.addEventListener('mouseenter', stopAutoScroll);
   copyTrack.addEventListener('mouseleave', startAutoScroll);
 
+  const visibilityObserver = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0];
+      sectionVisible = Boolean(entry?.isIntersecting);
+      if (sectionVisible) {
+        startAutoScroll();
+      } else {
+        stopAutoScroll();
+      }
+    },
+    { threshold: 0.2 }
+  );
+  visibilityObserver.observe(copyTrack);
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       stopAutoScroll();
@@ -670,6 +687,91 @@ function setupCopyTradingCarousel() {
   });
 
   startAutoScroll();
+}
+
+function safeVideoPlay(video) {
+  if (!video) {
+    return;
+  }
+  const maybePromise = video.play();
+  if (maybePromise && typeof maybePromise.catch === 'function') {
+    maybePromise.catch(() => {});
+  }
+}
+
+function setupMediaPlaybackOptimization() {
+  const heroVideo = document.querySelector('.cf-hero-video');
+  const secondaryVideos = Array.from(document.querySelectorAll('.cf-feature-media-video, .cf-mobile-video'));
+
+  if (!heroVideo && !secondaryVideos.length) {
+    return;
+  }
+
+  secondaryVideos.forEach((video) => {
+    video.preload = 'none';
+    video.autoplay = false;
+    video.dataset.inViewport = '0';
+    video.pause();
+  });
+
+  if (secondaryVideos.length) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const video = entry.target;
+          const isVisible = Boolean(entry.isIntersecting);
+          video.dataset.inViewport = isVisible ? '1' : '0';
+
+          if (isVisible && !document.hidden) {
+            safeVideoPlay(video);
+          } else {
+            video.pause();
+          }
+        });
+      },
+      { threshold: 0.35, rootMargin: '120px 0px 120px 0px' }
+    );
+
+    secondaryVideos.forEach((video) => observer.observe(video));
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      secondaryVideos.forEach((video) => video.pause());
+      heroVideo?.pause?.();
+      return;
+    }
+
+    if (heroVideo?.autoplay) {
+      safeVideoPlay(heroVideo);
+    }
+
+    secondaryVideos.forEach((video) => {
+      if (video.dataset.inViewport === '1') {
+        safeVideoPlay(video);
+      }
+    });
+  });
+}
+
+function stopMarketAutoRefresh() {
+  if (!marketRefreshTimer) {
+    return;
+  }
+  clearInterval(marketRefreshTimer);
+  marketRefreshTimer = null;
+}
+
+function startMarketAutoRefresh() {
+  if (marketRefreshTimer || document.hidden) {
+    return;
+  }
+
+  marketRefreshTimer = setInterval(() => {
+    if (!document.hidden) {
+      loadMarket();
+    }
+  }, MARKET_REFRESH_INTERVAL_MS);
 }
 
 async function loadMarket() {
@@ -909,13 +1011,23 @@ window.addEventListener('pagehide', () => {
 setupHomeNav();
 setupEventsCarousel();
 setupCopyTradingCarousel();
+setupMediaPlaybackOptimization();
 setMarketTab('hotspot');
 animateCounter(309497423);
 renderNews();
 initScrollReveal();
 syncHomeInteractionState();
 loadMarket();
-setInterval(loadMarket, 12000);
+startMarketAutoRefresh();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopMarketAutoRefresh();
+    return;
+  }
+  loadMarket();
+  startMarketAutoRefresh();
+});
 
 if (openSignupFromQuery) {
   window.setTimeout(() => {
