@@ -11,6 +11,7 @@ const derivPairsList = document.getElementById('derivPairsList');
 const eventsTrack = document.getElementById('eventsTrack');
 const eventsCount = document.querySelector('.cf-events-count');
 const exchangeTickerTrack = document.getElementById('exchangeTickerTrack');
+const socialSignupButtons = Array.from(document.querySelectorAll('.social-pill[data-provider]'));
 
 const otpRow = document.getElementById('otpRow');
 const otpInput = document.getElementById('otpInput');
@@ -1029,6 +1030,21 @@ function normalizeContact(rawValue) {
   return '';
 }
 
+function buildSignupUrl({ provider = '', email = '', name = '' } = {}) {
+  const params = new URLSearchParams();
+  params.set('mode', 'signup');
+  if (provider) {
+    params.set('via', provider);
+  }
+  if (email) {
+    params.set('email', email);
+  }
+  if (name) {
+    params.set('name', name);
+  }
+  return `/auth.html?${params.toString()}`;
+}
+
 async function sendOtp(contact, name) {
   const response = await fetch('/api/signup/send-code', {
     method: 'POST',
@@ -1120,6 +1136,20 @@ if (topSignupBtn) {
     window.location.href = '/auth.html?mode=signup';
   });
 }
+
+socialSignupButtons.forEach((button) => {
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    const provider = String(button.dataset.provider || '').trim().toLowerCase();
+    const email = normalizeContact(contactInput?.value || '');
+    const leadName = String(document.getElementById('name')?.value || 'Website Lead').trim() || 'Website Lead';
+    window.location.href = buildSignupUrl({
+      provider,
+      email,
+      name: leadName
+    });
+  });
+});
 
 signupPromptContinue?.addEventListener('click', async () => {
   const email = normalizeContact(signupPromptEmail?.value || '');

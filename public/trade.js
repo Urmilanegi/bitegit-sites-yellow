@@ -106,7 +106,19 @@ let tradingViewScriptPromise = null;
 let tradingViewWidget = null;
 let tvWidgetContainerId = null;
 let tradingViewRenderRequestId = 0;
+let depthLoadSeq = 0;
 let activeTradeUser = null;
+const COINGECKO_IDS = {
+  BTCUSDT: 'bitcoin',
+  ETHUSDT: 'ethereum',
+  BNBUSDT: 'binancecoin',
+  XRPUSDT: 'ripple',
+  SOLUSDT: 'solana',
+  ADAUSDT: 'cardano',
+  DOGEUSDT: 'dogecoin',
+  TRXUSDT: 'tron',
+  WIFUSDT: 'dogwifcoin'
+};
 const COIN_ICON_CODES = {
   BTC: 'btc',
   ETH: 'eth',
@@ -201,6 +213,127 @@ function formatTime(value) {
     return '--:--:--';
   }
   return date.toLocaleTimeString([], { hour12: false });
+}
+
+function normalizeTickerSnapshot(rawTicker) {
+  const lastPrice = Number(rawTicker?.lastPrice || 0);
+  if (!Number.isFinite(lastPrice) || lastPrice <= 0) {
+    return null;
+  }
+
+  const change24h = Number(rawTicker?.change24h || 0);
+  const high24h = Number(rawTicker?.high24h || 0);
+  const low24h = Number(rawTicker?.low24h || 0);
+  const volume24h = Number(rawTicker?.volume24h || 0);
+
+  return {
+    lastPrice,
+    change24h: Number.isFinite(change24h) ? change24h : 0,
+    high24h: Number.isFinite(high24h) && high24h > 0 ? high24h : lastPrice,
+    low24h: Number.isFinite(low24h) && low24h > 0 ? low24h : lastPrice,
+    volume24h: Number.isFinite(volume24h) && volume24h >= 0 ? volume24h : 0
+  };
+}
+
+async function fetchBinanceTradeTicker(symbol, host = 'api.binance.com') {
+  const url = `https://${host}/api/v3/ticker/24hr?symbol=${encodeURIComponent(symbol)}&_t=${Date.now()}`;
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok || !data || typeof data !== 'object') {
+    throw new Error(`Ticker unavailable from ${host}`);
+  }
+
+  const ticker = normalizeTickerSnapshot({
+    lastPrice: data.lastPrice,
+    change24h: data.priceChangePercent,
+    high24h: data.highPrice,
+    low24h: data.lowPrice,
+    volume24h: data.volume
+  });
+  if (!ticker) {
+    throw new Error(`Invalid ticker from ${host}`);
+  }
+  return {
+    source: host === 'api.binance.com' ? 'binance-client' : 'binance-vision-client',
+    ticker
+  };
+}
+
+async function fetchBybitTradeTicker(symbol) {
+  const url = `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${encodeURIComponent(symbol)}&_t=${Date.now()}`;
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json();
+  const item = data?.result?.list?.[0];
+  if (!response.ok || !item) {
+    throw new Error('Ticker unavailable from bybit');
+  }
+
+  const ticker = normalizeTickerSnapshot({
+    lastPrice: item.lastPrice,
+    change24h: Number(item.price24hPcnt || 0) * 100,
+    high24h: item.highPrice24h,
+    low24h: item.lowPrice24h,
+    volume24h: item.volume24h
+  });
+  if (!ticker) {
+    throw new Error('Invalid ticker from bybit');
+  }
+
+  return {
+    source: 'bybit-client',
+    ticker
+  };
+}
+
+async function fetchCoinGeckoTradeTicker(symbol) {
+  const id = COINGECKO_IDS[symbol];
+  if (!id) {
+    throw new Error('No coingecko symbol mapping');
+  }
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+    id
+  )}&vs_currencies=usd&include_24hr_change=true&_t=${Date.now()}`;
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok || !data || typeof data !== 'object') {
+    throw new Error('Ticker unavailable from coingecko');
+  }
+
+  const usd = Number(data?.[id]?.usd || 0);
+  const change = Number(data?.[id]?.usd_24h_change || 0);
+  const ticker = normalizeTickerSnapshot({
+    lastPrice: usd,
+    change24h: change,
+    high24h: usd,
+    low24h: usd,
+    volume24h: 0
+  });
+  if (!ticker) {
+    throw new Error('Invalid ticker from coingecko');
+  }
+
+  return {
+    source: 'coingecko-client',
+    ticker
+  };
+}
+
+async function fetchLiveTradeTicker(symbol) {
+  const attempts = [
+    () => fetchBinanceTradeTicker(symbol, 'api.binance.com'),
+    () => fetchBinanceTradeTicker(symbol, 'data-api.binance.vision'),
+    () => fetchBybitTradeTicker(symbol),
+    () => fetchCoinGeckoTradeTicker(symbol)
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      return await attempt();
+    } catch (_) {
+      // Try next provider
+    }
+  }
+  return null;
 }
 
 function getTradingViewInterval(interval) {
@@ -1111,24 +1244,66 @@ function drawCandles(data) {
 }
 
 async function loadDepth() {
+  const requestId = ++depthLoadSeq;
   try {
-    const response = await fetch(`/api/p2p/market-depth?symbol=${encodeURIComponent(state.symbol)}`);
+    const response = await fetch(`/api/p2p/market-depth?symbol=${encodeURIComponent(state.symbol)}&_t=${Date.now()}`, {
+      cache: 'no-store'
+    });
     const data = await response.json();
+    if (requestId !== depthLoadSeq) {
+      return;
+    }
     if (!response.ok) {
       throw new Error(data.message || 'Depth unavailable');
     }
 
-    state.ticker = data.ticker;
+    let sourceLabel = String(data.source || 'fallback').toLowerCase();
+    let tickerSnapshot = normalizeTickerSnapshot(data.ticker);
+    const needsLiveOverride = sourceLabel === 'fallback' || !tickerSnapshot;
+    if (needsLiveOverride) {
+      const liveTicker = await fetchLiveTradeTicker(state.symbol);
+      if (requestId !== depthLoadSeq) {
+        return;
+      }
+      if (liveTicker?.ticker) {
+        tickerSnapshot = liveTicker.ticker;
+        sourceLabel = liveTicker.source;
+      }
+    }
+
+    if (!tickerSnapshot) {
+      throw new Error('Live ticker unavailable');
+    }
+
+    state.ticker = tickerSnapshot;
     state.orderBook = data.orderBook;
     state.trades = data.trades;
 
-    renderTicker(data.ticker);
+    renderTicker(tickerSnapshot);
     renderOrderBook(data.orderBook);
     renderTrades(data.trades);
     if (bookSource) {
-      bookSource.textContent = `Source: ${String(data.source || 'fallback').toUpperCase()}`;
+      bookSource.textContent = `Source: ${sourceLabel.toUpperCase()}`;
     }
   } catch (error) {
+    if (requestId !== depthLoadSeq) {
+      return;
+    }
+    const liveTicker = await fetchLiveTradeTicker(state.symbol);
+    if (requestId !== depthLoadSeq) {
+      return;
+    }
+    if (liveTicker?.ticker) {
+      state.ticker = liveTicker.ticker;
+      renderTicker(liveTicker.ticker);
+      if (bookSource) {
+        bookSource.textContent = `Source: ${String(liveTicker.source || 'live').toUpperCase()}`;
+      }
+      if (chartStatus) {
+        chartStatus.textContent = 'Order book in fallback mode. Live price synced.';
+      }
+      return;
+    }
     if (chartStatus) {
       chartStatus.textContent = error.message;
     }
