@@ -687,6 +687,66 @@ a {
   font-weight: 700;
 }
 
+.cf-exchange-ticker-bar {
+  border-radius: 12px;
+  background: linear-gradient(120deg, #0a121d 0%, #0c1524 100%);
+  border: 1px solid rgba(158, 177, 210, 0.2);
+  padding: 0.58rem 0;
+  overflow: hidden;
+}
+
+.cf-exchange-ticker-marquee {
+  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+}
+
+.cf-exchange-ticker-track {
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  white-space: nowrap;
+  will-change: transform;
+  animation: cf-exchange-scroll 28s linear infinite;
+}
+
+.cf-exchange-ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.35rem 0.72rem;
+  border-radius: 999px;
+  background: rgba(20, 32, 50, 0.9);
+  color: #dce6f8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cf-exchange-ticker-item strong {
+  color: #f4f8ff;
+  font-weight: 800;
+}
+
+.cf-exchange-ticker-item em {
+  font-style: normal;
+  color: #93a4c3;
+  font-weight: 800;
+}
+
+.cf-exchange-ticker-item.up em {
+  color: #93ff48;
+}
+
+.cf-exchange-ticker-item.down em {
+  color: #ff6d86;
+}
+
+.cf-exchange-ticker-bar:hover .cf-exchange-ticker-track {
+  animation-play-state: paused;
+}
+
 .social-pill {
   width: 36px;
   height: 36px;
@@ -2366,6 +2426,21 @@ a {
     background: transparent;
   }
 
+  .cf-exchange-ticker-bar {
+    border-radius: 14px;
+    padding: 0.52rem 0;
+    border-color: rgba(164, 184, 218, 0.16);
+  }
+
+  .cf-exchange-ticker-track {
+    animation-duration: 24s;
+  }
+
+  .cf-exchange-ticker-item {
+    font-size: 0.74rem;
+    padding: 0.33rem 0.62rem;
+  }
+
   .bnx-market-row {
     border-radius: 14px;
     min-height: 68px;
@@ -2479,5 +2554,14 @@ a {
   }
   100% {
     transform: translateX(calc(-50% - 0.9rem));
+  }
+}
+
+@keyframes cf-exchange-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(-50% - 0.325rem));
   }
 }

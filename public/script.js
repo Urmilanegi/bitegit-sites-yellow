@@ -10,6 +10,7 @@ const spotPairsList = document.getElementById('spotPairsList');
 const derivPairsList = document.getElementById('derivPairsList');
 const eventsTrack = document.getElementById('eventsTrack');
 const eventsCount = document.querySelector('.cf-events-count');
+const exchangeTickerTrack = document.getElementById('exchangeTickerTrack');
 
 const otpRow = document.getElementById('otpRow');
 const otpInput = document.getElementById('otpInput');
@@ -487,6 +488,34 @@ function renderMiniMarketRows(ticker) {
     .join('');
 }
 
+function renderExchangeTicker(ticker) {
+  if (!exchangeTickerTrack) {
+    return;
+  }
+
+  const hasLiveData = Array.isArray(ticker) && ticker.length > 0;
+  const sourceRows = hasLiveData
+    ? ticker.slice(0, 8)
+    : MARKET_SYMBOLS.slice(0, 6).map((symbol) => ({ symbol, lastPrice: null, change24h: null }));
+
+  const trackMarkup = sourceRows
+    .map((item) => {
+      const symbol = String(item?.symbol || 'BTCUSDT').toUpperCase();
+      const pair = symbol.replace(/USDT$/, '/USDT');
+      const change = Number(item?.change24h);
+      const hasNumericChange = Number.isFinite(change);
+      const hasNumericPrice = Number.isFinite(Number(item?.lastPrice)) && Number(item?.lastPrice) > 0;
+      const cls = hasNumericChange && change < 0 ? 'down' : 'up';
+      const sign = hasNumericChange && change >= 0 ? '+' : '';
+      const priceText = hasNumericPrice ? `$${formatLarge(item.lastPrice, Number(item.lastPrice) >= 100 ? 2 : 4)}` : '$--';
+      const changeText = hasNumericChange ? `${sign}${change.toFixed(2)}%` : '--%';
+      return `<span class="cf-exchange-ticker-item ${cls}">${pair}<strong>${priceText}</strong><em>${changeText}</em></span>`;
+    })
+    .join('');
+
+  exchangeTickerTrack.innerHTML = `${trackMarkup}${trackMarkup}`;
+}
+
 function renderOpportunities(ticker) {
   if ((!spotPairsList && !derivPairsList) || !Array.isArray(ticker)) {
     return;
@@ -787,6 +816,7 @@ async function loadMarket() {
     }
 
     renderMiniMarketRows(data.ticker);
+    renderExchangeTicker(data.ticker);
     renderOpportunities(data.ticker);
   } catch (error) {
     renderMiniMarketRows([]);
@@ -1012,6 +1042,7 @@ setupHomeNav();
 setupEventsCarousel();
 setupCopyTradingCarousel();
 setupMediaPlaybackOptimization();
+renderExchangeTicker([]);
 setMarketTab('hotspot');
 animateCounter(309497423);
 renderNews();
