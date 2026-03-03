@@ -378,72 +378,51 @@ a {
   box-shadow: var(--cf-shadow);
 }
 
-.cf-hero-video-section {
+.hero {
   position: relative;
-  min-height: 54vh;
+  height: 100vh;
+  min-height: 100vh;
   overflow: hidden;
   isolation: isolate;
-  display: grid;
-  place-items: center;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
-.cf-hero-video {
+.bg-video {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: brightness(1.15) contrast(1.05);
-  z-index: 1;
+  filter: brightness(1.08) contrast(1.03);
+  z-index: -2;
 }
 
-.cf-hero-video-overlay {
+.hero::after {
+  content: '';
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  z-index: 2;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: -1;
 }
 
-.cf-hero-video-content {
+.hero-overlay {
   position: relative;
-  z-index: 3;
-  text-align: center;
-  padding: 1rem;
+  z-index: 1;
+  height: 100%;
   display: grid;
-  gap: 0.85rem;
-}
-
-.cf-hero-video-content h2 {
-  margin: 0;
-  color: var(--cf-text);
-  font-size: clamp(1.65rem, 5.2vw, 3.15rem);
-  letter-spacing: -0.02em;
-  line-height: 1.08;
-}
-
-.cf-hero-video-cta {
-  justify-self: center;
-  min-height: 48px;
-  border-radius: 999px;
-  padding: 0.75rem 1.35rem;
-  background: var(--cf-brand);
-  color: #081005;
-  font-weight: 800;
-  text-decoration: none;
-  border: 1px solid transparent;
-  transition: transform 0.25s ease, filter 0.25s ease, box-shadow 0.25s ease;
-  box-shadow: 0 10px 24px rgba(139, 243, 0, 0.24);
-}
-
-.cf-hero-video-cta:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.04);
+  align-content: start;
+  gap: 1.5rem;
+  padding: clamp(1rem, 3.5vw, 2.4rem);
+  overflow-y: auto;
 }
 
 .cf-hero {
-  padding: clamp(1rem, 3.5vw, 2.4rem);
-  display: grid;
-  gap: 1.5rem;
+  display: block;
 }
 
 .cf-hero-left,
@@ -1921,7 +1900,7 @@ a {
 }
 
 @media (min-width: 860px) {
-  .cf-hero {
+  .hero-overlay {
     grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
     align-items: start;
   }
@@ -1984,7 +1963,6 @@ a {
     width: calc(100% - 0.8rem);
   }
 
-  .cf-hero,
   .cf-opportunities,
   .cf-everyone,
   .cf-trading-exp,
@@ -2101,23 +2079,20 @@ a {
     height: auto;
   }
 
-  .cf-hero-video-section {
-    min-height: 28vh;
+  .hero {
+    min-height: 100svh;
+    height: auto;
+    background: linear-gradient(rgba(6, 10, 17, 0.84), rgba(6, 10, 17, 0.84)), url('/videos/hero-poster.svg')
+      center / cover no-repeat;
   }
 
-  .cf-hero-video-content h2 {
-    font-size: clamp(1.35rem, 8vw, 2.05rem);
+  .bg-video {
+    display: none;
   }
 
-  .cf-hero-video-cta {
-    min-height: 46px;
-    padding: 0.68rem 1.18rem;
-    font-size: 0.92rem;
-  }
-
-  .cf-hero {
-    border-radius: 20px;
-    background: #000;
+  .hero-overlay {
+    padding: 1rem;
+    overflow: visible;
   }
 
   .cf-hero h1 {
