@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bitegit App</title>
+    <link rel="stylesheet" href="/app/app.css" />
+  </head>
+  <body class="app-shell">
+    <div id="profileOverlay" class="profile-overlay hidden"></div>
+    <aside id="profileDrawer" class="profile-drawer" aria-hidden="true">
+      <header class="drawer-head">
+        <button id="closeProfileDrawer" type="button" class="icon-btn">✕</button>
+      </header>
+      <div class="drawer-user">
+        <div class="drawer-avatar">🪙</div>
+        <div>
+          <p id="drawerUserName">Guest User</p>
+          <small id="drawerUserMeta">Login required</small>
+        </div>
+      </div>
+      <nav class="drawer-links">
+        <button type="button" data-screen-target="home">Home</button>
+        <button type="button" data-screen-target="markets">Markets</button>
+        <button type="button" data-screen-target="trade">Trade</button>
+        <button type="button" data-screen-target="earn">Earn</button>
+        <button type="button" data-screen-target="assets">Assets</button>
+        <a href="/p2p">P2P Trading</a>
+      </nav>
+    </aside>
+
+    <div class="app-root">
+      <header class="mobile-top">
+        <div class="top-row">
+          <button id="openProfileDrawer" type="button" class="profile-trigger" aria-label="Open profile">
+            <span>🪙</span>
+          </button>
+          <div class="brand-pill">Bitegit</div>
+          <button id="notifBtn" type="button" class="icon-btn" aria-label="Notifications">🔔</button>
+        </div>
+        <div class="search-row">
+          <label class="search-shell" for="globalSearch">
+            <span>🔍</span>
+            <input id="globalSearch" type="text" placeholder="Search coin or pair" />
+          </label>
+          <button id="scanBtn" type="button" class="icon-btn">⌁</button>
+        </div>
+      </header>
+
+      <main class="screen-stack">
+        <section id="screen-home" class="app-screen active" data-screen="home">
+          <article class="onboard-track">
+            <div class="track-line">
+              <span class="active">Sign Up</span>
+              <span class="active">Identification</span>
+              <span>Deposit</span>
+            </div>
+          </article>
+
+          <article class="deposit-hero">
+            <div class="hero-icon">💼</div>
+            <h1>Make your first deposit to begin trading</h1>
+            <button id="homeDepositBtn" class="primary-btn" type="button">Deposit Now</button>
+            <p class="hero-note">Don't hold crypto? Buy crypto with fiat</p>
+          </article>
+
+          <article class="quick-grid">
+            <button type="button">Deposit</button>
+            <button type="button">P2P Trading</button>
+            <button type="button">Demo Trading</button>
+            <button type="button">Rewards Hub</button>
+            <button type="button">Buy Crypto</button>
+            <button type="button">Trading Bot</button>
+            <button type="button">Convert</button>
+            <button type="button">More</button>
+          </article>
+
+          <article class="event-card">
+            <small>Events</small>
+            <p>Wednesday Airdrop: Trade to share over $120,000</p>
+          </article>
+        </section>
+
+        <section id="screen-markets" class="app-screen" data-screen="markets">
+          <header class="screen-head">
+            <h2>Markets</h2>
+            <button id="refreshMarketsBtn" type="button" class="icon-btn">↻</button>
+          </header>
+
+          <div class="chip-row">
+            <button class="chip active" type="button">Spot</button>
+            <button class="chip" type="button">Derivatives</button>
+            <button class="chip" type="button">USDC</button>
+          </div>
+
+          <div class="notice-tape">
+            <p>Bybit HotSpot Aztec: 1,000 USDT Bonus Up For Grabs!</p>
+          </div>
+
+          <div class="market-head-row">
+            <span>Trading Pairs</span>
+            <span>Price</span>
+            <span>24H</span>
+          </div>
+          <ul id="marketsList" class="market-list">
+            <li class="loading-row">Loading live market data...</li>
+          </ul>
+        </section>
+
+        <section id="screen-trade" class="app-screen" data-screen="trade">
+          <header class="screen-head">
+            <h2 id="tradePairLabel">BTC/USDT</h2>
+            <button id="tradePairSwap" type="button" class="icon-btn">⇅</button>
+          </header>
+
+          <div class="trade-stats">
+            <p id="tradeLastPrice">0.0000</p>
+            <small id="trade24hChange">0.00%</small>
+          </div>
+
+          <div class="timeframe-row">
+            <button type="button" class="active">15m</button>
+            <button type="button">1h</button>
+            <button type="button">4h</button>
+            <button type="button">1D</button>
+          </div>
+
+          <article class="chart-card">
+            <canvas id="tradeChartCanvas" width="900" height="420"></canvas>
+          </article>
+
+          <div class="trade-dock">
+            <button id="tradeBuyBtn" class="buy-btn" type="button">Buy</button>
+            <div class="qty-pill">1 USDT</div>
+            <button id="tradeSellBtn" class="sell-btn" type="button">Sell</button>
+          </div>
+        </section>
+
+        <section id="screen-earn" class="app-screen" data-screen="earn">
+          <header class="screen-head">
+            <h2>Earn</h2>
+            <button type="button" class="icon-btn">☰</button>
+          </header>
+
+          <p class="muted-line">Total Earn Asset <strong id="earnTotal">0.00 USDT</strong></p>
+
+          <div class="earn-icons">
+            <button type="button">Easy Earn</button>
+            <button type="button">On-Chain Earn</button>
+            <button type="button">Advanced Earn</button>
+          </div>
+
+          <div class="earn-grid">
+            <article>
+              <p>XAUT</p>
+              <small>Easy Earn</small>
+              <strong>12%</strong>
+            </article>
+            <article>
+              <p>USDC</p>
+              <small>Easy Earn</small>
+              <strong>6%</strong>
+            </article>
+            <article>
+              <p>USDC</p>
+              <small>Mantle Vault</small>
+              <strong>4.11%</strong>
+            </article>
+          </div>
+
+          <article class="event-card">
+            <small>Events</small>
+            <p>BYUSDT: Earn while you trade</p>
+          </article>
+        </section>
+
+        <section id="screen-assets" class="app-screen" data-screen="assets">
+          <header class="screen-head">
+            <h2>Assets</h2>
+            <button id="assetsMenuBtn" type="button" class="icon-btn">☰</button>
+          </header>
+
+          <article class="asset-hero">
+            <h3>Deposit now and start your crypto journey</h3>
+            <button id="assetsDepositBtn" class="primary-btn" type="button">Deposit</button>
+          </article>
+
+          <div class="asset-tabs">
+            <button class="active" type="button">Asset</button>
+            <button type="button">Account</button>
+          </div>
+
+          <div class="asset-summary">
+            <article>
+              <span>Total Balance</span>
+              <strong id="assetTotalBalance">--</strong>
+            </article>
+            <article>
+              <span>Available</span>
+              <strong id="assetAvailableBalance">--</strong>
+            </article>
+            <article>
+              <span>Locked</span>
+              <strong id="assetLockedBalance">--</strong>
+            </article>
+            <article>
+              <span>Deposit Network</span>
+              <strong id="assetDepositNetwork">--</strong>
+            </article>
+          </div>
+
+          <div class="asset-actions">
+            <button id="assetsWithdrawBtn" type="button">Withdraw</button>
+            <button id="assetsTransferBtn" type="button">Transfer</button>
+          </div>
+        </section>
+      </main>
+
+      <nav class="app-bottom-nav" aria-label="Main app navigation">
+        <button type="button" data-screen-target="home" class="active"><span>⌂</span><small>Home</small></button>
+        <button type="button" data-screen-target="markets"><span>📈</span><small>Markets</small></button>
+        <button type="button" data-screen-target="trade"><span>⇄</span><small>Trade</small></button>
+        <button type="button" data-screen-target="earn"><span>%</span><small>Earn</small></button>
+        <button type="button" data-screen-target="assets"><span>▣</span><small>Assets</small></button>
+      </nav>
+    </div>
+
+    <script src="/app/app.js"></script>
+  </body>
+</html>
