@@ -35,7 +35,8 @@ body.p2p-page {
 
 body.p2p-nav-open,
 body.p2p-order-open,
-body.p2p-deal-open {
+body.p2p-deal-open,
+body.p2p-kyc-open {
   overflow: hidden;
 }
 
@@ -1162,6 +1163,7 @@ body.p2p-theme-light .pay-chip {
 /* modals */
 .deal-modal,
 .p2p-auth-modal,
+.p2p-kyc-modal,
 .order-modal {
   position: fixed;
   inset: 0;
@@ -1173,6 +1175,7 @@ body.p2p-theme-light .pay-chip {
 
 .deal-backdrop,
 .p2p-auth-backdrop,
+.p2p-kyc-backdrop,
 .order-backdrop {
   position: absolute;
   inset: 0;
@@ -1182,6 +1185,7 @@ body.p2p-theme-light .pay-chip {
 
 .deal-panel,
 .p2p-auth-panel,
+.p2p-kyc-panel,
 .order-panel {
   position: relative;
   width: min(980px, 100%);
@@ -1201,6 +1205,7 @@ body.p2p-theme-light .pay-chip {
 .deal-left,
 .deal-right,
 .p2p-auth-panel,
+.p2p-kyc-panel,
 .order-panel {
   padding: 0.9rem;
 }
@@ -1392,6 +1397,128 @@ body.p2p-theme-light .pay-chip {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.48rem;
+}
+
+.p2p-kyc-panel {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 0.72rem;
+}
+
+.p2p-kyc-modal {
+  z-index: 115;
+}
+
+.p2p-kyc-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.p2p-kyc-head h3,
+.p2p-kyc-head p {
+  margin: 0;
+}
+
+.p2p-kyc-head h3 {
+  font-size: 1.1rem;
+}
+
+.p2p-kyc-head p {
+  margin-top: 0.22rem;
+  color: var(--p2p-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.p2p-kyc-form {
+  display: grid;
+  gap: 0.62rem;
+}
+
+.p2p-kyc-field {
+  display: grid;
+  gap: 0.26rem;
+}
+
+.p2p-kyc-field span {
+  color: var(--p2p-muted);
+  font-size: 0.82rem;
+}
+
+.p2p-kyc-field input[type='text'],
+.p2p-kyc-field input[type='file'] {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 10px;
+  border: 1px solid var(--p2p-line);
+  background: #0f1a29;
+  color: var(--p2p-text);
+  padding: 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.p2p-kyc-field input[type='file'] {
+  padding-top: 0.52rem;
+}
+
+body.p2p-theme-light .p2p-kyc-field input[type='text'],
+body.p2p-theme-light .p2p-kyc-field input[type='file'] {
+  background: #f7fbff;
+}
+
+.p2p-kyc-field small {
+  color: var(--p2p-muted);
+  font-size: 0.74rem;
+}
+
+.p2p-kyc-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: #d5deef;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.p2p-kyc-consent input[type='checkbox'] {
+  margin-top: 0.18rem;
+}
+
+.p2p-kyc-hint {
+  margin: 0;
+  color: var(--p2p-muted);
+  font-size: 0.82rem;
+}
+
+.p2p-kyc-hint.success {
+  color: var(--p2p-green);
+}
+
+.p2p-kyc-hint.error {
+  color: var(--p2p-red);
+}
+
+.p2p-kyc-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+#kycSubmitBtn {
+  min-height: 42px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: #f7a723;
+  color: #201500;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0 1.2rem;
+}
+
+#kycSubmitBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .order-panel {

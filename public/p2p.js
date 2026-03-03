@@ -106,6 +106,20 @@ const dealHint = document.getElementById('dealHint');
 const dealConfirmBtn = document.getElementById('dealConfirmBtn');
 const dealCancelBtn = document.getElementById('dealCancelBtn');
 
+const kycModal = document.getElementById('kycModal');
+const kycBackdrop = document.getElementById('kycBackdrop');
+const kycCloseBtn = document.getElementById('kycCloseBtn');
+const kycForm = document.getElementById('kycForm');
+const kycStatusText = document.getElementById('kycStatusText');
+const kycAadhaarInput = document.getElementById('kycAadhaarInput');
+const kycAadhaarFrontInput = document.getElementById('kycAadhaarFrontInput');
+const kycAadhaarFrontMeta = document.getElementById('kycAadhaarFrontMeta');
+const kycSelfieInput = document.getElementById('kycSelfieInput');
+const kycSelfieMeta = document.getElementById('kycSelfieMeta');
+const kycConsent = document.getElementById('kycConsent');
+const kycHint = document.getElementById('kycHint');
+const kycSubmitBtn = document.getElementById('kycSubmitBtn');
+
 const adCreateForm = document.getElementById('adCreateForm');
 const adTypeInput = document.getElementById('adTypeInput');
 const adAssetInput = document.getElementById('adAssetInput');
@@ -163,6 +177,10 @@ const CHAT_MAX_PAYLOAD_BYTES = 60 * 1024;
 const CHAT_IMAGE_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const CHAT_PAYLOAD_PREFIX = '__P2P_MSG__:';
 const P2P_THEME_STORAGE_KEY = 'p2p_theme_mode';
+const KYC_REQUIRED_CODES = new Set(['KYC_REQUIRED', 'KYC_PENDING', 'KYC_REJECTED']);
+const KYC_ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+const KYC_MAX_FILE_SIZE = 6 * 1024 * 1024;
+const KYC_TARGET_IMAGE_BYTES = 320 * 1024;
 
 function escapeHtml(text) {
   return String(text)
@@ -215,8 +233,10 @@ function syncBodyInteractionState() {
     document.body.classList.contains('p2p-nav-open') ||
     document.body.classList.contains('p2p-order-open') ||
     document.body.classList.contains('p2p-deal-open') ||
+    document.body.classList.contains('p2p-kyc-open') ||
     document.body.classList.contains('p2p-cancel-open') ||
     Boolean(authModal && !authModal.classList.contains('hidden')) ||
+    Boolean(kycModal && !kycModal.classList.contains('hidden')) ||
     Boolean(imagePreviewModal && !imagePreviewModal.classList.contains('hidden'));
 
   document.body.style.overflow = hasBlockingLayer ? 'hidden' : 'auto';
@@ -252,6 +272,113 @@ function statusClass(status) {
     EXPIRED: 'status-expired'
   };
   return map[normalizeStatusForUi(status)] || 'status-created';
+}
+
+function normalizeKycStatus(status) {
+  const normalized = String(status || '')
+    .trim()
+    .toUpperCase();
+  if (['VERIFIED', 'PENDING_REVIEW', 'REJECTED', 'NOT_SUBMITTED'].includes(normalized)) {
+    return normalized;
+  }
+  return 'NOT_SUBMITTED';
+}
+
+function getKycStatusLabel(status) {
+  const normalized = normalizeKycStatus(status);
+  if (normalized === 'VERIFIED') {
+    return 'Verified';
+  }
+  if (normalized === 'PENDING_REVIEW') {
+    return 'Pending Review';
+  }
+  if (normalized === 'REJECTED') {
+    return 'Rejected';
+  }
+  return 'Not Submitted';
+}
+
+function getKycRequirementMessage(status) {
+  const normalized = normalizeKycStatus(status);
+  if (normalized === 'PENDING_REVIEW') {
+    return 'KYC is under review. Buy orders unlock after verification.';
+  }
+  if (normalized === 'REJECTED') {
+    return 'Previous KYC failed face match. Re-upload Aadhaar + selfie.';
+  }
+  return 'KYC required: upload Aadhaar front and selfie with document to buy on P2P.';
+}
+
+function updateCurrentUserKyc(kyc) {
+  if (!currentUser) {
+    return;
+  }
+  const next = kyc && typeof kyc === 'object' ? kyc : {};
+  const status = normalizeKycStatus(next.status || currentUser.kyc?.status);
+  currentUser.kyc = {
+    ...(currentUser.kyc && typeof currentUser.kyc === 'object' ? currentUser.kyc : {}),
+    ...next,
+    status,
+    statusLabel: getKycStatusLabel(status),
+    canBuy: status === 'VERIFIED'
+  };
+}
+
+function isKycVerifiedForBuy() {
+  return normalizeKycStatus(currentUser?.kyc?.status) === 'VERIFIED';
+}
+
+function isKycBlockedError(error) {
+  const code = String(error?.code || '')
+    .trim()
+    .toUpperCase();
+  return KYC_REQUIRED_CODES.has(code);
+}
+
+function setKycHint(text, type = '') {
+  if (!kycHint) {
+    return;
+  }
+  kycHint.textContent = text;
+  kycHint.className = 'p2p-kyc-hint';
+  if (type) {
+    kycHint.classList.add(type);
+  }
+}
+
+function setKycModalOpen(open, options = {}) {
+  if (!kycModal) {
+    return;
+  }
+  const shouldOpen = Boolean(open);
+  kycModal.classList.toggle('hidden', !shouldOpen);
+  kycModal.setAttribute('aria-hidden', shouldOpen ? 'false' : 'true');
+  document.body.classList.toggle('p2p-kyc-open', shouldOpen);
+  if (shouldOpen) {
+    if (kycStatusText) {
+      kycStatusText.textContent =
+        String(options.statusText || '').trim() || getKycRequirementMessage(currentUser?.kyc?.status);
+    }
+    if (String(options.hintText || '').trim()) {
+      setKycHint(String(options.hintText).trim(), options.hintType || '');
+    } else {
+      setKycHint(getKycRequirementMessage(currentUser?.kyc?.status));
+    }
+  }
+  syncBodyInteractionState();
+}
+
+function showKycGate(options = {}) {
+  const nextStatus = normalizeKycStatus(options.status || currentUser?.kyc?.status);
+  updateCurrentUserKyc({ status: nextStatus });
+  loadProfilePanel();
+  const message = String(options.message || '').trim() || getKycRequirementMessage(nextStatus);
+  setKycModalOpen(true, {
+    statusText: message,
+    hintText: message,
+    hintType: nextStatus === 'REJECTED' ? 'error' : ''
+  });
+  refreshCurrentUserKyc();
 }
 
 function generateClientId() {
@@ -332,6 +459,56 @@ async function compressImageForChat(file) {
   }
 
   return dataUrl;
+}
+
+async function compressImageForKyc(file) {
+  if (!file) {
+    throw new Error('Image file is required.');
+  }
+  if (!KYC_ALLOWED_FILE_TYPES.includes(file.type)) {
+    throw new Error('Only JPG, JPEG, PNG, and WEBP files are allowed.');
+  }
+  if (file.size > KYC_MAX_FILE_SIZE) {
+    throw new Error('Image size must be 6MB or smaller.');
+  }
+
+  const image = await loadImageFromFile(file);
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Unable to initialize image processor.');
+  }
+
+  let maxDimension = 1440;
+  let quality = 0.9;
+  let dataUrl = '';
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    let workingQuality = quality;
+    dataUrl = canvas.toDataURL('image/webp', workingQuality);
+    while (estimateDataUrlBytes(dataUrl) > KYC_TARGET_IMAGE_BYTES && workingQuality > 0.4) {
+      workingQuality -= 0.08;
+      dataUrl = canvas.toDataURL('image/webp', workingQuality);
+    }
+
+    if (estimateDataUrlBytes(dataUrl) <= KYC_TARGET_IMAGE_BYTES) {
+      return dataUrl;
+    }
+
+    maxDimension = Math.max(700, Math.round(maxDimension * 0.82));
+    quality = Math.max(0.45, quality - 0.06);
+  }
+
+  throw new Error('Image is too large. Use a clear image with smaller dimensions.');
 }
 
 function decodeChatPayload(rawText) {
@@ -920,7 +1097,7 @@ async function loadProfilePanel(options = {}) {
       profileEmail.textContent = 'Login required';
     }
     if (profileKyc) {
-      profileKyc.textContent = 'Pending';
+      profileKyc.textContent = 'Not Submitted';
     }
     if (profileSecurity) {
       profileSecurity.textContent = 'Basic';
@@ -963,11 +1140,12 @@ async function loadProfilePanel(options = {}) {
   if (profileEmail) {
     profileEmail.textContent = currentUser.email || '--';
   }
+  const currentKycStatus = normalizeKycStatus(currentUser?.kyc?.status);
   if (profileKyc) {
-    profileKyc.textContent = 'Verified';
+    profileKyc.textContent = getKycStatusLabel(currentKycStatus);
   }
   if (profileSecurity) {
-    profileSecurity.textContent = 'Email Protected';
+    profileSecurity.textContent = currentKycStatus === 'VERIFIED' ? 'KYC + Email Protected' : 'KYC Required';
   }
 
   const shouldRefreshWallet =
@@ -1266,6 +1444,128 @@ function closeDealModal() {
   }
 }
 
+function setKycFileMeta(metaEl, file, defaultText) {
+  if (!metaEl) {
+    return;
+  }
+  if (!file) {
+    metaEl.textContent = defaultText;
+    return;
+  }
+  metaEl.textContent = `${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)`;
+}
+
+function closeKycModal() {
+  setKycModalOpen(false);
+}
+
+async function refreshCurrentUserKyc() {
+  if (!currentUser) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/p2p/kyc/status');
+    const data = await response.json();
+    if (!response.ok || !data?.kyc) {
+      return;
+    }
+    updateCurrentUserKyc(data.kyc);
+    loadProfilePanel();
+  } catch (_) {
+    // Keep existing KYC state when status API is unavailable.
+  }
+}
+
+async function submitKycForm(event) {
+  event.preventDefault();
+
+  if (!currentUser) {
+    requireLoginNotice();
+    return;
+  }
+
+  const aadhaarNumber = String(kycAadhaarInput?.value || '')
+    .replace(/\D/g, '')
+    .slice(0, 12);
+  if (!/^\d{12}$/.test(aadhaarNumber)) {
+    setKycHint('Enter a valid 12-digit Aadhaar number.', 'error');
+    return;
+  }
+
+  const aadhaarFile = kycAadhaarFrontInput?.files?.[0] || null;
+  const selfieFile = kycSelfieInput?.files?.[0] || null;
+  if (!aadhaarFile || !selfieFile) {
+    setKycHint('Upload Aadhaar front and selfie with document.', 'error');
+    return;
+  }
+  if (!kycConsent?.checked) {
+    setKycHint('Please accept consent to continue.', 'error');
+    return;
+  }
+
+  if (kycSubmitBtn) {
+    kycSubmitBtn.disabled = true;
+    kycSubmitBtn.textContent = 'Verifying...';
+  }
+
+  try {
+    setKycHint('Optimizing document images...', '');
+    const aadhaarFrontImage = await compressImageForKyc(aadhaarFile);
+    const selfieWithDocumentImage = await compressImageForKyc(selfieFile);
+
+    setKycHint('Running AI face match verification...', '');
+    const response = await fetch('/api/p2p/kyc/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        aadhaarNumber,
+        aadhaarFrontImage,
+        selfieWithDocumentImage,
+        consent: true
+      })
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      const error = new Error(data.message || 'Unable to submit KYC right now.');
+      error.code = String(data.code || '').trim().toUpperCase();
+      throw error;
+    }
+
+    updateCurrentUserKyc(data.kyc || {});
+    updateUserUi();
+    await loadProfilePanel();
+
+    const nextStatus = normalizeKycStatus(data?.kyc?.status);
+    const serverMessage = String(data.message || '').trim();
+    if (kycStatusText) {
+      kycStatusText.textContent = serverMessage || getKycRequirementMessage(nextStatus);
+    }
+
+    if (nextStatus === 'VERIFIED') {
+      setKycHint(serverMessage || 'KYC verified. You can place P2P buy orders now.', 'success');
+      closeKycModal();
+      setUserStatus('KYC verified. P2P buy is now enabled.', 'user-online');
+      return;
+    }
+
+    if (nextStatus === 'REJECTED') {
+      setKycHint(serverMessage || 'Face match failed. Upload clearer Aadhaar and selfie.', 'error');
+      return;
+    }
+
+    setKycHint(serverMessage || 'KYC submitted. Verification is pending review.', 'success');
+  } catch (error) {
+    setKycHint(error.message || 'Unable to submit KYC right now.', 'error');
+  } finally {
+    if (kycSubmitBtn) {
+      kycSubmitBtn.disabled = false;
+      kycSubmitBtn.textContent = 'Submit KYC';
+    }
+  }
+}
+
 function applyTheme(mode, persist = true) {
   const resolved = mode === 'light' ? 'light' : 'dark';
   document.body.classList.toggle('p2p-theme-dark', resolved === 'dark');
@@ -1316,7 +1616,12 @@ function setAuthModalOpen(open) {
 function updateUserUi() {
   if (currentUser) {
     const displayIdentity = currentUser.email || currentUser.username || 'user';
-    setUserStatus(`Logged in as ${displayIdentity}`, 'user-online');
+    const kycLabel = getKycStatusLabel(currentUser?.kyc?.status);
+    if (normalizeKycStatus(currentUser?.kyc?.status) === 'VERIFIED') {
+      setUserStatus(`Logged in as ${displayIdentity} | KYC ${kycLabel}`, 'user-online');
+    } else {
+      setUserStatus(`Logged in as ${displayIdentity} | KYC ${kycLabel} (required for buy)`, 'user-error');
+    }
     if (emailInput) {
       emailInput.value = currentUser.email;
     }
@@ -1458,6 +1763,9 @@ async function loadCurrentUser() {
     const response = await fetch('/api/p2p/me');
     const data = await response.json();
     currentUser = data.loggedIn ? data.user : null;
+    if (currentUser) {
+      updateCurrentUserKyc(currentUser.kyc || {});
+    }
   } catch (error) {
     currentUser = null;
   }
@@ -1481,6 +1789,7 @@ async function loginUser() {
     }
 
     currentUser = data.user;
+    updateCurrentUserKyc(currentUser?.kyc || {});
     updateUserUi();
     setAuthModalOpen(false);
     setP2PNavOpen(false);
@@ -1511,6 +1820,7 @@ async function logoutUser() {
     renderMobileOrdersList();
     closeOrderModal();
     closeDealModal();
+    closeKycModal();
   }
 }
 
@@ -1732,10 +2042,13 @@ async function createOrder(offerId, options = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ offerId, amountInr, paymentMethod })
     });
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.message || 'Unable to create order.');
+      const error = new Error(data.message || 'Unable to create order.');
+      error.code = String(data.code || '').trim().toUpperCase();
+      error.kyc = data.kyc && typeof data.kyc === 'object' ? data.kyc : null;
+      throw error;
     }
 
     if (openAfterCreate) {
@@ -1744,6 +2057,14 @@ async function createOrder(offerId, options = {}) {
     await loadLiveOrders();
     return data;
   } catch (error) {
+    if (isKycBlockedError(error)) {
+      const blockedStatus = normalizeKycStatus(error?.kyc?.status);
+      updateCurrentUserKyc({ status: blockedStatus });
+      showKycGate({
+        status: blockedStatus,
+        message: error.message
+      });
+    }
     if (metaEl) {
       metaEl.textContent = error.message;
     }
@@ -1762,6 +2083,14 @@ function openDealForOffer(offerId) {
     if (metaEl) {
       metaEl.textContent = 'Offer unavailable. Refresh and retry.';
     }
+    return;
+  }
+
+  if (currentSide === 'buy' && !isKycVerifiedForBuy()) {
+    showKycGate({
+      status: currentUser?.kyc?.status,
+      message: getKycRequirementMessage(currentUser?.kyc?.status)
+    });
     return;
   }
 
@@ -2556,6 +2885,41 @@ if (dealBackdrop) {
   dealBackdrop.addEventListener('click', closeDealModal);
 }
 
+if (kycCloseBtn) {
+  kycCloseBtn.addEventListener('click', closeKycModal);
+}
+
+if (kycBackdrop) {
+  kycBackdrop.addEventListener('click', closeKycModal);
+}
+
+if (kycAadhaarInput) {
+  kycAadhaarInput.addEventListener('input', () => {
+    const digits = String(kycAadhaarInput.value || '')
+      .replace(/\D/g, '')
+      .slice(0, 12);
+    kycAadhaarInput.value = digits;
+  });
+}
+
+if (kycAadhaarFrontInput) {
+  kycAadhaarFrontInput.addEventListener('change', () => {
+    const file = kycAadhaarFrontInput.files?.[0] || null;
+    setKycFileMeta(kycAadhaarFrontMeta, file, 'Upload clear front side image.');
+  });
+}
+
+if (kycSelfieInput) {
+  kycSelfieInput.addEventListener('change', () => {
+    const file = kycSelfieInput.files?.[0] || null;
+    setKycFileMeta(kycSelfieMeta, file, 'Face and document must be clearly visible in one frame.');
+  });
+}
+
+if (kycForm) {
+  kycForm.addEventListener('submit', submitKycForm);
+}
+
 if (adCreateForm) {
   adCreateForm.addEventListener('submit', handleAdCreate);
 }
@@ -2762,6 +3126,10 @@ window.addEventListener('keydown', (event) => {
     }
     if (dealModal && !dealModal.classList.contains('hidden')) {
       closeDealModal();
+      return;
+    }
+    if (kycModal && !kycModal.classList.contains('hidden')) {
+      closeKycModal();
       return;
     }
     if (orderModal && !orderModal.classList.contains('hidden')) {

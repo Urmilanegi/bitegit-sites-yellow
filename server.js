@@ -71,6 +71,13 @@ const DEFAULT_SYMBOL_PRICES = {
   ADAUSDT: 0.78
 };
 
+const KYC_ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+const KYC_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const KYC_FACE_MATCH_THRESHOLD = Math.max(
+  1,
+  Math.min(100, Number.parseFloat(String(process.env.KYC_FACE_MATCH_THRESHOLD || '82')) || 82)
+);
+
 const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
 const ENCRYPTION_IV_LENGTH = 16;
 
@@ -323,6 +330,178 @@ async function getUsdtDepositConfigForUser() {
     activeNetwork,
     depositAddress: activeNetwork.address || ''
   };
+}
+
+function normalizeKycStatus(rawStatus) {
+  const normalized = String(rawStatus || '').trim().toUpperCase();
+  if (['NOT_SUBMITTED', 'PENDING_REVIEW', 'VERIFIED', 'REJECTED'].includes(normalized)) {
+    return normalized;
+  }
+  return 'NOT_SUBMITTED';
+}
+
+function getKycStatusLabel(status) {
+  const normalized = normalizeKycStatus(status);
+  if (normalized === 'VERIFIED') {
+    return 'Verified';
+  }
+  if (normalized === 'PENDING_REVIEW') {
+    return 'Pending Review';
+  }
+  if (normalized === 'REJECTED') {
+    return 'Rejected';
+  }
+  return 'Not Submitted';
+}
+
+function normalizeAadhaarNumber(rawValue) {
+  const digits = String(rawValue || '').replace(/\D/g, '');
+  if (!/^\d{12}$/.test(digits)) {
+    throw new Error('Enter a valid 12-digit Aadhaar number.');
+  }
+  return digits;
+}
+
+function maskAadhaar(aadhaarDigits) {
+  const digits = String(aadhaarDigits || '').replace(/\D/g, '');
+  if (digits.length < 4) {
+    return 'XXXXXXXXXXXX';
+  }
+  return `XXXXXXXX${digits.slice(-4)}`;
+}
+
+function hashSensitive(value) {
+  return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex');
+}
+
+function extractKycImageData(rawInput, fieldLabel) {
+  const raw = String(rawInput || '').trim();
+  if (!raw) {
+    throw new Error(`${fieldLabel} image is required.`);
+  }
+
+  const matched = raw.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!matched) {
+    throw new Error(`${fieldLabel} must be a valid base64 image.`);
+  }
+
+  const mimeType = String(matched[1] || '').trim().toLowerCase();
+  const base64Payload = String(matched[2] || '').replace(/\s/g, '');
+  if (!KYC_ALLOWED_IMAGE_TYPES.includes(mimeType)) {
+    throw new Error(`${fieldLabel} image type is not supported.`);
+  }
+
+  const buffer = Buffer.from(base64Payload, 'base64');
+  if (!buffer || buffer.length === 0) {
+    throw new Error(`${fieldLabel} image data is invalid.`);
+  }
+  if (buffer.length > KYC_MAX_IMAGE_BYTES) {
+    throw new Error(`${fieldLabel} image must be 5MB or smaller.`);
+  }
+
+  return {
+    dataUrl: `data:${mimeType};base64,${base64Payload}`,
+    mimeType,
+    sizeBytes: buffer.length,
+    sha256: hashSensitive(buffer.toString('base64'))
+  };
+}
+
+function createKycRequestId() {
+  return `kyc_${Date.now()}_${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
+async function runKycFaceMatch({ aadhaarFrontImage, selfieWithDocumentImage }) {
+  const endpoint = String(process.env.KYC_FACE_MATCH_ENDPOINT || '').trim();
+  const apiKey = String(process.env.KYC_FACE_MATCH_API_KEY || '').trim();
+  const timeoutMs = Math.max(3000, Number.parseInt(String(process.env.KYC_FACE_MATCH_TIMEOUT_MS || '12000'), 10) || 12000);
+
+  if (!endpoint) {
+    return {
+      provider: 'none',
+      available: false,
+      passed: false,
+      score: null,
+      reason: 'face_match_provider_not_configured'
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+      },
+      body: JSON.stringify({
+        documentImage: aadhaarFrontImage.dataUrl,
+        selfieImage: selfieWithDocumentImage.dataUrl
+      }),
+      signal: controller.signal
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        provider: 'external',
+        available: false,
+        passed: false,
+        score: null,
+        reason: String(payload?.message || `face_match_http_${response.status}`)
+      };
+    }
+
+    const scoreRaw = Number(payload?.score ?? payload?.similarity ?? payload?.confidence ?? NaN);
+    const score = Number.isFinite(scoreRaw) ? Math.max(0, Math.min(100, scoreRaw)) : null;
+    const passedByProvider = payload?.passed === true || payload?.match === true;
+    const passedByThreshold = score !== null ? score >= KYC_FACE_MATCH_THRESHOLD : false;
+
+    return {
+      provider: String(payload?.provider || 'external').trim().toLowerCase() || 'external',
+      available: true,
+      passed: Boolean(passedByProvider || passedByThreshold),
+      score,
+      reason: passedByProvider || passedByThreshold ? '' : 'face_similarity_below_threshold'
+    };
+  } catch (error) {
+    return {
+      provider: 'external',
+      available: false,
+      passed: false,
+      score: null,
+      reason: String(error?.name === 'AbortError' ? 'face_match_timeout' : error?.message || 'face_match_failed')
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildP2PKycProfileFromCredential(credential = {}) {
+  const status = normalizeKycStatus(credential?.kycStatus);
+  return {
+    status,
+    statusLabel: getKycStatusLabel(status),
+    canBuy: status === 'VERIFIED',
+    level: String(credential?.kycLevel || 'BASIC').trim().toUpperCase() || 'BASIC',
+    aadhaarLast4: String(credential?.kycAadhaarLast4 || '').trim(),
+    requestId: String(credential?.kycRequestId || '').trim(),
+    updatedAt: credential?.kycUpdatedAt ? new Date(credential.kycUpdatedAt).toISOString() : null,
+    verifiedAt: credential?.kycVerifiedAt ? new Date(credential.kycVerifiedAt).toISOString() : null,
+    rejectedAt: credential?.kycRejectedAt ? new Date(credential.kycRejectedAt).toISOString() : null,
+    rejectionReason: String(credential?.kycRejectionReason || '').trim()
+  };
+}
+
+async function getP2PKycProfileByEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail || !repos || typeof repos.getP2PCredential !== 'function') {
+    return buildP2PKycProfileFromCredential();
+  }
+  const credential = await repos.getP2PCredential(normalizedEmail);
+  return buildP2PKycProfileFromCredential(credential || {});
 }
 
 function createFallbackOrderBook(symbol) {
@@ -1005,13 +1184,16 @@ app.post('/api/p2p/login', async (req, res) => {
       });
     }
 
+    const kycProfile = await getP2PKycProfileByEmail(user.email);
+
     return res.json({
       message: 'P2P login successful.',
       user: {
         id: user.id,
         username: user.username,
         email: user.email,
-        role: user.role
+        role: user.role,
+        kyc: kycProfile
       },
       accessToken: tokenPair.accessToken,
       refreshToken: tokenPair.refreshToken
@@ -1186,15 +1368,173 @@ app.get('/api/p2p/me', async (req, res) => {
     return res.json({ loggedIn: false, user: null });
   }
 
+  const kycProfile = await getP2PKycProfileByEmail(user.email);
+
   return res.json({
     loggedIn: true,
     user: {
       id: user.id,
       username: user.username,
       email: user.email,
-      role: tokenService.normalizeRole(user.role || 'USER')
+      role: tokenService.normalizeRole(user.role || 'USER'),
+      kyc: kycProfile
     }
   });
+});
+
+app.get('/api/p2p/kyc/status', requiresP2PUser, async (req, res) => {
+  try {
+    const kycProfile = await getP2PKycProfileByEmail(req.p2pUser.email);
+    return res.json({
+      kyc: kycProfile
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error while loading KYC status.' });
+  }
+});
+
+app.post('/api/p2p/kyc/submit', requiresP2PUser, async (req, res) => {
+  const userId = String(req.p2pUser?.id || '').trim();
+  const email = String(req.p2pUser?.email || '')
+    .trim()
+    .toLowerCase();
+
+  if (!userId || !email) {
+    return res.status(401).json({ message: 'Please login to continue.' });
+  }
+
+  if (
+    !repos ||
+    typeof repos.upsertP2PKycRequest !== 'function' ||
+    typeof repos.updateP2PCredentialKyc !== 'function'
+  ) {
+    return res.status(503).json({ message: 'KYC service is unavailable right now.' });
+  }
+
+  const consentRaw = req.body?.consent;
+  const consentGiven =
+    consentRaw === true ||
+    String(consentRaw || '')
+      .trim()
+      .toLowerCase() === 'true';
+  if (!consentGiven) {
+    return res.status(400).json({ message: 'Consent is required to continue KYC verification.' });
+  }
+
+  let aadhaarDigits = '';
+  let aadhaarFrontImage = null;
+  let selfieWithDocumentImage = null;
+  try {
+    aadhaarDigits = normalizeAadhaarNumber(req.body?.aadhaarNumber);
+    aadhaarFrontImage = extractKycImageData(req.body?.aadhaarFrontImage, 'Aadhaar front');
+    selfieWithDocumentImage = extractKycImageData(req.body?.selfieWithDocumentImage, 'Selfie with document');
+  } catch (error) {
+    return res.status(400).json({ message: error.message || 'Invalid KYC submission payload.' });
+  }
+
+  try {
+    const currentCredential = await repos.getP2PCredential(email);
+    if (!currentCredential) {
+      return res.status(400).json({ message: 'Please login again before submitting KYC documents.' });
+    }
+    const currentKyc = buildP2PKycProfileFromCredential(currentCredential || {});
+
+    if (currentKyc.status === 'VERIFIED') {
+      return res.json({
+        message: 'KYC is already verified for this account.',
+        kyc: currentKyc
+      });
+    }
+
+    const requestId = createKycRequestId();
+    const submittedAt = new Date();
+    const faceMatch = await runKycFaceMatch({
+      aadhaarFrontImage,
+      selfieWithDocumentImage
+    });
+
+    let nextStatus = 'PENDING_REVIEW';
+    let rejectionReason = '';
+    if (faceMatch.available) {
+      if (faceMatch.passed) {
+        nextStatus = 'VERIFIED';
+      } else {
+        nextStatus = 'REJECTED';
+        rejectionReason = 'AI face match failed. Upload clear Aadhaar front and selfie with document.';
+      }
+    }
+
+    await repos.upsertP2PKycRequest(userId, email, {
+      requestId,
+      status: nextStatus,
+      aadhaarMasked: maskAadhaar(aadhaarDigits),
+      aadhaarHash: hashSensitive(aadhaarDigits),
+      aadhaarFrontImage: encryptText(aadhaarFrontImage.dataUrl),
+      selfieWithDocumentImage: encryptText(selfieWithDocumentImage.dataUrl),
+      rejectionReason,
+      faceMatch: {
+        provider: faceMatch.provider,
+        available: Boolean(faceMatch.available),
+        passed: Boolean(faceMatch.passed),
+        score: faceMatch.score,
+        reason: String(faceMatch.reason || '').trim(),
+        threshold: KYC_FACE_MATCH_THRESHOLD,
+        aadhaarImageHash: aadhaarFrontImage.sha256,
+        selfieImageHash: selfieWithDocumentImage.sha256,
+        aadhaarImageSize: aadhaarFrontImage.sizeBytes,
+        selfieImageSize: selfieWithDocumentImage.sizeBytes,
+        checkedAt: submittedAt.toISOString()
+      },
+      createdAt: submittedAt
+    });
+
+    const updatedCredential = await repos.updateP2PCredentialKyc(email, {
+      status: nextStatus,
+      requestId,
+      kycLevel: 'FULL',
+      aadhaarLast4: aadhaarDigits.slice(-4),
+      faceMatchScore: faceMatch.score,
+      faceMatchProvider: faceMatch.provider,
+      rejectionReason
+    });
+
+    const kycProfile = buildP2PKycProfileFromCredential(updatedCredential || {});
+    if (auditLogService) {
+      await auditLogService.safeLog({
+        userId,
+        action: 'kyc_submitted',
+        ipAddress: getRequestIp(req),
+        metadata: {
+          requestId,
+          status: nextStatus,
+          faceMatchScore: faceMatch.score,
+          faceMatchProvider: faceMatch.provider,
+          faceMatchAvailable: Boolean(faceMatch.available)
+        }
+      });
+    }
+
+    const statusMessageByState = {
+      VERIFIED: 'KYC verified successfully. You can now place P2P buy orders.',
+      REJECTED: 'KYC rejected due to face mismatch. Re-upload clear Aadhaar and selfie with document.',
+      PENDING_REVIEW: 'KYC submitted successfully. Verification is pending review.'
+    };
+
+    return res.status(nextStatus === 'VERIFIED' ? 200 : 202).json({
+      message: statusMessageByState[nextStatus] || 'KYC submitted successfully.',
+      kyc: kycProfile,
+      faceMatch: {
+        available: Boolean(faceMatch.available),
+        passed: Boolean(faceMatch.passed),
+        score: faceMatch.score,
+        threshold: KYC_FACE_MATCH_THRESHOLD,
+        provider: faceMatch.provider,
+        reason: String(faceMatch.reason || '').trim()
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error while submitting KYC verification.' });
+  }
 });
 
 app.get('/api/security/protected-sample', requiresP2PUser, (req, res) => {

@@ -376,6 +376,57 @@
       </div>
     </section>
 
+    <section id="kycModal" class="p2p-kyc-modal hidden" aria-hidden="true">
+      <div id="kycBackdrop" class="p2p-kyc-backdrop"></div>
+      <div class="p2p-kyc-panel" role="dialog" aria-modal="true" aria-labelledby="kycTitle">
+        <div class="p2p-kyc-head">
+          <div>
+            <h3 id="kycTitle">Complete KYC Before P2P Buy</h3>
+            <p id="kycStatusText">Upload Aadhaar front and selfie with document for identity verification.</p>
+          </div>
+          <button id="kycCloseBtn" type="button" class="secondary-btn" aria-label="Close KYC">Close</button>
+        </div>
+
+        <form id="kycForm" class="p2p-kyc-form">
+          <label class="p2p-kyc-field">
+            <span>Aadhaar Number</span>
+            <input
+              id="kycAadhaarInput"
+              type="text"
+              inputmode="numeric"
+              autocomplete="off"
+              maxlength="12"
+              placeholder="Enter 12-digit Aadhaar number"
+              required
+            />
+          </label>
+
+          <label class="p2p-kyc-field">
+            <span>Aadhaar Front Image</span>
+            <input id="kycAadhaarFrontInput" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" required />
+            <small id="kycAadhaarFrontMeta">Upload clear front side image.</small>
+          </label>
+
+          <label class="p2p-kyc-field">
+            <span>Selfie With Aadhaar</span>
+            <input id="kycSelfieInput" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" required />
+            <small id="kycSelfieMeta">Face and document must be clearly visible in one frame.</small>
+          </label>
+
+          <label class="p2p-kyc-consent">
+            <input id="kycConsent" type="checkbox" />
+            <span>I confirm the documents belong to me and I allow AI face verification.</span>
+          </label>
+
+          <p id="kycHint" class="p2p-kyc-hint">KYC required to place buy orders.</p>
+
+          <div class="p2p-kyc-actions">
+            <button id="kycSubmitBtn" type="submit">Submit KYC</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
     <section id="authModal" class="p2p-auth-modal hidden" aria-hidden="true">
       <div id="authBackdrop" class="p2p-auth-backdrop"></div>
       <div class="p2p-auth-panel" role="dialog" aria-modal="true" aria-labelledby="authTitle">

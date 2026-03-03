@@ -42,6 +42,14 @@ function parsePositive(value) {
   return parsed;
 }
 
+function normalizeP2PKycStatus(rawStatus) {
+  const normalized = String(rawStatus || '').trim().toUpperCase();
+  if (['VERIFIED', 'PENDING_REVIEW', 'REJECTED', 'NOT_SUBMITTED'].includes(normalized)) {
+    return normalized;
+  }
+  return 'NOT_SUBMITTED';
+}
+
 function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 * 1000 }) {
   if (!repos || !walletService) {
     throw new Error('P2P order controller requires repos and walletService.');
@@ -118,6 +126,34 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
       if (String(buyer.id || '').trim() === String(seller.id || '').trim()) {
         return res.status(400).json({ success: false, message: 'Buyer and seller cannot be same account.' });
+      }
+
+      if (adType === 'SELL') {
+        const credential = await repos.getP2PCredential(String(req.p2pUser?.email || '').trim().toLowerCase());
+        const kycStatus = normalizeP2PKycStatus(credential?.kycStatus);
+
+        if (kycStatus !== 'VERIFIED') {
+          const statusMessageMap = {
+            NOT_SUBMITTED: 'Complete KYC verification before placing a buy order.',
+            PENDING_REVIEW: 'KYC is under review. You can place buy orders after verification.',
+            REJECTED: 'KYC verification was rejected. Please resubmit documents to continue.'
+          };
+
+          const codeMap = {
+            NOT_SUBMITTED: 'KYC_REQUIRED',
+            PENDING_REVIEW: 'KYC_PENDING',
+            REJECTED: 'KYC_REJECTED'
+          };
+
+          return res.status(403).json({
+            success: false,
+            code: codeMap[kycStatus] || 'KYC_REQUIRED',
+            message: statusMessageMap[kycStatus] || 'KYC verification required for buy orders.',
+            kyc: {
+              status: kycStatus
+            }
+          });
+        }
       }
 
       const selectedPaymentMethod = String(req.body.paymentMethod || '').trim();
