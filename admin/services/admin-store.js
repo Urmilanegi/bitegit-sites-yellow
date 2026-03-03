@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const ADMIN_ROLES = ['SUPER_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN', 'COMPLIANCE_ADMIN'];
 const USER_STATUSES = ['ACTIVE', 'FROZEN', 'BANNED'];
 const WITHDRAWAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'];
+const DEPOSIT_STATUSES = ['PENDING', 'COMPLETED', 'REJECTED'];
 
 function toDate(value, fallback = Date.now()) {
   const parsed = new Date(value);
@@ -63,6 +64,20 @@ function normalizeWithdrawalStatus(status) {
     return normalized;
   }
   return 'PENDING';
+}
+
+function normalizeDepositDecision(decision) {
+  const normalized = String(decision || '').trim().toUpperCase();
+  if (['APPROVE', 'APPROVED', 'COMPLETED', 'CONFIRMED', 'CREDITED'].includes(normalized)) {
+    return 'COMPLETED';
+  }
+  if (['REJECT', 'REJECTED', 'FAILED'].includes(normalized)) {
+    return 'REJECTED';
+  }
+  if (DEPOSIT_STATUSES.includes(normalized)) {
+    return normalized;
+  }
+  return '';
 }
 
 function makeP2PUserId(email) {
@@ -878,9 +893,62 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
 
   async function listDeposits(params = {}) {
     const { page, limit, skip } = parsePagination(params);
-    const rows = await adminDeposits.find({}).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray();
-    const total = await adminDeposits.countDocuments({});
+    const status = String(params.status || '').trim().toUpperCase();
+    const query = {};
+    if (status && DEPOSIT_STATUSES.includes(status)) {
+      query.status = status;
+    }
+
+    const rows = await adminDeposits.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray();
+    const total = await adminDeposits.countDocuments(query);
     return { page, limit, total, deposits: rows };
+  }
+
+  async function reviewDeposit(depositId, decision, reason, actor = {}) {
+    const normalizedDepositId = String(depositId || '').trim();
+    if (!normalizedDepositId) {
+      throw new Error('Deposit id is required');
+    }
+
+    const normalizedDecision = normalizeDepositDecision(decision);
+    if (!['COMPLETED', 'REJECTED'].includes(normalizedDecision)) {
+      throw new Error('Decision must be APPROVED or REJECTED');
+    }
+
+    const existing = await adminDeposits.findOne({ id: normalizedDepositId });
+    if (!existing) {
+      throw new Error('Deposit request not found');
+    }
+
+    const currentStatus = String(existing.status || '').trim().toUpperCase();
+    if (currentStatus === 'COMPLETED' && normalizedDecision === 'REJECTED') {
+      throw new Error('Completed deposits cannot be rejected');
+    }
+    if (currentStatus === normalizedDecision) {
+      return existing;
+    }
+
+    const now = new Date();
+    const result = await adminDeposits.findOneAndUpdate(
+      { id: normalizedDepositId },
+      {
+        $set: {
+          status: normalizedDecision,
+          reviewedBy: String(actor.id || '').trim(),
+          reviewedByRole: String(actor.role || '').trim(),
+          reviewReason: String(reason || ''),
+          reviewedAt: now,
+          updatedAt: now
+        }
+      },
+      { returnDocument: 'after' }
+    );
+
+    if (!result.value) {
+      throw new Error('Deposit request not found');
+    }
+
+    return result.value;
   }
 
   async function listWithdrawals(params = {}) {
@@ -1663,6 +1731,7 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     reviewKyc,
     getWalletOverview,
     listDeposits,
+    reviewDeposit,
     listWithdrawals,
     reviewWithdrawal,
     setCoinWithdrawalConfig,

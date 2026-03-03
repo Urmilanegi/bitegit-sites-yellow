@@ -170,6 +170,7 @@ function registerAdminRoutes(app, deps) {
   // -------------------------
   router.get('/wallet/overview', protect(ROLE_GROUPS.FINANCE), withLogging({ module: 'wallet', action: 'wallet_overview' }, adminControllers.walletOverview));
   router.get('/wallet/deposits', protect(ROLE_GROUPS.FINANCE), withLogging({ module: 'wallet', action: 'list_deposits' }, adminControllers.listDeposits));
+  router.post('/wallet/deposits/:depositId/review', protect(ROLE_GROUPS.FINANCE), withLogging({ module: 'wallet', action: 'review_deposit' }, adminControllers.reviewDeposit));
   router.get('/wallet/withdrawals', protect(ROLE_GROUPS.FINANCE), withLogging({ module: 'wallet', action: 'list_withdrawals' }, adminControllers.listWithdrawals));
   router.post('/wallet/withdrawals/:withdrawalId/review', protect(ROLE_GROUPS.FINANCE), withLogging({ module: 'wallet', action: 'review_withdrawal' }, adminControllers.reviewWithdrawal));
   router.put('/wallet/config/:coin', protect(ROLE_GROUPS.FINANCE), withLogging({ module: 'wallet', action: 'set_coin_config' }, adminControllers.setCoinConfig));

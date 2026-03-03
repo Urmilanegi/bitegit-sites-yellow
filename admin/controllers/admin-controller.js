@@ -383,6 +383,25 @@ function createAdminControllers({
     return res.json(data);
   }
 
+  async function reviewDeposit(req, res) {
+    const decision = String(req.body?.decision || '').trim().toUpperCase();
+    const reason = String(req.body?.reason || '').trim();
+    const data = await adminStore.reviewDeposit(req.params.depositId, decision, reason, {
+      id: req.adminAuth.adminId,
+      role: req.adminAuth.adminRole
+    });
+
+    await logAudit(req, {
+      module: 'wallet',
+      action: 'review_deposit',
+      entityType: 'deposit',
+      entityId: req.params.depositId,
+      meta: { decision, reason }
+    });
+
+    return res.json({ message: 'Deposit reviewed.', deposit: data });
+  }
+
   async function listWithdrawals(req, res) {
     const data = await adminStore.listWithdrawals(req.query);
     return res.json(data);
@@ -726,6 +745,7 @@ function createAdminControllers({
     reviewUserKyc,
     walletOverview,
     listDeposits,
+    reviewDeposit,
     listWithdrawals,
     reviewWithdrawal,
     setCoinConfig,

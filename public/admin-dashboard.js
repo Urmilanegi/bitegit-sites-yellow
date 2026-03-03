@@ -8,7 +8,11 @@ const state = {
     revenue: null
   },
   users: [],
-  spotPairs: []
+  spotPairs: [],
+  walletFilters: {
+    depositStatus: '',
+    withdrawalStatus: 'PENDING'
+  }
 };
 
 const dom = {
@@ -379,24 +383,52 @@ async function loadUsers(options = {}) {
 }
 
 async function loadWallet() {
-  const [overview, withdrawals, hotBalances] = await Promise.all([
+  const depositStatusSelect = document.getElementById('walletDepositStatusFilter');
+  const withdrawalStatusSelect = document.getElementById('walletWithdrawalStatusFilter');
+  const selectedDepositStatus = String(depositStatusSelect?.value || '').trim().toUpperCase();
+  const selectedWithdrawalStatus = String(withdrawalStatusSelect?.value || '').trim().toUpperCase();
+
+  state.walletFilters.depositStatus = selectedDepositStatus;
+  state.walletFilters.withdrawalStatus = selectedWithdrawalStatus;
+
+  const depositsQuery = new URLSearchParams({ limit: '25' });
+  const withdrawalsQuery = new URLSearchParams({ limit: '25' });
+
+  if (selectedDepositStatus) {
+    depositsQuery.set('status', selectedDepositStatus);
+  }
+
+  if (selectedWithdrawalStatus) {
+    withdrawalsQuery.set('status', selectedWithdrawalStatus);
+  }
+
+  const [overview, deposits, withdrawals, hotBalances] = await Promise.all([
     apiRequest('/wallet/overview'),
-    apiRequest('/wallet/withdrawals?limit=20'),
+    apiRequest(`/wallet/deposits?${depositsQuery.toString()}`),
+    apiRequest(`/wallet/withdrawals?${withdrawalsQuery.toString()}`),
     apiRequest('/wallet/hot-balances')
   ]);
+
+  const depositRows = Array.isArray(deposits.deposits) ? deposits.deposits : [];
+  const withdrawalRows = Array.isArray(withdrawals.withdrawals) ? withdrawals.withdrawals : [];
+  const pendingDeposits = depositRows.filter((row) => String(row.status || '').toUpperCase() === 'PENDING');
+  const pendingDepositAmount = pendingDeposits.reduce((sum, row) => sum + Number(row.amount || 0), 0);
 
   renderCards('walletCards', [
     { label: 'Total Balance', value: `₹${formatNumber(overview.totalBalance || 0, 2)}` },
     { label: 'Locked Balance', value: `₹${formatNumber(overview.totalLockedBalance || 0, 2)}` },
-    { label: 'Pending Withdrawals', value: Number(overview.pendingWithdrawals || 0) },
+    { label: 'Pending Deposits', value: `${pendingDeposits.length}`, meta: `Amount: ${formatNumber(pendingDepositAmount || 0, 6)}` },
     { label: 'Pending Amount', value: `₹${formatNumber(overview.pendingWithdrawalAmount || 0, 2)}` }
   ]);
 
-  const withdrawalsList = document.getElementById('withdrawalsList');
-  const withdrawalRows = Array.isArray(withdrawals.withdrawals) ? withdrawals.withdrawals : [];
-  withdrawalsList.innerHTML = withdrawalRows
-    .map(
-      (row) => `
+  const depositsList = document.getElementById('depositsList');
+  depositsList.innerHTML = depositRows
+    .map((row) => {
+      const status = String(row.status || 'PENDING').trim().toUpperCase();
+      const canReview = status === 'PENDING';
+      const disabledClass = canReview ? '' : ' opacity-60';
+      const disabledAttr = canReview ? '' : ' disabled';
+      return `
       <article class="list-item">
         <div class="flex items-start justify-between gap-2">
           <div>
@@ -404,16 +436,49 @@ async function loadWallet() {
             <p class="text-xs text-slate-400">User: ${row.userId || '-'}</p>
             <p class="text-xs text-slate-500">${formatDate(row.createdAt)}</p>
           </div>
-          ${statusBadge(row.status || 'PENDING')}
+          ${statusBadge(status)}
         </div>
         <p class="mt-2 text-sm text-slate-200">${row.coin || 'USDT'} • ${formatNumber(row.amount || 0, 6)}</p>
+        <p class="mt-1 text-xs text-slate-500">Type: ${row.type || 'ONCHAIN'} • Tx: ${row.txHash || row.txid || '-'}</p>
         <div class="mt-2 flex gap-2">
-          <button class="btn-primary" data-withdrawal-action="approve" data-withdrawal-id="${row.id}">Approve</button>
-          <button class="btn-danger" data-withdrawal-action="reject" data-withdrawal-id="${row.id}">Reject</button>
+          <button class="btn-primary${disabledClass}" data-deposit-action="approve" data-deposit-id="${row.id}"${disabledAttr}>Approve</button>
+          <button class="btn-danger${disabledClass}" data-deposit-action="reject" data-deposit-id="${row.id}"${disabledAttr}>Reject</button>
         </div>
       </article>
-    `
-    )
+    `;
+    })
+    .join('');
+
+  if (depositRows.length === 0) {
+    depositsList.innerHTML = '<p class="text-sm text-slate-500">No deposits available.</p>';
+  }
+
+  const withdrawalsList = document.getElementById('withdrawalsList');
+  withdrawalsList.innerHTML = withdrawalRows
+    .map((row) => {
+      const status = String(row.status || 'PENDING').trim().toUpperCase();
+      const canReview = status === 'PENDING';
+      const disabledClass = canReview ? '' : ' opacity-60';
+      const disabledAttr = canReview ? '' : ' disabled';
+      return `
+      <article class="list-item">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <p class="text-sm font-semibold">${row.id}</p>
+            <p class="text-xs text-slate-400">User: ${row.userId || '-'}</p>
+            <p class="text-xs text-slate-500">${formatDate(row.createdAt)}</p>
+          </div>
+          ${statusBadge(status)}
+        </div>
+        <p class="mt-2 text-sm text-slate-200">${row.coin || 'USDT'} • ${formatNumber(row.amount || 0, 6)}</p>
+        <p class="mt-1 text-xs text-slate-500">To: ${row.address || row.toAddress || row.to || '-'}</p>
+        <div class="mt-2 flex gap-2">
+          <button class="btn-primary${disabledClass}" data-withdrawal-action="approve" data-withdrawal-id="${row.id}"${disabledAttr}>Approve</button>
+          <button class="btn-danger${disabledClass}" data-withdrawal-action="reject" data-withdrawal-id="${row.id}"${disabledAttr}>Reject</button>
+        </div>
+      </article>
+    `;
+    })
     .join('');
 
   if (withdrawalRows.length === 0) {
@@ -433,6 +498,10 @@ async function loadWallet() {
     `
     )
     .join('');
+
+  if (wallets.length === 0) {
+    hotWalletList.innerHTML = '<p class="text-sm text-slate-500">No hot wallets configured.</p>';
+  }
 }
 
 async function loadSpot() {
@@ -766,15 +835,18 @@ async function handleUsersAction(event) {
 
 async function handleWithdrawalAction(event) {
   const button = event.target.closest('[data-withdrawal-action]');
-  if (!button) {
+  if (!button || button.disabled) {
     return;
   }
   const action = button.getAttribute('data-withdrawal-action');
   const withdrawalId = button.getAttribute('data-withdrawal-id');
   const decision = action === 'approve' ? 'APPROVED' : 'REJECTED';
-  const reason = window.prompt(`Reason for ${decision}:`, decision === 'APPROVED' ? 'manual review approved' : 'manual review rejected') || '';
+  const reason =
+    window.prompt(`Reason for ${decision}:`, decision === 'APPROVED' ? 'manual review approved' : 'manual review rejected') ||
+    '';
 
   try {
+    setActionButtonLoading(button, true, decision === 'APPROVED' ? 'Approving...' : 'Rejecting...');
     await apiRequest(`/wallet/withdrawals/${encodeURIComponent(withdrawalId)}/review`, {
       method: 'POST',
       body: JSON.stringify({ decision, reason })
@@ -783,6 +855,35 @@ async function handleWithdrawalAction(event) {
     await loadWallet();
   } catch (error) {
     showMessage(error.message || 'Withdrawal action failed.', 'error');
+  } finally {
+    setActionButtonLoading(button, false);
+  }
+}
+
+async function handleDepositAction(event) {
+  const button = event.target.closest('[data-deposit-action]');
+  if (!button || button.disabled) {
+    return;
+  }
+
+  const action = button.getAttribute('data-deposit-action');
+  const depositId = button.getAttribute('data-deposit-id');
+  const decision = action === 'approve' ? 'APPROVED' : 'REJECTED';
+  const reason =
+    window.prompt(`Reason for ${decision}:`, decision === 'APPROVED' ? 'manual review approved' : 'deposit review rejected') || '';
+
+  try {
+    setActionButtonLoading(button, true, decision === 'APPROVED' ? 'Approving...' : 'Rejecting...');
+    await apiRequest(`/wallet/deposits/${encodeURIComponent(depositId)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, reason })
+    });
+    showMessage(`Deposit ${decision.toLowerCase()} successfully.`, 'success');
+    await loadWallet();
+  } catch (error) {
+    showMessage(error.message || 'Deposit action failed.', 'error');
+  } finally {
+    setActionButtonLoading(button, false);
   }
 }
 
@@ -917,6 +1018,7 @@ function wireEventListeners() {
   });
 
   document.getElementById('usersTableBody').addEventListener('click', handleUsersAction);
+  document.getElementById('depositsList').addEventListener('click', handleDepositAction);
   document.getElementById('withdrawalsList').addEventListener('click', handleWithdrawalAction);
   document.getElementById('spotPairsTableBody').addEventListener('click', handleSpotAction);
   document.getElementById('p2pAdsList').addEventListener('click', handleP2PActions);
@@ -933,7 +1035,19 @@ function wireEventListeners() {
     await loadUsers();
   });
 
+  document.getElementById('walletDepositsReloadBtn').addEventListener('click', async () => {
+    await loadWallet();
+  });
+
   document.getElementById('walletWithdrawalsReloadBtn').addEventListener('click', async () => {
+    await loadWallet();
+  });
+
+  document.getElementById('walletDepositStatusFilter').addEventListener('change', async () => {
+    await loadWallet();
+  });
+
+  document.getElementById('walletWithdrawalStatusFilter').addEventListener('change', async () => {
     await loadWallet();
   });
 

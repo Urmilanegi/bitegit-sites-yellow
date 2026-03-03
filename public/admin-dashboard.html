@@ -128,11 +128,34 @@
 
           <section class="admin-panel hidden" data-panel="wallet">
             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" id="walletCards"></div>
-            <div class="mt-4 grid gap-4 xl:grid-cols-2">
+            <div class="mt-4 grid gap-4 2xl:grid-cols-3">
               <article class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-panel">
-                <div class="mb-3 flex items-center justify-between">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Deposits</h3>
+                  <div class="flex items-center gap-2">
+                    <select id="walletDepositStatusFilter" class="input-dark !h-9 !py-1 text-xs">
+                      <option value="">All</option>
+                      <option value="PENDING">Pending</option>
+                      <option value="COMPLETED">Completed</option>
+                      <option value="REJECTED">Rejected</option>
+                    </select>
+                    <button id="walletDepositsReloadBtn" class="btn-secondary">Reload</button>
+                  </div>
+                </div>
+                <div class="max-h-[380px] overflow-auto" id="depositsList"></div>
+              </article>
+              <article class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-panel">
+                <div class="mb-3 flex items-center justify-between gap-2">
                   <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Withdrawals</h3>
-                  <button id="walletWithdrawalsReloadBtn" class="btn-secondary">Reload</button>
+                  <div class="flex items-center gap-2">
+                    <select id="walletWithdrawalStatusFilter" class="input-dark !h-9 !py-1 text-xs">
+                      <option value="">All</option>
+                      <option value="PENDING" selected>Pending</option>
+                      <option value="APPROVED">Approved</option>
+                      <option value="REJECTED">Rejected</option>
+                    </select>
+                    <button id="walletWithdrawalsReloadBtn" class="btn-secondary">Reload</button>
+                  </div>
                 </div>
                 <div class="max-h-[380px] overflow-auto" id="withdrawalsList"></div>
               </article>
