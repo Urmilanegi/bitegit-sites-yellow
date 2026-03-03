@@ -1326,6 +1326,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   overflow: hidden;
   background: #000;
   border-color: rgba(255, 255, 255, 0.08);
+  position: relative;
 }
 
 .cf-feature-media-video {
@@ -1335,6 +1336,14 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   object-fit: contain;
   background: #000;
   transition: transform 0.35s ease;
+}
+
+.cf-feature-media-fallback {
+  display: none;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #000;
 }
 
 .cf-feature-media-card:hover .cf-feature-media-video {
@@ -2459,6 +2468,15 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
     aspect-ratio: 9 / 16;
     object-fit: contain;
     height: auto;
+  }
+
+  .cf-feature-media-video {
+    display: none;
+  }
+
+  .cf-feature-media-fallback {
+    display: block;
+    aspect-ratio: 9 / 16;
   }
 
   .cf-hero-video-section {
