@@ -1,5 +1,8 @@
 const pathParts = window.location.pathname.split('/').filter(Boolean);
-const routeMarket = pathParts[1] === 'perp' ? 'perp' : 'spot';
+const routeQuery = new URLSearchParams(window.location.search);
+const queryMarket = String(routeQuery.get('market') || '').trim().toLowerCase();
+const querySymbol = String(routeQuery.get('symbol') || routeQuery.get('pair') || '').trim();
+const routeMarket = queryMarket === 'perp' || pathParts[1] === 'perp' ? 'perp' : 'spot';
 
 function normalizeRouteSymbol(rawSymbol) {
   const cleaned = String(rawSymbol || 'BTCUSDT')
@@ -18,7 +21,7 @@ function normalizeRouteSymbol(rawSymbol) {
   return normalized;
 }
 
-const routeSymbol = normalizeRouteSymbol(pathParts[2] || 'BTCUSDT');
+const routeSymbol = normalizeRouteSymbol(querySymbol || pathParts[2] || 'BTCUSDT');
 
 const state = {
   market: routeMarket,

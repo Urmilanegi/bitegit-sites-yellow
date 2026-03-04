@@ -1066,8 +1066,8 @@ body.p2p-theme-light .pay-chip {
   background: #111a2a;
   display: flex;
   align-items: center;
-  gap: 0.58rem;
-  padding: 0.7rem;
+  gap: 0.52rem;
+  padding: 0.64rem;
 }
 
 .profile-avatar {
@@ -1083,48 +1083,121 @@ body.p2p-theme-light .pay-chip {
   justify-content: center;
 }
 
+.profile-identity-main {
+  min-width: 0;
+  flex: 1;
+}
+
 .profile-identity-card h3,
 .profile-identity-card p {
   margin: 0;
 }
 
+.profile-identity-card h3 {
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
 .profile-identity-card p {
   margin-top: 0.1rem;
   color: #a4aec0;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-identity-row {
+  margin-top: 0.2rem;
+}
+
+.profile-identity-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(145, 164, 196, 0.3);
+  background: rgba(58, 74, 103, 0.22);
+  color: #cad7ee;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 0 0.46rem;
+}
+
+.profile-identity-tag.verified {
+  border-color: rgba(141, 251, 59, 0.45);
+  background: rgba(57, 93, 34, 0.35);
+  color: #bdf77c;
+}
+
+.profile-deposit-btn {
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(96deg, #f5b34a, #f19f2f);
+  color: #1f1406;
+  font-size: 0.71rem;
+  font-weight: 800;
+  padding: 0 0.8rem;
+  white-space: nowrap;
 }
 
 .profile-metrics-grid {
   margin-top: 0.62rem;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem;
+  gap: 0.38rem;
 }
 
 .profile-metrics-grid article {
   border: 1px solid var(--p2p-line);
-  border-radius: 10px;
+  border-radius: 9px;
   background: #111a2a;
-  padding: 0.5rem;
+  padding: 0.42rem 0.46rem;
   display: grid;
-  gap: 0.14rem;
+  gap: 0.1rem;
 }
 
 .profile-metrics-grid article span {
   color: #96a3ba;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
+  line-height: 1.25;
 }
 
 .profile-metrics-grid article strong {
   color: #f4f8ff;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 700;
 }
 
+.profile-deposit-line {
+  margin: 0.52rem 0 0;
+  color: #a9b7cd;
+  font-size: 0.72rem;
+}
+
+.profile-deposit-line strong {
+  color: #f4f8ff;
+  font-size: 0.84rem;
+}
+
 .profile-meta {
-  margin: 0.6rem 0 0;
+  margin: 0.46rem 0 0;
   color: #9ba8bf;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
+  line-height: 1.32;
+}
+
+body.p2p-theme-light .profile-identity-tag {
+  border-color: rgba(50, 70, 104, 0.24);
+  background: rgba(185, 203, 233, 0.35);
+  color: #334768;
+}
+
+body.p2p-theme-light .profile-identity-tag.verified {
+  border-color: rgba(44, 161, 90, 0.32);
+  background: rgba(173, 240, 209, 0.55);
+  color: #11734f;
 }
 
 .status-pill {

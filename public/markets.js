@@ -42,6 +42,15 @@ let currentTab = 'popular';
 let cacheRows = [];
 let currentUser = null;
 
+function buildTradeChartUrl(symbol, market = 'spot') {
+  const cleanSymbol = String(symbol || 'BTCUSDT')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  const finalSymbol = cleanSymbol || 'BTCUSDT';
+  const finalMarket = String(market || 'spot').toLowerCase() === 'perp' ? 'perp' : 'spot';
+  return `/trade/${finalMarket}/${encodeURIComponent(finalSymbol)}?view=chart`;
+}
+
 function syncMarketsInteractionState() {
   const hasOverlay = Boolean(marketsNavOverlay && !marketsNavOverlay.classList.contains('hidden'));
   document.body.style.overflow = hasOverlay ? 'hidden' : 'auto';
@@ -113,14 +122,14 @@ function renderRows(rows) {
       const isUp = change >= 0;
 
       return `
-        <button type="button" class="market-row" data-symbol="${symbol}">
+        <a class="market-row" href="${buildTradeChartUrl(symbol, 'spot')}" data-symbol="${symbol}" data-market="spot">
           <div class="market-pair">
             ${getCoinIconMarkup(base)}
             <p class="market-symbol">${base}<small>/USDT</small></p>
           </div>
           <p class="market-price">${formatPrice(item.lastPrice)}</p>
           <span class="market-change ${isUp ? 'up' : 'down'}">${isUp ? '+' : ''}${change.toFixed(2)}%</span>
-        </button>
+        </a>
       `;
     })
     .join('');
@@ -221,8 +230,10 @@ marketsRows?.addEventListener('click', (event) => {
   if (!row?.dataset?.symbol) {
     return;
   }
+  event.preventDefault();
   const symbol = String(row.dataset.symbol).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  window.location.href = `/trade/spot/${encodeURIComponent(symbol || 'BTCUSDT')}`;
+  const market = String(row.dataset.market || 'spot').toLowerCase();
+  window.location.href = buildTradeChartUrl(symbol, market);
 });
 
 marketsMenuToggle?.addEventListener('click', () => setMarketsNavOpen(true));

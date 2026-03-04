@@ -264,28 +264,29 @@
       <section id="profile" class="p2p-mobile-panel p2p-profile-panel mobile-only">
         <div class="mobile-panel-head">
           <h2>P2P Profile</h2>
-          <p>Security, KYC and trading performance overview.</p>
+          <p>Identity and 30-day performance overview.</p>
         </div>
 
         <article class="profile-identity-card">
           <div class="profile-avatar" id="profileAvatar">U</div>
-          <div>
+          <div class="profile-identity-main">
             <h3 id="profileName">Guest User</h3>
             <p id="profileEmail">Login required</p>
+            <div class="profile-identity-row">
+              <span id="profileIdentityTag" class="profile-identity-tag">Identity Not Submitted</span>
+            </div>
           </div>
+          <button id="profileDepositBtn" type="button" class="profile-deposit-btn">Deposit</button>
         </article>
 
-        <div class="profile-metrics-grid">
-          <article><span>KYC Status</span><strong id="profileKyc">Pending</strong></article>
-          <article><span>Security</span><strong id="profileSecurity">Basic</strong></article>
-          <article><span>Total Orders</span><strong id="profileTotalOrders">0</strong></article>
-          <article><span>Completion Rate</span><strong id="profileCompletionRate">0%</strong></article>
-          <article><span>Total Deposit</span><strong id="profileDeposit">₹0</strong></article>
-          <article><span>Order Completion</span><strong id="profileCompletedOrders">0</strong></article>
-          <article><span>Cancelled Orders</span><strong id="profileCancelledOrders">0</strong></article>
+        <div class="profile-metrics-grid profile-metrics-grid-30d">
+          <article><span>Completed Orders (30D)</span><strong id="profileCompletedOrders30d">0</strong></article>
+          <article><span>Completion Rate (30D)</span><strong id="profileCompletionRate30d">0%</strong></article>
           <article><span>Avg Release Time</span><strong id="profileAvgReleaseTime">--</strong></article>
+          <article><span>Avg Payment Time</span><strong id="profileAvgPaymentTime">--</strong></article>
         </div>
 
+        <p class="profile-deposit-line">Deposit <strong id="profileDeposit">₹0</strong></p>
         <p id="profileMeta" class="profile-meta">Profile data sync pending.</p>
       </section>
     </main>

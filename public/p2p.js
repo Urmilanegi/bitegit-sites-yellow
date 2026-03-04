@@ -136,14 +136,19 @@ const refreshMyAdsBtn = document.getElementById('refreshMyAdsBtn');
 const profileAvatar = document.getElementById('profileAvatar');
 const profileName = document.getElementById('profileName');
 const profileEmail = document.getElementById('profileEmail');
+const profileIdentityTag = document.getElementById('profileIdentityTag');
+const profileDepositBtn = document.getElementById('profileDepositBtn');
 const profileKyc = document.getElementById('profileKyc');
 const profileSecurity = document.getElementById('profileSecurity');
 const profileTotalOrders = document.getElementById('profileTotalOrders');
 const profileCompletionRate = document.getElementById('profileCompletionRate');
 const profileDeposit = document.getElementById('profileDeposit');
 const profileCompletedOrders = document.getElementById('profileCompletedOrders');
+const profileCompletedOrders30d = document.getElementById('profileCompletedOrders30d');
+const profileCompletionRate30d = document.getElementById('profileCompletionRate30d');
 const profileCancelledOrders = document.getElementById('profileCancelledOrders');
 const profileAvgReleaseTime = document.getElementById('profileAvgReleaseTime');
+const profileAvgPaymentTime = document.getElementById('profileAvgPaymentTime');
 const profileMeta = document.getElementById('profileMeta');
 
 let currentSide = 'buy';
@@ -871,6 +876,14 @@ function storeOrderForMobile(order) {
     ...previous,
     ...order,
     status: normalizeStatusForUi(order.status),
+    paidAt:
+      order.paidAt ||
+      order.paymentMarkedAt ||
+      order.paymentConfirmedAt ||
+      order.markedPaidAt ||
+      previous.paidAt ||
+      '',
+    releasedAt: order.releasedAt || order.completedAt || previous.releasedAt || '',
     updatedAt: order.updatedAt || order.createdAt || previous.updatedAt || new Date().toISOString(),
     createdAt: order.createdAt || previous.createdAt || new Date().toISOString(),
     participantsLabel: order.participantsLabel || previous.participantsLabel || '--',
@@ -884,10 +897,30 @@ function storeOrderForMobile(order) {
   mobileOrdersCache.set(order.id, next);
 }
 
-function getMobileOrdersSnapshot() {
+function pruneMobileOrdersCache(maxAgeMs = 45 * 24 * 60 * 60 * 1000) {
+  const threshold = Date.now() - maxAgeMs;
+  for (const [orderId, order] of mobileOrdersCache.entries()) {
+    const createdAtMs = new Date(order?.createdAt || 0).getTime();
+    const updatedAtMs = new Date(order?.updatedAt || 0).getTime();
+    const pivot = Math.max(createdAtMs || 0, updatedAtMs || 0);
+    if (pivot > 0 && pivot < threshold) {
+      mobileOrdersCache.delete(orderId);
+    }
+  }
+}
+
+function getAllCachedParticipantOrders() {
   return Array.from(mobileOrdersCache.values())
-    .filter((order) => Boolean(order?.isParticipant) && isOngoingOrderStatus(order.status))
+    .filter((order) => Boolean(order?.isParticipant))
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+}
+
+function getMobileOrdersSnapshot() {
+  return getAllCachedParticipantOrders().filter((order) => isOngoingOrderStatus(order.status));
+}
+
+function getProfileOrdersSnapshot() {
+  return getAllCachedParticipantOrders();
 }
 
 function filteredMobileOrders() {
@@ -1083,10 +1116,30 @@ async function loadProfilePanel(options = {}) {
     return;
   }
 
+  const setIdentityTag = (label, verified = false) => {
+    if (!profileIdentityTag) {
+      return;
+    }
+    profileIdentityTag.textContent = label;
+    profileIdentityTag.classList.toggle('verified', Boolean(verified));
+  };
+
+  const readTimestampMs = (order, keys) => {
+    for (const key of keys) {
+      const value = order?.[key];
+      const epoch = new Date(value || 0).getTime();
+      if (Number.isFinite(epoch) && epoch > 0) {
+        return epoch;
+      }
+    }
+    return 0;
+  };
+
   if (!currentUser) {
     profileWalletBalance = 0;
     profileWalletLocked = 0;
     profileWalletSyncedAt = 0;
+    mobileOrdersCache.clear();
     if (profileAvatar) {
       profileAvatar.textContent = 'U';
     }
@@ -1096,6 +1149,7 @@ async function loadProfilePanel(options = {}) {
     if (profileEmail) {
       profileEmail.textContent = 'Login required';
     }
+    setIdentityTag('Identity Not Submitted', false);
     if (profileKyc) {
       profileKyc.textContent = 'Not Submitted';
     }
@@ -1108,17 +1162,26 @@ async function loadProfilePanel(options = {}) {
     if (profileCompletionRate) {
       profileCompletionRate.textContent = '0%';
     }
+    if (profileCompletionRate30d) {
+      profileCompletionRate30d.textContent = '0%';
+    }
     if (profileDeposit) {
       profileDeposit.textContent = '₹0';
     }
     if (profileCompletedOrders) {
       profileCompletedOrders.textContent = '0';
     }
+    if (profileCompletedOrders30d) {
+      profileCompletedOrders30d.textContent = '0';
+    }
     if (profileCancelledOrders) {
       profileCancelledOrders.textContent = '0';
     }
     if (profileAvgReleaseTime) {
       profileAvgReleaseTime.textContent = '--';
+    }
+    if (profileAvgPaymentTime) {
+      profileAvgPaymentTime.textContent = '--';
     }
     if (profileMeta) {
       profileMeta.textContent = 'Login to view profile analytics.';
@@ -1141,6 +1204,8 @@ async function loadProfilePanel(options = {}) {
     profileEmail.textContent = currentUser.email || '--';
   }
   const currentKycStatus = normalizeKycStatus(currentUser?.kyc?.status);
+  const isKycVerified = currentKycStatus === 'VERIFIED';
+  setIdentityTag(isKycVerified ? 'Identity Verified' : `Identity ${getKycStatusLabel(currentKycStatus)}`, isKycVerified);
   if (profileKyc) {
     profileKyc.textContent = getKycStatusLabel(currentKycStatus);
   }
@@ -1165,20 +1230,62 @@ async function loadProfilePanel(options = {}) {
     }
   }
 
-  const orders = getMobileOrdersSnapshot();
-  const completedOrders = orders.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
-  const cancelledOrders = orders.filter((order) =>
+  const nowMs = Date.now();
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  const orders = getProfileOrdersSnapshot();
+  const orders30d = orders.filter((order) => {
+    const createdMs = readTimestampMs(order, ['createdAt']);
+    return createdMs > 0 && createdMs >= nowMs - thirtyDaysMs;
+  });
+
+  const completedOrders = orders30d.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
+  const cancelledOrders = orders30d.filter((order) =>
     ['CANCELLED', 'EXPIRED'].includes(normalizeStatusForUi(order.status))
   );
-  const totalOrders = orders.length;
+  const totalOrders = orders30d.length;
   const completionRateValue = totalOrders ? (completedOrders.length / totalOrders) * 100 : 0;
 
   const releaseDurations = completedOrders
-    .map((order) => new Date(order.updatedAt || 0).getTime() - new Date(order.createdAt || 0).getTime())
+    .map((order) => {
+      const createdAtMs = readTimestampMs(order, ['createdAt']);
+      const releasedAtMs = readTimestampMs(order, ['releasedAt', 'completedAt', 'updatedAt']);
+      if (releasedAtMs > createdAtMs) {
+        return releasedAtMs - createdAtMs;
+      }
+      return 0;
+    })
     .filter((value) => Number.isFinite(value) && value > 0);
   const avgReleaseMs =
     releaseDurations.length > 0
       ? releaseDurations.reduce((sum, value) => sum + value, 0) / releaseDurations.length
+      : 0;
+
+  const paymentDurations = orders30d
+    .map((order) => {
+      const createdAtMs = readTimestampMs(order, ['createdAt']);
+      if (!createdAtMs) {
+        return 0;
+      }
+
+      const paidAtMs = readTimestampMs(order, [
+        'paidAt',
+        'paymentMarkedAt',
+        'paymentConfirmedAt',
+        'markedPaidAt',
+        'buyerPaidAt',
+        'updatedAt'
+      ]);
+
+      if (paidAtMs > createdAtMs) {
+        return paidAtMs - createdAtMs;
+      }
+      return 0;
+    })
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  const avgPaymentMs =
+    paymentDurations.length > 0
+      ? paymentDurations.reduce((sum, value) => sum + value, 0) / paymentDurations.length
       : 0;
 
   if (profileTotalOrders) {
@@ -1187,11 +1294,17 @@ async function loadProfilePanel(options = {}) {
   if (profileCompletionRate) {
     profileCompletionRate.textContent = `${completionRateValue.toFixed(1)}%`;
   }
+  if (profileCompletionRate30d) {
+    profileCompletionRate30d.textContent = `${completionRateValue.toFixed(1)}%`;
+  }
   if (profileDeposit) {
     profileDeposit.textContent = `₹${formatNumber(profileWalletBalance + profileWalletLocked)}`;
   }
   if (profileCompletedOrders) {
     profileCompletedOrders.textContent = String(completedOrders.length);
+  }
+  if (profileCompletedOrders30d) {
+    profileCompletedOrders30d.textContent = String(completedOrders.length);
   }
   if (profileCancelledOrders) {
     profileCancelledOrders.textContent = String(cancelledOrders.length);
@@ -1199,9 +1312,12 @@ async function loadProfilePanel(options = {}) {
   if (profileAvgReleaseTime) {
     profileAvgReleaseTime.textContent = formatDurationLabel(avgReleaseMs);
   }
+  if (profileAvgPaymentTime) {
+    profileAvgPaymentTime.textContent = formatDurationLabel(avgPaymentMs);
+  }
   if (profileMeta) {
-    profileMeta.textContent = `Wallet balance: ${formatNumber(profileWalletBalance)} | Escrow locked: ${formatNumber(
-      profileWalletLocked
+    profileMeta.textContent = `30D orders: ${totalOrders} | Cancelled: ${cancelledOrders.length} | Wallet: ${formatNumber(
+      profileWalletBalance
     )}`;
   }
 }
@@ -2137,9 +2253,10 @@ async function submitDealOrder() {
 
 function renderLiveOrders(orders) {
   const incomingOrders = Array.isArray(orders) ? orders : [];
-  const visibleOrders = incomingOrders.filter((order) => Boolean(order?.isParticipant) && isOngoingOrderStatus(order.status));
-  mobileOrdersCache.clear();
-  visibleOrders.forEach((order) => storeOrderForMobile(order));
+  const participantOrders = incomingOrders.filter((order) => Boolean(order?.isParticipant));
+  participantOrders.forEach((order) => storeOrderForMobile(order));
+  pruneMobileOrdersCache();
+  const visibleOrders = participantOrders.filter((order) => isOngoingOrderStatus(order.status));
 
   if (!visibleOrders.length) {
     if (liveOrdersRows) {
@@ -3063,6 +3180,16 @@ if (mobileCurrencyBtn) {
     }
     currencyFilter.scrollIntoView({ behavior: 'smooth', block: 'center' });
     currencyFilter.focus({ preventScroll: true });
+  });
+}
+
+if (profileDepositBtn) {
+  profileDepositBtn.addEventListener('click', () => {
+    if (!currentUser) {
+      setAuthModalOpen(true);
+      return;
+    }
+    window.location.href = '/assets/';
   });
 }
 
