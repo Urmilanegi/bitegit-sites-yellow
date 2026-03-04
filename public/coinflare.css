@@ -1314,6 +1314,10 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   gap: 1rem;
 }
 
+.cf-feature-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .cf-feature-card {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
@@ -1401,6 +1405,24 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 
 .cf-feature-media-card:hover .cf-feature-media-video {
   transform: none;
+}
+
+.cf-everyone-trigger {
+  max-width: 840px;
+  margin: 0 auto;
+  cursor: pointer;
+}
+
+.cf-everyone-trigger:focus-visible {
+  outline: 0;
+  border-color: rgba(139, 243, 0, 0.62);
+  box-shadow: 0 0 0 2px rgba(139, 243, 0, 0.25);
+}
+
+.cf-feature-media-video-primary,
+.cf-everyone-trigger .cf-feature-media-fallback {
+  object-fit: contain;
+  background: #02050a;
 }
 
 .cf-feature-card h3 {
@@ -2527,6 +2549,16 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
     display: block;
     opacity: 1;
     aspect-ratio: 9 / 16;
+  }
+
+  .cf-feature-media-video-primary,
+  .cf-feature-media-card.cf-media-ready .cf-feature-media-video-primary {
+    display: block;
+  }
+
+  .cf-feature-media-card.cf-media-ready.cf-everyone-trigger .cf-feature-media-fallback {
+    display: none;
+    opacity: 0;
   }
 
   .cf-feature-media-caption {
