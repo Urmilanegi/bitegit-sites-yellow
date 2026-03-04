@@ -1731,12 +1731,11 @@ function setAuthModalOpen(open) {
 
 function updateUserUi() {
   if (currentUser) {
-    const displayIdentity = currentUser.email || currentUser.username || 'user';
     const kycLabel = getKycStatusLabel(currentUser?.kyc?.status);
     if (normalizeKycStatus(currentUser?.kyc?.status) === 'VERIFIED') {
-      setUserStatus(`Logged in as ${displayIdentity} | KYC ${kycLabel}`, 'user-online');
+      setUserStatus(`P2P account active | KYC ${kycLabel}`, 'user-online');
     } else {
-      setUserStatus(`Logged in as ${displayIdentity} | KYC ${kycLabel} (required for buy)`, 'user-error');
+      setUserStatus(`P2P account active | KYC ${kycLabel} (required for buy)`, 'user-error');
     }
     if (emailInput) {
       emailInput.value = currentUser.email;
@@ -2304,7 +2303,7 @@ function renderLiveOrders(orders) {
               <p>Type<strong>${order.side.toUpperCase()} ${order.asset}</strong></p>
               <p>Amount<strong>₹${formatNumber(order.amountInr)}</strong></p>
               <p>Participants<strong>${escapeHtml(order.participantsLabel)}</strong></p>
-              <p>Merchant<strong>${escapeHtml(order.advertiser || '--')}</strong></p>
+              <p>Counterparty<strong>${escapeHtml(order.advertiser || '--')}</strong></p>
             </div>
             <div class="p2p-card-actions">
               <button type="button" class="secondary-btn open-order-btn" data-order-id="${order.id}">
@@ -2392,7 +2391,7 @@ function updateOrderUi(order) {
     orderCounterpartyName.textContent = counterpartyName;
   }
   if (orderCounterpartyMeta) {
-    orderCounterpartyMeta.textContent = `Order with verified ${activeOrderRole === 'buyer' ? 'seller' : 'buyer'}`;
+    orderCounterpartyMeta.textContent = 'Order with verified counterparty';
   }
   orderPrice.textContent = `₹${formatNumber(order.price)} / ${order.asset}`;
   orderAmount.textContent = `₹${formatNumber(order.amountInr)}`;

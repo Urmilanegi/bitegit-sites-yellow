@@ -1243,34 +1243,12 @@ document.querySelectorAll('.cf-view-more[data-market]').forEach((button) => {
 });
 
 document.addEventListener('click', (event) => {
-  const everyoneTrigger = event.target.closest('.cf-everyone-trigger');
-  if (everyoneTrigger) {
-    const symbol = String(everyoneTrigger.dataset.copySymbol || 'BTCUSDT');
-    openCopyTradingChart(symbol);
-    return;
-  }
-
   const copyTrigger = event.target.closest('.cf-copy-btn');
   if (!copyTrigger) {
     return;
   }
 
   const symbol = String(copyTrigger.dataset.copySymbol || copyTrigger.closest('[data-copy-symbol]')?.dataset.copySymbol || 'BTCUSDT');
-  openCopyTradingChart(symbol);
-});
-
-document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter' && event.key !== ' ') {
-    return;
-  }
-
-  const everyoneTrigger = event.target.closest('.cf-everyone-trigger');
-  if (!everyoneTrigger) {
-    return;
-  }
-
-  event.preventDefault();
-  const symbol = String(everyoneTrigger.dataset.copySymbol || 'BTCUSDT');
   openCopyTradingChart(symbol);
 });
 

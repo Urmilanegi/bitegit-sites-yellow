@@ -1408,20 +1408,16 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 }
 
 .cf-everyone-trigger {
-  max-width: 840px;
-  margin: 0 auto;
-  cursor: pointer;
-}
-
-.cf-everyone-trigger:focus-visible {
-  outline: 0;
-  border-color: rgba(139, 243, 0, 0.62);
-  box-shadow: 0 0 0 2px rgba(139, 243, 0, 0.25);
+  width: 100%;
+  margin: 0;
 }
 
 .cf-feature-media-video-primary,
 .cf-everyone-trigger .cf-feature-media-fallback {
-  object-fit: contain;
+  width: 100%;
+  aspect-ratio: auto;
+  height: min(72vh, 920px);
+  object-fit: cover;
   background: #02050a;
 }
 
@@ -2554,6 +2550,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   .cf-feature-media-video-primary,
   .cf-feature-media-card.cf-media-ready .cf-feature-media-video-primary {
     display: block;
+    height: min(78vh, 700px);
   }
 
   .cf-feature-media-card.cf-media-ready.cf-everyone-trigger .cf-feature-media-fallback {
