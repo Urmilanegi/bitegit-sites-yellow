@@ -1,37 +1,38 @@
 import OpenAI from 'openai';
 
-const MAX_WORDS = 150;
+const MAX_STANDARD_WORDS = 150;
+const MAX_AUTO_REPLY_WORDS = 120;
 
 const FAQ_ENTRIES = [
   {
     keywords: ['deposit', 'credited', 'not received'],
     answer:
-      'Deposits can remain pending until enough blockchain confirmations are received. Please verify the transaction hash and network. If still pending after confirmation, share the TX hash with support for manual verification.'
+      'Deposits stay pending until required blockchain confirmations are completed. Please verify TX hash, destination address, and network. If confirmations are done but funds are not credited, share your TX hash with support for manual verification.'
   },
   {
     keywords: ['withdraw', 'withdrawal', 'pending withdrawal'],
     answer:
-      'Withdrawals may be delayed by security checks or network congestion. Confirm the destination network and address. If status is still pending after normal processing time, contact support with your withdrawal ID.'
+      'Withdrawals can be delayed by security checks or chain congestion. Confirm destination address and network. If the request remains pending beyond normal processing, contact support with your withdrawal ID for a status check.'
   },
   {
     keywords: ['kyc', 'verification', 'identity'],
     answer:
-      'KYC reviews are handled in queue order. Ensure your submitted documents are clear and match your profile details. If your request was rejected, update the requested details and resubmit.'
+      'KYC requests are processed in queue order. Ensure uploaded documents are clear, valid, and match your profile details. If rejected, fix the highlighted mismatch and submit again for review.'
   },
   {
     keywords: ['2fa', 'otp', 'authenticator', 'login'],
     answer:
-      'For login and 2FA issues, confirm your device time is set automatically, then retry. If you lost access to your authenticator, open a support ticket and we will guide you through secure recovery checks.'
+      'For login or 2FA issues, sync your device time to automatic and try again. If you lost authenticator access, raise a support request so recovery can be completed through secure ownership checks.'
   },
   {
     keywords: ['p2p', 'dispute', 'escrow'],
     answer:
-      'For P2P disputes, keep all chat and payment proof inside the platform and avoid off-platform communication. Escalate the order from the dispute option so the support team can review escrow evidence.'
+      'For P2P disputes, keep all communication and proof in-platform. Use the dispute flow so support can review escrow timeline, chat logs, and payment evidence before deciding the case.'
   },
   {
     keywords: ['fee', 'fees', 'charges'],
     answer:
-      'Trading, withdrawal, and network fees vary by market and chain conditions. Please check the fee section in the relevant screen for the latest values before confirming transactions.'
+      'Trading, withdrawal, and network fees vary by market and chain conditions. Review fee details on the relevant order or transfer screen before final confirmation.'
   }
 ];
 
@@ -42,7 +43,7 @@ const normalizeText = (value) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const clampWords = (value, maxWords = MAX_WORDS) => {
+const clampWords = (value, maxWords) => {
   const words = String(value || '')
     .trim()
     .split(/\s+/)
@@ -65,9 +66,6 @@ const findFAQAnswer = (message) => {
     FAQ_ENTRIES.find((entry) => entry.keywords.some((keyword) => normalized.includes(keyword)))?.answer || null
   );
 };
-
-const getFallbackReply = () =>
-  'I can help with deposits, withdrawals, KYC, login, and P2P issues. Please share your ticket ID, transaction hash, and exact issue details so support can investigate quickly.';
 
 const extractResponseText = (response) => {
   const directText = String(response?.output_text || '').trim();
@@ -96,25 +94,26 @@ const getOpenAIClient = () => {
   if (!apiKey) {
     return null;
   }
+
   return new OpenAI({ apiKey });
 };
 
 const getSupportModel = () => String(process.env.OPENAI_SUPPORT_MODEL || 'gpt-4o-mini').trim();
 
-export const getAIReply = async (message) => {
+const generateOpenAIReply = async ({ message, maxWords, instructions, fallbackReply }) => {
   const cleanMessage = String(message || '').trim();
   if (!cleanMessage) {
-    return 'Please share your support question so I can help.';
+    return fallbackReply;
   }
 
   const faqAnswer = findFAQAnswer(cleanMessage);
   if (faqAnswer) {
-    return clampWords(faqAnswer, MAX_WORDS);
+    return clampWords(faqAnswer, maxWords);
   }
 
   const client = getOpenAIClient();
   if (!client) {
-    return getFallbackReply();
+    return fallbackReply;
   }
 
   try {
@@ -122,21 +121,46 @@ export const getAIReply = async (message) => {
       model: getSupportModel(),
       temperature: 0.2,
       max_output_tokens: 320,
-      instructions:
-        'You are a crypto exchange customer support assistant. Give practical, safe support guidance. Do not provide legal, financial, or security bypass advice. Keep the answer under 150 words.',
+      instructions,
       input: cleanMessage
     });
 
     const text = extractResponseText(response);
     if (!text) {
-      return getFallbackReply();
+      return fallbackReply;
     }
 
-    return clampWords(text, MAX_WORDS);
+    return clampWords(text, maxWords);
   } catch (error) {
     console.error('[support-ai] failed to generate response', { message: error.message });
-    return getFallbackReply();
+    return fallbackReply;
   }
+};
+
+const standardFallbackReply =
+  'I can help with deposits, withdrawals, KYC, login, and P2P issues. Please share ticket ID, transaction hash, and exact issue details so support can investigate quickly.';
+
+const autoReplyFallback =
+  'Thanks for contacting support. I have logged your query and can help with immediate guidance. If needed, a live agent will join shortly. Please share any transaction ID or error screenshot details.';
+
+export const getAIReply = async (message) => {
+  return generateOpenAIReply({
+    message,
+    maxWords: MAX_STANDARD_WORDS,
+    instructions:
+      'You are a crypto exchange customer support assistant. Give practical and safe guidance. Do not provide financial, legal, or security bypass advice. Keep response under 150 words.',
+    fallbackReply: standardFallbackReply
+  });
+};
+
+export const generateAutoReply = async (message) => {
+  return generateOpenAIReply({
+    message,
+    maxWords: MAX_AUTO_REPLY_WORDS,
+    instructions:
+      'You are first-line support for a crypto exchange. Respond like a helpful live support assistant before human agent joins. Be clear, practical, and safe. Keep response under 120 words.',
+    fallbackReply: autoReplyFallback
+  });
 };
 
 export const faqEntries = FAQ_ENTRIES.map((entry) => ({

@@ -13,6 +13,8 @@ import { KycRequest } from './kycRequest.js';
 import { AdminTradingPair } from './adminTradingPair.js';
 import { SupportTicket } from './supportTicket.js';
 import { SupportMessage } from './supportMessage.js';
+import { SupportSession } from './supportSession.js';
+import { SupportChatMessage } from './supportChatMessage.js';
 
 User.hasMany(Wallet, { foreignKey: 'user_id' });
 Wallet.belongsTo(User, { foreignKey: 'user_id' });
@@ -44,6 +46,15 @@ SupportTicket.belongsTo(Admin, { foreignKey: 'assigned_admin_id', as: 'AssignedA
 SupportTicket.hasMany(SupportMessage, { foreignKey: 'ticket_id' });
 SupportMessage.belongsTo(SupportTicket, { foreignKey: 'ticket_id' });
 
+User.hasMany(SupportSession, { foreignKey: 'user_id' });
+SupportSession.belongsTo(User, { foreignKey: 'user_id' });
+
+Admin.hasMany(SupportSession, { foreignKey: 'assigned_admin_id', as: 'LiveSupportAssignedSessions' });
+SupportSession.belongsTo(Admin, { foreignKey: 'assigned_admin_id', as: 'AssignedSupportAdmin' });
+
+SupportSession.hasMany(SupportChatMessage, { foreignKey: 'session_id' });
+SupportChatMessage.belongsTo(SupportSession, { foreignKey: 'session_id' });
+
 export {
   User,
   Wallet,
@@ -59,5 +70,7 @@ export {
   KycRequest,
   AdminTradingPair,
   SupportTicket,
-  SupportMessage
+  SupportMessage,
+  SupportSession,
+  SupportChatMessage
 };

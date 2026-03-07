@@ -27,6 +27,7 @@
   const appToast = document.getElementById('appToast');
   const quickActionButtons = Array.from(document.querySelectorAll('.quick-grid [data-action]'));
   const openP2PBtn = document.getElementById('openP2PBtn');
+  const openSupportCenterBtn = document.getElementById('openSupportCenterBtn');
 
   let activeScreen = 'home';
   let activeTickerIndex = 0;
@@ -293,6 +294,10 @@
     window.location.href = '/p2p';
   }
 
+  function openSupportCenterPage() {
+    window.location.href = '/support-center/';
+  }
+
   navButtons.forEach((button) => {
     button.addEventListener('click', () => {
       setScreen(button.dataset.screenTarget);
@@ -327,6 +332,10 @@
     setDrawerOpen(false);
     openP2PPage();
   });
+  openSupportCenterBtn?.addEventListener('click', () => {
+    setDrawerOpen(false);
+    openSupportCenterPage();
+  });
 
   quickActionButtons.forEach((button) => {
     button.addEventListener('click', () => {
@@ -352,6 +361,10 @@
       if (action === 'convert') {
         setScreen('trade');
         showToast('Trade screen opened');
+        return;
+      }
+      if (action === 'support' || action === 'more') {
+        openSupportCenterPage();
         return;
       }
       showToast('Feature will be enabled soon');
