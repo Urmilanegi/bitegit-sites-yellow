@@ -11,6 +11,8 @@ import { AdminWithdrawControl } from './adminWithdrawControl.js';
 import { UserSecurityFlag } from './userSecurityFlag.js';
 import { KycRequest } from './kycRequest.js';
 import { AdminTradingPair } from './adminTradingPair.js';
+import { SupportTicket } from './supportTicket.js';
+import { SupportMessage } from './supportMessage.js';
 
 User.hasMany(Wallet, { foreignKey: 'user_id' });
 Wallet.belongsTo(User, { foreignKey: 'user_id' });
@@ -33,6 +35,15 @@ UserSecurityFlag.belongsTo(User, { foreignKey: 'user_id' });
 User.hasMany(KycRequest, { foreignKey: 'user_id' });
 KycRequest.belongsTo(User, { foreignKey: 'user_id' });
 
+User.hasMany(SupportTicket, { foreignKey: 'user_id' });
+SupportTicket.belongsTo(User, { foreignKey: 'user_id' });
+
+Admin.hasMany(SupportTicket, { foreignKey: 'assigned_admin_id', as: 'AssignedTickets' });
+SupportTicket.belongsTo(Admin, { foreignKey: 'assigned_admin_id', as: 'AssignedAdmin' });
+
+SupportTicket.hasMany(SupportMessage, { foreignKey: 'ticket_id' });
+SupportMessage.belongsTo(SupportTicket, { foreignKey: 'ticket_id' });
+
 export {
   User,
   Wallet,
@@ -46,5 +57,7 @@ export {
   AdminWithdrawControl,
   UserSecurityFlag,
   KycRequest,
-  AdminTradingPair
+  AdminTradingPair,
+  SupportTicket,
+  SupportMessage
 };

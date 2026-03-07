@@ -7,6 +7,7 @@ import {
 } from '../controllers/adminController.js';
 import { loginAdminController, listAdminsController } from '../controllers/adminAuthController.js';
 import { getAdminDashboardController } from '../controllers/adminDashboardController.js';
+import { getSupportAnalyticsController } from '../controllers/adminSupportController.js';
 import {
   creditAdminUserController,
   debitAdminUserController,
@@ -47,6 +48,7 @@ const allowSuperOnly = requireAdminRoles('super_admin');
 
 // Protected admin routes (JWT admin token based).
 router.get('/admin/dashboard', requireAdminAuth, allowAllAdminRoles, getAdminDashboardController);
+router.get('/admin/support/analytics', requireAdminAuth, allowSupportAndSuper, getSupportAnalyticsController);
 
 router.get('/admin/admins', requireAdminAuth, allowSuperOnly, listAdminsController);
 

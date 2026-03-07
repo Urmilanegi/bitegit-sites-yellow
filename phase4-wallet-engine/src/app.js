@@ -6,7 +6,9 @@ import depositRoutes from './routes/depositRoutes.js';
 import withdrawRoutes from './routes/withdrawRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import p2pRoutes from './routes/p2p.routes.js';
+import supportRoutes from './routes/supportRoutes.js';
 import './cron/p2pCron.js';
+import './cron/supportAlertCron.js';
 import { encrypt, decrypt } from './utils/encryption.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
@@ -48,6 +50,7 @@ app.use('/api', walletRoutes);
 app.use('/api', depositRoutes);
 app.use('/api', withdrawRoutes);
 app.use('/api', adminRoutes);
+app.use('/api', supportRoutes);
 app.use('/api/p2p', p2pRoutes);
 
 app.use(notFoundHandler);
