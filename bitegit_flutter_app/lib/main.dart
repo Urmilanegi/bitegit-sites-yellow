@@ -23,12 +23,17 @@ final ValueNotifier<String?> profileImagePathNotifier = ValueNotifier<String?>(
   null,
 );
 final ValueNotifier<String> nicknameNotifier = ValueNotifier<String>(
-  'sum***@****',
+  'Guest',
 );
 final ValueNotifier<String> avatarSymbolNotifier = ValueNotifier<String>('S');
-final String currentUserUid = _generateUserUid();
+String currentUserUid = '--';
 final ValueNotifier<List<SupportAlert>> supportAlertsNotifier =
     ValueNotifier<List<SupportAlert>>([]);
+final ValueNotifier<List<SubmittedSupportTicket>>
+submittedSupportTicketsNotifier = ValueNotifier<List<SubmittedSupportTicket>>(
+  [],
+);
+final ValueNotifier<String> kycStatusNotifier = ValueNotifier<String>('pending');
 final ValueNotifier<bool> showHomeFavoritesWidget = ValueNotifier<bool>(true);
 final ValueNotifier<bool> showHomeTopMoversWidget = ValueNotifier<bool>(true);
 final ValueNotifier<bool> isUserLoggedInNotifier = ValueNotifier<bool>(false);
@@ -37,7 +42,94 @@ final ValueNotifier<double> fundingUsdtBalanceNotifier = ValueNotifier<double>(
   0,
 );
 final ValueNotifier<double> spotUsdtBalanceNotifier = ValueNotifier<double>(0);
+final ValueNotifier<HomeWidgetSettings> homeWidgetSettingsNotifier =
+    ValueNotifier<HomeWidgetSettings>(const HomeWidgetSettings());
+final ValueNotifier<List<P2PAdItem>> p2pMarketplaceAdsNotifier =
+    ValueNotifier<List<P2PAdItem>>(<P2PAdItem>[]);
+final ValueNotifier<List<P2POrderItem>> p2pOrdersNotifier =
+    ValueNotifier<List<P2POrderItem>>(<P2POrderItem>[]);
+
+class ExchangeUser {
+  const ExchangeUser({
+    required this.userId,
+    required this.email,
+    required this.password,
+    required this.joinedAt,
+    required this.kycStatus,
+    required this.walletBalanceUsdt,
+    required this.canPostAds,
+  });
+
+  final String userId;
+  final String email;
+  final String password;
+  final DateTime joinedAt;
+  final String kycStatus;
+  final double walletBalanceUsdt;
+  final bool canPostAds;
+
+  ExchangeUser copyWith({
+    String? userId,
+    String? email,
+    String? password,
+    DateTime? joinedAt,
+    String? kycStatus,
+    double? walletBalanceUsdt,
+    bool? canPostAds,
+  }) {
+    return ExchangeUser(
+      userId: userId ?? this.userId,
+      email: email ?? this.email,
+      password: password ?? this.password,
+      joinedAt: joinedAt ?? this.joinedAt,
+      kycStatus: kycStatus ?? this.kycStatus,
+      walletBalanceUsdt: walletBalanceUsdt ?? this.walletBalanceUsdt,
+      canPostAds: canPostAds ?? this.canPostAds,
+    );
+  }
+}
+
+final Map<String, ExchangeUser> _exchangeUsersByEmail =
+    <String, ExchangeUser>{};
+final ValueNotifier<ExchangeUser?> activeExchangeUserNotifier =
+    ValueNotifier<ExchangeUser?>(null);
 int _supportAlertCounter = 1;
+DateTime? _announcementDismissedUntil;
+const String kGlobalAnnouncementMessage =
+    'Scheduled maintenance notice: Fiat transfer service may be delayed for up to 30 minutes during peak load. '
+    'Crypto trading, spot orders, and P2P matching remain operational.';
+
+class HomeWidgetSettings {
+  const HomeWidgetSettings({
+    this.showDepositBanner = true,
+    this.showQuickActions = true,
+    this.showPromoScroller = true,
+    this.showTicker = true,
+    this.showPairs = true,
+  });
+
+  final bool showDepositBanner;
+  final bool showQuickActions;
+  final bool showPromoScroller;
+  final bool showTicker;
+  final bool showPairs;
+
+  HomeWidgetSettings copyWith({
+    bool? showDepositBanner,
+    bool? showQuickActions,
+    bool? showPromoScroller,
+    bool? showTicker,
+    bool? showPairs,
+  }) {
+    return HomeWidgetSettings(
+      showDepositBanner: showDepositBanner ?? this.showDepositBanner,
+      showQuickActions: showQuickActions ?? this.showQuickActions,
+      showPromoScroller: showPromoScroller ?? this.showPromoScroller,
+      showTicker: showTicker ?? this.showTicker,
+      showPairs: showPairs ?? this.showPairs,
+    );
+  }
+}
 
 class SupportAlert {
   const SupportAlert({
@@ -65,10 +157,114 @@ class SupportAlert {
   }
 }
 
+void _setKycStatus(String status) {
+  final normalized = status.trim().toLowerCase();
+  kycStatusNotifier.value = normalized;
+  if (normalized == 'verified') {
+    kycBasicVerifiedNotifier.value = true;
+    kycAdvancedVerifiedNotifier.value = true;
+    kycVerifiedNotifier.value = true;
+    return;
+  }
+  if (normalized == 'under_review') {
+    kycBasicVerifiedNotifier.value = true;
+    kycAdvancedVerifiedNotifier.value = false;
+    kycVerifiedNotifier.value = false;
+    return;
+  }
+  if (normalized == 'rejected') {
+    kycVerifiedNotifier.value = false;
+    kycAdvancedVerifiedNotifier.value = false;
+    kycBasicVerifiedNotifier.value = true;
+    return;
+  }
+  kycVerifiedNotifier.value = false;
+  kycBasicVerifiedNotifier.value = false;
+  kycAdvancedVerifiedNotifier.value = false;
+}
+
+String _deriveNicknameFromIdentity(String identity) {
+  final trimmed = identity.trim();
+  if (trimmed.isEmpty) return 'Guest';
+  return _maskIdentity(trimmed);
+}
+
+String _firstLetter(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return 'G';
+  return trimmed.substring(0, 1).toUpperCase();
+}
+
+void _hydrateSessionFromUser(ExchangeUser user) {
+  activeExchangeUserNotifier.value = user;
+  currentUserUid = user.userId;
+  authIdentityNotifier.value = user.email;
+  nicknameNotifier.value = _deriveNicknameFromIdentity(user.email);
+  avatarSymbolNotifier.value = _firstLetter(user.email);
+  fundingUsdtBalanceNotifier.value = user.walletBalanceUsdt;
+  spotUsdtBalanceNotifier.value = 0;
+  _setKycStatus(user.kycStatus);
+  isUserLoggedInNotifier.value = true;
+}
+
+void _syncActiveUserState({
+  double? walletBalanceUsdt,
+  String? kycStatus,
+  bool? canPostAds,
+}) {
+  final current = activeExchangeUserNotifier.value;
+  if (current == null) return;
+  final resolvedKycStatus = (kycStatus ?? current.kycStatus).trim().toLowerCase();
+  final resolvedCanPostAds = canPostAds ?? (resolvedKycStatus == 'verified');
+  final next = current.copyWith(
+    walletBalanceUsdt: walletBalanceUsdt,
+    kycStatus: resolvedKycStatus,
+    canPostAds: resolvedCanPostAds,
+  );
+  _exchangeUsersByEmail[next.email.toLowerCase()] = next;
+  activeExchangeUserNotifier.value = next;
+}
+
+ExchangeUser? _findUserByIdentity(String identity) {
+  return _exchangeUsersByEmail[identity.trim().toLowerCase()];
+}
+
+String? _createUser({
+  required String email,
+  required String password,
+}) {
+  final key = email.trim().toLowerCase();
+  if (key.isEmpty || _exchangeUsersByEmail.containsKey(key)) return null;
+  final user = ExchangeUser(
+    userId: _generateUserUid(),
+    email: email.trim(),
+    password: password,
+    joinedAt: DateTime.now(),
+    kycStatus: 'pending',
+    walletBalanceUsdt: 0,
+    canPostAds: false,
+  );
+  _exchangeUsersByEmail[key] = user;
+  return user.userId;
+}
+
+void _logoutActiveSession() {
+  activeExchangeUserNotifier.value = null;
+  authIdentityNotifier.value = '';
+  currentUserUid = '--';
+  nicknameNotifier.value = 'Guest';
+  avatarSymbolNotifier.value = 'G';
+  profileImagePathNotifier.value = null;
+  fundingUsdtBalanceNotifier.value = 0;
+  spotUsdtBalanceNotifier.value = 0;
+  _setKycStatus('pending');
+  isUserLoggedInNotifier.value = false;
+}
+
 SupportAlert addSupportAgentAlert(String message) {
   final alert = SupportAlert(
     id: _supportAlertCounter++,
-    userUid: currentUserUid,
+    userUid: currentUserUid.trim().isEmpty ? '--' : currentUserUid,
     message: message,
     timestamp: DateTime.now(),
   );
@@ -175,9 +371,98 @@ class BitegitApp extends StatelessWidget {
           theme: lightTheme,
           darkTheme: darkTheme,
           themeMode: mode,
-          home: const ExchangeShell(),
+          home: const AuthGatePage(),
         );
       },
+    );
+  }
+}
+
+class AuthGatePage extends StatelessWidget {
+  const AuthGatePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: isUserLoggedInNotifier,
+      builder: (context, loggedIn, _) {
+        if (loggedIn) {
+          return const ExchangeShell();
+        }
+        return const AuthLandingPage();
+      },
+    );
+  }
+}
+
+class AuthLandingPage extends StatelessWidget {
+  const AuthLandingPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 24, 18, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Spacer(),
+              const Text(
+                'Welcome to Bitegit',
+                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Login or sign up to continue to P2P, wallet, and trading.',
+                style: TextStyle(fontSize: 13.2, color: Colors.white70),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SignupEntryPage(),
+                      ),
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFF1CB3E),
+                    foregroundColor: Colors.black,
+                    minimumSize: const Size.fromHeight(50),
+                  ),
+                  child: const Text(
+                    'Sign Up',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AuthEntryPage(),
+                      ),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                  ),
+                  child: const Text(
+                    'Login',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -907,290 +1192,11 @@ const List<MarketPair> kMarketPairs = [
 final ValueNotifier<MarketPair> selectedTradePairNotifier =
     ValueNotifier<MarketPair>(kMarketPairs.first);
 
-const List<P2PAdItem> kP2PSampleAds = [
-  P2PAdItem(
-    seller: 'TecnoSeller',
-    pair: 'USDT/INR',
-    price: '98.39 INR',
-    limits: '1,900.00 - 2,043.85 INR',
-    completed30d: '705',
-    completionRate30d: '100%',
-    avgReleaseTime: '15m',
-    avgPaymentTime: '07m 42s',
-    available: '20.773 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['Digital eRupee'],
-    topPick: true,
-    side: 'sell',
-    badge: 'Top Merchant',
-    timerMinutes: 15,
-    reputationScore: 4.9,
-  ),
-  P2PAdItem(
-    seller: 'MR. JINU',
-    pair: 'USDT/INR',
-    price: '96.30 INR',
-    limits: '10,000.00 - 19,429.35 INR',
-    completed30d: '46',
-    completionRate30d: '100%',
-    avgReleaseTime: '30m',
-    avgPaymentTime: '13m 11s',
-    available: '201.7586 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['Cash Deposit', 'UPI'],
-    side: 'sell',
-    badge: 'Verified Pro',
-    timerMinutes: 30,
-    reputationScore: 4.7,
-  ),
-  P2PAdItem(
-    seller: 'SAMIMMOLLA',
-    pair: 'USDT/INR',
-    price: '96.50 INR',
-    limits: '20,000.00 - 200.00K INR',
-    completed30d: '186',
-    completionRate30d: '100%',
-    avgReleaseTime: '30m',
-    avgPaymentTime: '16m 08s',
-    available: '2,085.686 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['Cash Deposit', 'UPI', 'Digital eRupee'],
-    side: 'sell',
-    badge: 'Diamond Merchant',
-    timerMinutes: 30,
-    reputationScore: 4.8,
-  ),
-  P2PAdItem(
-    seller: 'salmmy3_12',
-    pair: 'USDT/INR',
-    price: '95.90 INR',
-    limits: '5,000.00 - 40,000.00 INR',
-    completed30d: '59',
-    completionRate30d: '100%',
-    avgReleaseTime: '15m',
-    avgPaymentTime: '10m 38s',
-    available: '85.12 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['IMPS', 'UPI'],
-    side: 'buy',
-    badge: 'Buyer Ad',
-    timerMinutes: 15,
-    reputationScore: 4.5,
-  ),
-  P2PAdItem(
-    seller: 'iron India',
-    pair: 'USDT/INR',
-    price: '95.72 INR',
-    limits: '1,000.00 - 5,000.00 INR',
-    completed30d: '132',
-    completionRate30d: '91%',
-    avgReleaseTime: '15m',
-    avgPaymentTime: '11m 25s',
-    available: '56.24 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['UPI'],
-    side: 'buy',
-    badge: 'Buyer Ad',
-    timerMinutes: 15,
-    reputationScore: 4.4,
-  ),
-  P2PAdItem(
-    seller: 'ArekSxPro',
-    pair: 'USDT/INR',
-    price: '96.14 INR',
-    limits: '5,000.00 - 568,000.00 INR',
-    completed30d: '1446',
-    completionRate30d: '98%',
-    avgReleaseTime: '30m',
-    avgPaymentTime: '08m 12s',
-    available: '36,159.69 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['UPI', 'Paytm', 'PhonePe', 'Google Pay'],
-    side: 'sell',
-    badge: 'Top Picks',
-    topPick: true,
-    timerMinutes: 30,
-    reputationScore: 4.9,
-  ),
-  P2PAdItem(
-    seller: 'Arekskumar',
-    pair: 'USDT/INR',
-    price: '102.00 INR',
-    limits: '100,000.00 - 2.04M INR',
-    completed30d: '115',
-    completionRate30d: '86%',
-    avgReleaseTime: '30m',
-    avgPaymentTime: '10m 10s',
-    available: '20,000 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['Cash Deposit', 'UPI', 'Digital eRupee', 'Google Pay'],
-    side: 'buy',
-    badge: 'Buyer Ad',
-    timerMinutes: 30,
-    reputationScore: 4.2,
-  ),
-  P2PAdItem(
-    seller: 'mahitravel',
-    pair: 'USDT/INR',
-    price: '97.00 INR',
-    limits: '5,000.00 - 5,000.35 INR',
-    completed30d: '285',
-    completionRate30d: '93%',
-    avgReleaseTime: '15m',
-    avgPaymentTime: '09m 44s',
-    available: '51.55 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['Digital eRupee'],
-    side: 'buy',
-    badge: 'Buyer Ad',
-    timerMinutes: 15,
-    reputationScore: 4.3,
-  ),
-  P2PAdItem(
-    seller: 'Reema08',
-    pair: 'USDT/INR',
-    price: '96.14 INR',
-    limits: '5,000.00 - 5,680.00 INR',
-    completed30d: '1446',
-    completionRate30d: '98%',
-    avgReleaseTime: '30m',
-    avgPaymentTime: '09m 03s',
-    available: '36,159.69 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['UPI', 'Paytm', 'PhonePe', 'Google Pay'],
-    side: 'sell',
-    badge: 'Pro Merchant',
-    timerMinutes: 30,
-    reputationScore: 4.8,
-  ),
-  P2PAdItem(
-    seller: 'CryptoLane',
-    pair: 'USDT/INR',
-    price: '98.10 INR',
-    limits: '2,000.00 - 60,000.00 INR',
-    completed30d: '522',
-    completionRate30d: '99%',
-    avgReleaseTime: '15m',
-    avgPaymentTime: '06m 58s',
-    available: '1,205.10 USDT',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    paymentMethods: ['UPI', 'IMPS', 'Bank Transfer'],
-    side: 'sell',
-    badge: 'Verified Pro',
-    timerMinutes: 15,
-    reputationScore: 4.8,
-  ),
-];
+const List<P2PAdItem> kP2PSampleAds = <P2PAdItem>[];
 
-const List<P2POrderItem> kP2PSampleOrders = [
-  P2POrderItem(
-    id: 'P2P-104293',
-    pair: 'USDT/INR',
-    side: 'Buy',
-    amount: '12,000 INR',
-    status: 'AWAITING PAYMENT',
-    createdAt: 'Today, 11:42',
-    logoUrl: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    counterparty: 'TecnoSeller',
-    paymentMethod: 'UPI',
-    orderState: P2POrderState.awaitingPayment,
-    fiatAmount: 12000,
-    usdtAmount: 122.07,
-    pricePerUsdt: 98.31,
-    feeUsdt: 0,
-    escrowLocked: true,
-  ),
-  P2POrderItem(
-    id: 'P2P-104102',
-    pair: 'BTC/INR',
-    side: 'Sell',
-    amount: '25,000 INR',
-    status: 'Released',
-    createdAt: 'Today, 09:25',
-    logoUrl: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
-    counterparty: 'CryptoDesk',
-    paymentMethod: 'Bank Transfer',
-    orderState: P2POrderState.completed,
-    fiatAmount: 25000,
-    usdtAmount: 253.55,
-    pricePerUsdt: 98.6,
-    escrowLocked: true,
-    escrowReleased: true,
-  ),
-  P2POrderItem(
-    id: 'P2P-103995',
-    pair: 'ETH/INR',
-    side: 'Buy',
-    amount: '18,500 INR',
-    status: 'PAYMENT SENT',
-    createdAt: 'Yesterday, 23:14',
-    logoUrl: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
-    counterparty: 'SamimMolla',
-    paymentMethod: 'IMPS',
-    orderState: P2POrderState.paymentSent,
-    fiatAmount: 18500,
-    usdtAmount: 188.25,
-    pricePerUsdt: 98.27,
-    escrowLocked: true,
-  ),
-];
+const List<P2POrderItem> kP2PSampleOrders = <P2POrderItem>[];
 
-final List<AssetTransactionRecord> kAssetTxHistory = [
-  AssetTransactionRecord(
-    id: 'DEP-20260219-195911',
-    type: 'deposit',
-    coin: 'USDT',
-    amount: 193.3292,
-    time: DateTime(2026, 2, 19, 19, 59, 11),
-    status: 'Completed',
-    network: 'TRC20',
-  ),
-  AssetTransactionRecord(
-    id: 'DEP-20260219-122102',
-    type: 'deposit',
-    coin: 'USDT',
-    amount: 201.57,
-    time: DateTime(2026, 2, 19, 12, 21, 2),
-    status: 'Completed',
-    network: 'BEP20',
-  ),
-  AssetTransactionRecord(
-    id: 'DEP-20260215-105031',
-    type: 'deposit',
-    coin: 'USDT',
-    amount: 160,
-    time: DateTime(2026, 2, 15, 10, 50, 31),
-    status: 'Completed',
-    network: 'ERC20',
-  ),
-  AssetTransactionRecord(
-    id: 'WDR-20260211-223050',
-    type: 'withdraw',
-    coin: 'USDT',
-    amount: 89.5,
-    time: DateTime(2026, 2, 11, 22, 30, 50),
-    status: 'Completed',
-    network: 'TRC20',
-  ),
-  AssetTransactionRecord(
-    id: 'TRF-20260201-184812',
-    type: 'transfer',
-    coin: 'USDT',
-    amount: 149.85,
-    time: DateTime(2026, 2, 1, 18, 48, 12),
-    status: 'Completed',
-    network: 'Funding -> Spot',
-  ),
-  AssetTransactionRecord(
-    id: 'DEP-20260121-120341',
-    type: 'deposit',
-    coin: 'USDT',
-    amount: 99.85,
-    time: DateTime(2026, 1, 21, 12, 3, 41),
-    status: 'Completed',
-    network: 'OPBNB',
-  ),
-];
+final List<AssetTransactionRecord> kAssetTxHistory = <AssetTransactionRecord>[];
 
 class P2PApiEndpoints {
   static const String offers = '/p2p/offers';
@@ -1471,7 +1477,8 @@ const Map<String, Map<String, String>> kDepositAddressBook = {
     'TRC20': 'TVA3u7mqe8f4v2qd5YdKG8g8A2pZV8u9fH',
     'ERC20': '0x54E7dB9Cd57F4D55a0B08E20B2Ef11A7f2a5A91E',
     'BEP20': '0x3C5bF3D4f9A62a4f66eA85d2D0d8E0F8B21d9f3A',
-    'APTOS': '0x0f9e4f6e49f6c0f7d3f1af9f8e8e87d4b230b0f6d7f0e2a3f7c1d9a0e1b4c8d2',
+    'APTOS':
+        '0x0f9e4f6e49f6c0f7d3f1af9f8e8e87d4b230b0f6d7f0e2a3f7c1d9a0e1b4c8d2',
     'OPBNB': '0x2Ee0f2E9bA3B5eD2e6A19A8f2B12D8FdA6A0f2b9',
   },
   'BTC': {
@@ -1589,12 +1596,18 @@ class SupportHelpArticle {
     required this.title,
     required this.category,
     required this.body,
+    this.description = '',
+    this.lastUpdated = 'Updated recently',
+    this.related = const <String>[],
   });
 
   final String id;
   final String title;
   final String category;
   final String body;
+  final String description;
+  final String lastUpdated;
+  final List<String> related;
 }
 
 class SupportQuickCategory {
@@ -1604,111 +1617,594 @@ class SupportQuickCategory {
   final List<String> questions;
 }
 
+class CoinServiceStatus {
+  const CoinServiceStatus({
+    required this.symbol,
+    required this.name,
+    required this.depositEnabled,
+    required this.withdrawEnabled,
+    required this.networkStatus,
+    required this.maintenanceAlert,
+    required this.networks,
+  });
+
+  final String symbol;
+  final String name;
+  final bool depositEnabled;
+  final bool withdrawEnabled;
+  final String networkStatus;
+  final String maintenanceAlert;
+  final List<ChainNetworkMeta> networks;
+}
+
+class SubmittedSupportTicket {
+  const SubmittedSupportTicket({
+    required this.ticketId,
+    required this.uid,
+    required this.email,
+    required this.category,
+    required this.subcategory,
+    required this.subject,
+    required this.description,
+    required this.createdAt,
+    this.orderId,
+    this.attachmentName,
+    this.disputeStatus,
+    this.status = 'OPEN',
+  });
+
+  final String ticketId;
+  final String uid;
+  final String email;
+  final String category;
+  final String subcategory;
+  final String subject;
+  final String description;
+  final DateTime createdAt;
+  final String? orderId;
+  final String? attachmentName;
+  final String? disputeStatus;
+  final String status;
+}
+
+const List<String> kHelpCenterMainCategories = <String>[
+  'Account Management',
+  'Security',
+  'P2P Trading',
+  'Deposits',
+  'Withdrawals',
+  'Trading',
+  'API',
+  'Finance',
+  'NFT',
+];
+
+const Map<String, List<String>> kSubmitCaseSubcategories =
+    <String, List<String>>{
+      'Deposit & Withdrawals': <String>[
+        'Crypto deposit not credited',
+        'Crypto withdrawal delayed',
+        'Wrong network transfer',
+        'Withdrawal verification failed',
+        'My issue is not listed above',
+      ],
+      'P2P Trading': <String>[
+        'Asset not available on P2P',
+        'Asset frozen after P2P order closed',
+        'Export P2P order data',
+        'Issues adding P2P payment method',
+        'P2P Advertiser inquiry',
+        'How to post P2P advertisement',
+        'Report other P2P users',
+        'Completion rate appeal',
+        'Change P2P nickname',
+        'Remove negative reviews',
+        'Coin release in progress',
+        'Appeal in progress',
+        'My issue is not listed above',
+      ],
+      'Account Verification (KYC)': <String>[
+        'KYC pending for long time',
+        'KYC rejected',
+        'Face verification failed',
+        'Name mismatch',
+        'My issue is not listed above',
+      ],
+      'Security Issues': <String>[
+        'Verification code not received',
+        'Account frozen',
+        'Suspicious login',
+        '2FA reset request',
+        'My issue is not listed above',
+      ],
+      'Trading Issues': <String>[
+        'Order not executed',
+        'Chart mismatch',
+        'API order failure',
+        'Fee issue',
+        'My issue is not listed above',
+      ],
+      'Other Issues': <String>[
+        'General inquiry',
+        'Promotion issue',
+        'Referral issue',
+        'My issue is not listed above',
+      ],
+    };
+
+const List<String> kP2PDisputeStatuses = <String>[
+  'Coin release in progress',
+  'Appeal in progress',
+  'Canceled',
+  'Completed',
+  'Reached maximum appeal limit',
+];
+
+final List<CoinServiceStatus> kCoinServiceStatuses = <CoinServiceStatus>[
+  CoinServiceStatus(
+    symbol: 'BTC',
+    name: 'Bitcoin',
+    depositEnabled: true,
+    withdrawEnabled: true,
+    networkStatus: 'Operational',
+    maintenanceAlert: 'No active maintenance',
+    networks: <ChainNetworkMeta>[kNetworkMeta['BTC']!],
+  ),
+  CoinServiceStatus(
+    symbol: 'ETH',
+    name: 'Ethereum',
+    depositEnabled: true,
+    withdrawEnabled: true,
+    networkStatus: 'Operational',
+    maintenanceAlert: 'No active maintenance',
+    networks: <ChainNetworkMeta>[kNetworkMeta['ERC20']!],
+  ),
+  CoinServiceStatus(
+    symbol: 'USDT',
+    name: 'Tether',
+    depositEnabled: true,
+    withdrawEnabled: true,
+    networkStatus: 'Operational',
+    maintenanceAlert: 'TRC20 low-latency mode active',
+    networks: <ChainNetworkMeta>[
+      kNetworkMeta['TRC20']!,
+      kNetworkMeta['BEP20']!,
+      kNetworkMeta['ERC20']!,
+      kNetworkMeta['APTOS']!,
+      kNetworkMeta['OPBNB']!,
+    ],
+  ),
+  CoinServiceStatus(
+    symbol: 'USDC',
+    name: 'USD Coin',
+    depositEnabled: true,
+    withdrawEnabled: true,
+    networkStatus: 'Operational',
+    maintenanceAlert: 'No active maintenance',
+    networks: <ChainNetworkMeta>[
+      kNetworkMeta['ERC20']!,
+      kNetworkMeta['BEP20']!,
+    ],
+  ),
+  CoinServiceStatus(
+    symbol: 'XRP',
+    name: 'Ripple',
+    depositEnabled: true,
+    withdrawEnabled: true,
+    networkStatus: 'Operational',
+    maintenanceAlert: 'Tag validation required for deposit',
+    networks: <ChainNetworkMeta>[kNetworkMeta['XRP']!],
+  ),
+  CoinServiceStatus(
+    symbol: 'TRX',
+    name: 'Tron',
+    depositEnabled: true,
+    withdrawEnabled: true,
+    networkStatus: 'Operational',
+    maintenanceAlert: 'No active maintenance',
+    networks: <ChainNetworkMeta>[kNetworkMeta['TRC20']!],
+  ),
+  CoinServiceStatus(
+    symbol: 'SOL',
+    name: 'Solana',
+    depositEnabled: true,
+    withdrawEnabled: false,
+    networkStatus: 'Withdrawal maintenance',
+    maintenanceAlert: 'Temporary withdrawal suspension due to network upgrade',
+    networks: <ChainNetworkMeta>[kNetworkMeta['SOL']!],
+  ),
+  CoinServiceStatus(
+    symbol: 'MNT',
+    name: 'Mantle',
+    depositEnabled: false,
+    withdrawEnabled: false,
+    networkStatus: 'Maintenance',
+    maintenanceAlert:
+        'Deposits and withdrawals suspended during wallet migration',
+    networks: <ChainNetworkMeta>[kNetworkMeta['ERC20']!],
+  ),
+  CoinServiceStatus(
+    symbol: 'HMSTR',
+    name: 'Hamster Kombat',
+    depositEnabled: false,
+    withdrawEnabled: true,
+    networkStatus: 'Partial suspension',
+    maintenanceAlert: 'Deposits suspended due to chain sync delay',
+    networks: <ChainNetworkMeta>[kNetworkMeta['BEP20']!],
+  ),
+];
+
 const List<SupportQuickCategory> kSupportQuickCategories = [
   SupportQuickCategory('Account & Security', [
-    'Why is my crypto asset frozen?',
     'Verification code not received',
+    'Why is my crypto asset frozen?',
     'Account is susceptible to high risk',
+    'How do I protect my account from phishing?',
   ]),
   SupportQuickCategory('Deposit & Withdrawal', [
     'Crypto deposit not credited',
     'How to submit a withdrawal',
     'Network fee and minimum amount details',
+    'Wrong network transfer recovery process',
   ]),
   SupportQuickCategory('P2P', [
     'P2P order issue',
     'How to open dispute',
     'Merchant not releasing crypto',
+    'How long does a P2P appeal take?',
   ]),
   SupportQuickCategory('Identity Verification', [
     'How to complete KYC',
     'Identity verification failed',
     'Name is incorrect after verification',
+    'Face match failed during advanced KYC',
   ]),
   SupportQuickCategory('Promotion & Bonus', [
     "I didn't receive my rewards",
     'Reward distribution information',
     'Voucher and coupon not applied',
+    'Promotion eligibility check',
   ]),
 ];
 
 const List<SupportHelpArticle> kSupportHelpArticles = [
   SupportHelpArticle(
+    id: 'account-security-guide',
+    title: 'Account & Security - Full Guide',
+    category: 'Account & Security',
+    body: '''Bitegit Account & Security Full Guide
+
+1) Verification code not received
+- Check spam/junk and promotions tabs.
+- Make sure your mailbox has free space and no filter blocking exchange emails.
+- Wait for the timer to reset, then request a fresh OTP and use the latest code only.
+- Switch your network (Wi-Fi/mobile data) and retry.
+- If SMS OTP fails, disable anti-spam/call blockers and retry in 2-3 minutes.
+
+2) Account flagged as high risk
+- A temporary risk flag can happen after unusual login location, device change, or multiple failed attempts.
+- Secure your account immediately: change password, reset 2FA, and review device sessions.
+- Complete KYC and submit security verification from the support center to remove restrictions.
+
+3) Asset frozen / withdraw suspended
+- Funds can be frozen by risk control if suspicious activity, compliance review, or unresolved disputes are detected.
+- Resolve pending P2P disputes, security tickets, and KYC review first.
+- Provide source-of-funds proof if asked by compliance.
+
+4) Best practices (must do)
+- Enable Email + Authenticator + Fund Password.
+- Never share OTP, 2FA code, API keys, or screen-share your wallet section.
+- Use anti-phishing code and trusted devices only.
+
+If you still face issues, tap "Chat with us" and share UID, device model, and error screenshot.''',
+  ),
+  SupportHelpArticle(
+    id: 'deposit-withdraw-guide',
+    title: 'Deposit & Withdrawal - Full Guide',
+    category: 'Deposit & Withdrawal',
+    body: '''Bitegit Deposit & Withdrawal Full Guide
+
+Deposit flow:
+1) Assets -> Deposit -> Select Coin -> Select Network.
+2) Confirm chain details carefully (TRC20/BEP20/ERC20/APTOS/OPBNB).
+3) Copy address and memo/tag (if required).
+4) Send only supported coin on matching network.
+5) Wait for blockchain confirmations.
+
+Deposit not credited checklist:
+- Wrong network selected
+- Amount below minimum deposit
+- Transaction still unconfirmed on-chain
+- Missing memo/tag where required
+- Network maintenance window
+
+Withdrawal flow:
+1) Assets -> Withdraw -> Select Coin + Network.
+2) Add valid destination address.
+3) Enter amount and confirm fee + receive amount.
+4) Complete security checks (Email OTP / SMS OTP / Google Auth / Fund Password).
+5) Submit and track status in withdrawal history.
+
+Withdrawal failed / pending:
+- Security lock after password/2FA change
+- Risk-control hold due to abnormal behavior
+- Insufficient available balance after fee deduction
+- Chain congestion
+
+Never withdraw to unsupported chains. Wrong-chain transfers can be irreversible.''',
+  ),
+  SupportHelpArticle(
+    id: 'p2p-guide',
+    title: 'P2P Trading - Full Guide',
+    category: 'P2P',
+    body: '''Bitegit P2P Full Guide
+
+How to buy:
+1) Open P2P -> Buy tab.
+2) Filter by INR amount and payment method.
+3) Choose verified merchant (completion rate, release time, limits).
+4) Enter INR or USDT amount and create order.
+5) Transfer payment exactly as shown and click "I Have Paid".
+6) Wait for merchant release.
+
+How to sell:
+1) Open P2P -> Sell tab.
+2) Select buyer and create order.
+3) Wait until payment is received in your bank/app.
+4) Confirm funds received before releasing crypto.
+
+Important protection rules:
+- Never release crypto without receiving money.
+- Never chat/settle outside Bitegit order chat.
+- Use exact payment reference rules.
+- Keep screenshots and UTR/transaction ID.
+
+Appeal process:
+- If buyer marked paid but funds not received, open dispute.
+- If seller does not release after valid payment, open dispute.
+- Upload payment proof, bank receipt, and chat evidence.
+- Admin reviews order log, chat log, and proof before final decision.
+
+Order states:
+CREATED -> AWAITING_PAYMENT -> PAYMENT_SENT -> SELLER_CONFIRMING -> COMPLETED
+Fallback states: CANCELLED / APPEAL_OPENED / UNDER_REVIEW
+
+This workflow keeps crypto locked in escrow until safe release.''',
+  ),
+  SupportHelpArticle(
+    id: 'kyc-full-guide',
+    title: 'Identity Verification - Full Guide',
+    category: 'Identity Verification',
+    body: '''Bitegit Identity Verification (KYC) Guide
+
+Level 1 (Basic):
+- Full legal name
+- Date of birth
+- Country / address basics
+
+Level 2 (Advanced):
+- Government ID front image
+- Government ID back image
+- Selfie with live face match and liveness check
+
+KYC rejection reasons:
+- Blurry photo / cropped corners
+- Glare, reflection, low light
+- Name mismatch between profile and ID
+- Unsupported document type
+- Face mismatch / liveness failure
+
+How to pass in first attempt:
+- Use bright natural light
+- Keep full document in frame
+- Do not edit image
+- Remove glasses/mask during face check
+- Ensure stable internet during upload
+
+If rejected, re-upload clear images and contact support with rejection code.''',
+  ),
+  SupportHelpArticle(
+    id: 'promotion-bonus-guide',
+    title: 'Promotion & Bonus - Full Guide',
+    category: 'Promotion & Bonus',
+    body: '''Bitegit Promotion & Bonus Guide
+
+Reward credit timing:
+- Most campaign rewards are credited within 7 working days after campaign settlement.
+- Some campaigns require KYC + minimum volume + eligible region.
+
+Why reward may not arrive:
+- Campaign conditions not fully met
+- Order volume not counted due to disallowed pair/type
+- Reward window still open
+- Account ineligible due to compliance/risk checks
+
+Coupons / vouchers:
+- Apply only on eligible products (spot/futures/p2p as specified).
+- Expired vouchers cannot be restored.
+- One voucher may not stack with another if rule blocks it.
+
+How to raise reward claim:
+1) Open Support -> Promotion & Bonus.
+2) Share campaign name, UID, order IDs, and screenshots.
+3) Support verifies with campaign backend and replies with result.''',
+  ),
+  SupportHelpArticle(
     id: 'verification-email',
     title: 'Verification code not received - Email',
     category: 'Account & Security',
     body:
-        'If you have not received your verification code by email:\n'
-        '1. Check your spam/junk folder.\n'
-        '2. Whitelist official support senders.\n'
-        '3. Restart app/device and request again.\n'
-        '4. Switch network and retry after timer reset.\n'
-        '5. If still failing, use Chat with Support and share your UID + timestamp.',
+        '''If you have not received your email verification code, follow this full checklist:
+
+1) Inbox and filters
+- Check Inbox, Promotions, Spam, Junk, and Updates tabs.
+- Search by keywords: Bitegit, verification, security code.
+- Remove any mailbox rule that auto-archives or auto-deletes exchange emails.
+
+2) Safe sender setup
+- Add official Bitegit support/notification domains to your safe sender list.
+- Whitelist no-reply and service addresses in your email provider settings.
+
+3) Request OTP correctly
+- Wait until the 120-second timer resets.
+- Request a fresh OTP once and use only the latest code.
+- Avoid repeated requests in a short window (older codes become invalid).
+
+4) Device and network checks
+- Switch Wi-Fi/mobile data and retry.
+- Disable VPN/Proxy briefly and test again.
+- Restart app and device, then request again.
+
+5) Still not received?
+- Open Chat with us and share UID, exact request timestamp, email provider, and screenshot.
+- Support will verify mail logs and help with account-side validation.''',
   ),
   SupportHelpArticle(
     id: 'verification-sms',
     title: 'Verification code not received - SMS',
     category: 'Account & Security',
-    body:
-        'If SMS OTP is delayed:\n'
-        '1. Ensure good signal.\n'
-        '2. Disable SMS/call blockers.\n'
-        '3. Verify your number is active for OTP messages.\n'
-        '4. Retry after 120 seconds.\n'
-        '5. Contact support if issue persists.',
+    body: '''If SMS OTP is delayed or missing, use this troubleshooting flow:
+
+1) Signal and network
+- Ensure strong mobile signal and active SMS plan.
+- Move to open network area or switch 5G/4G if delivery is unstable.
+
+2) Device restrictions
+- Disable call/SMS blocker, anti-spam, firewall, and security apps temporarily.
+- Check blocked sender list and unblock service short codes.
+
+3) Request pattern
+- Wait for timer reset and request only one new OTP.
+- Use only most recent OTP; older OTPs are invalid after new request.
+
+4) Carrier and region checks
+- Confirm your SIM can receive transactional/short-code messages.
+- Roaming SIMs may face delays depending on local telecom rules.
+
+5) Escalation
+- If issue persists, chat with support and provide country code, masked number, UID, and request time.
+- Support can cross-check SMS gateway delivery attempts.''',
   ),
   SupportHelpArticle(
     id: 'deposit-not-credited',
-    title: "I haven't receive my crypto deposit",
+    title: "I haven't received my crypto deposit",
     category: 'Deposit & Withdrawal',
-    body:
-        'Deposits are credited only when:\n'
-        '1. Correct coin and network are used.\n'
-        '2. Minimum deposit amount is met.\n'
-        '3. Required blockchain confirmations are complete.\n'
-        '4. Deposit network is active.\n'
-        'You can verify network and minimum values on the deposit page.',
+    body: '''Deposit is credited only after chain and account checks pass.
+
+Please verify:
+1) Coin + Network match exactly (for example USDT-TRC20 to TRC20 address).
+2) Deposit amount is above minimum supported amount.
+3) Required confirmations are completed on blockchain explorer.
+4) Memo/Tag (if required coin) was included correctly.
+5) Network was not under maintenance during transfer.
+
+What to prepare before ticket:
+- TXID/Hash
+- Coin + network used
+- Deposit address screenshot
+- Amount + transfer timestamp
+
+Open support with these details and Bitegit team can trace credit status quickly.''',
   ),
   SupportHelpArticle(
     id: 'withdraw-howto',
     title: 'How to submit a withdrawal?',
     category: 'Deposit & Withdrawal',
-    body:
-        'To submit a withdrawal:\n'
-        '1. Go to Assets > Withdraw.\n'
-        '2. Select coin and network.\n'
-        '3. Enter destination address and amount.\n'
-        '4. Complete security verification (Email, SMS, Google Auth, Fund password).\n'
-        '5. Confirm withdrawal.',
+    body: '''To submit withdrawal safely on Bitegit:
+
+1) Open Assets -> Withdraw.
+2) Select coin and destination network.
+3) Enter wallet address (and Memo/Tag if required).
+4) Enter amount and review:
+- Network fee
+- Minimum withdrawal
+- Receive amount after fee
+- Estimated arrival time
+5) Complete security verification:
+- Email OTP
+- SMS OTP
+- Google Authenticator
+- Fund password
+6) Submit and track status in withdrawal history.
+
+Important:
+- Wrong network can permanently lose funds.
+- Keep enough balance for fees.
+- Large withdrawals may trigger additional risk checks.''',
   ),
   SupportHelpArticle(
     id: 'reward-info',
     title: "I didn't receive my rewards",
     category: 'Promotion & Bonus',
-    body:
-        'Rewards are typically distributed within 7 working days after an event ends.\n'
-        'Check event T&C and rewards page for schedule.\n'
-        'If missing after timeline, contact support with event screenshot and UID.',
+    body: '''Reward and bonus distribution guide:
+
+1) Distribution timeline
+- Most rewards are settled within 7 working days after campaign end.
+- Some campaigns release in phases (daily/weekly milestone).
+
+2) Common non-credit reasons
+- KYC not completed
+- Region not eligible
+- Required trade volume not met
+- Pair/order type not counted in campaign rules
+- Reward claim window expired
+
+3) What to do
+- Re-check campaign terms and your qualifying activity.
+- Check Coupons/Rewards center for credited vouchers.
+- If missing after due date, open ticket with UID, campaign link, order IDs, and screenshots.''',
   ),
   SupportHelpArticle(
     id: 'kyc-guide',
     title: 'Identity verification',
     category: 'Identity Verification',
-    body:
-        'Level 1 requires basic profile details.\n'
-        'Level 2 requires government ID front/back and selfie with document.\n'
-        'Ensure clear image quality and matching personal details.',
+    body: '''Identity verification on Bitegit has two levels:
+
+Level 1 (Basic):
+- Full legal name
+- DOB
+- Country and basic profile details
+
+Level 2 (Advanced):
+- Government ID front image
+- Government ID back image
+- Live selfie + liveness check
+
+Tips for quick approval:
+1) Use clear light and full document in frame.
+2) Avoid blur, glare, cropped edges, and edited photos.
+3) Ensure profile name exactly matches ID name.
+4) Complete face match without mask/sunglasses.
+
+If rejected:
+- Read rejection reason
+- Re-upload better images
+- Contact support if document is valid but repeatedly rejected.''',
   ),
   SupportHelpArticle(
     id: 'p2p-issue',
     title: 'P2P order issue',
     category: 'P2P',
-    body:
-        'For P2P issues:\n'
-        '1. Open the P2P order details.\n'
-        '2. Use in-order chat to contact merchant.\n'
-        '3. Click Open Appeal if payment is made but crypto is not released.\n'
-        '4. Upload payment proof and wait for admin decision.',
+    body: '''P2P issue resolution playbook:
+
+1) Open the exact order and verify current status.
+2) Use in-order chat first and keep all communication on Bitegit only.
+3) For payment disputes:
+- Upload payment screenshot
+- Share UTR/reference number
+- Mention payment timestamp and method
+
+4) Open appeal when:
+- Buyer marked paid but seller not releasing
+- Seller did not receive valid payment
+- Payment details are incorrect
+
+5) During appeal review:
+- Escrow remains locked
+- Support checks order log + chat + proof
+- Final decision: release to buyer or return to seller
+
+Never complete P2P deal outside platform chat/order.''',
   ),
 ];
 
@@ -1741,6 +2237,15 @@ class ExchangeShell extends StatefulWidget {
 
 class _ExchangeShellState extends State<ExchangeShell> {
   int _index = 0;
+  bool _announcementCheckedThisSession = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowGlobalAnnouncement();
+    });
+  }
 
   Future<void> _openUserCenter() async {
     await Navigator.of(
@@ -1755,8 +2260,70 @@ class _ExchangeShellState extends State<ExchangeShell> {
 
   Future<void> _openTradePair(MarketPair pair) async {
     selectedTradePairNotifier.value = pair;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => TradingViewChartPage(pair: pair)),
+    if (!mounted) return;
+    setState(() => _index = 3);
+  }
+
+  Future<void> _maybeShowGlobalAnnouncement() async {
+    if (!mounted || _announcementCheckedThisSession) return;
+    _announcementCheckedThisSession = true;
+
+    final now = DateTime.now();
+    if (_announcementDismissedUntil != null &&
+        now.isBefore(_announcementDismissedUntil!)) {
+      return;
+    }
+
+    bool hideFor24Hours = false;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Important Notice'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    kGlobalAnnouncementMessage,
+                    style: TextStyle(fontSize: 13.2, height: 1.45),
+                  ),
+                  const SizedBox(height: 10),
+                  CheckboxListTile(
+                    value: hideFor24Hours,
+                    onChanged: (value) {
+                      setDialogState(() => hideFor24Hours = value ?? false);
+                    },
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text(
+                      "Don't show again for 24 hours",
+                      style: TextStyle(fontSize: 12.6),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () {
+                    if (hideFor24Hours) {
+                      _announcementDismissedUntil = DateTime.now().add(
+                        const Duration(hours: 24),
+                      );
+                    }
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('Got it'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1842,71 +2409,178 @@ class HomePage extends StatelessWidget {
   final ValueChanged<int> onNavigateTab;
   final ValueChanged<MarketPair> onOpenTradePair;
 
+  void _openWidgetEditor(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+            child: ValueListenableBuilder<HomeWidgetSettings>(
+              valueListenable: homeWidgetSettingsNotifier,
+              builder: (context, settings, _) {
+                Widget tile({
+                  required String title,
+                  required String subtitle,
+                  required bool value,
+                  required ValueChanged<bool> onChanged,
+                }) {
+                  return SwitchListTile.adaptive(
+                    value: value,
+                    onChanged: onChanged,
+                    title: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15.4,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      subtitle,
+                      style: const TextStyle(fontSize: 12.4),
+                    ),
+                    contentPadding: EdgeInsets.zero,
+                  );
+                }
+
+                return SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Widget Edit',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Select which home widgets you want to keep visible.',
+                        style: TextStyle(fontSize: 13.2),
+                      ),
+                      const SizedBox(height: 8),
+                      tile(
+                        title: 'Deposit banner',
+                        subtitle: 'Top deposit CTA section',
+                        value: settings.showDepositBanner,
+                        onChanged: (value) {
+                          homeWidgetSettingsNotifier.value = settings.copyWith(
+                            showDepositBanner: value,
+                          );
+                        },
+                      ),
+                      tile(
+                        title: 'Promo slider cards',
+                        subtitle: '3-box promotional slider block',
+                        value: settings.showPromoScroller,
+                        onChanged: (value) {
+                          homeWidgetSettingsNotifier.value = settings.copyWith(
+                            showPromoScroller: value,
+                          );
+                        },
+                      ),
+                      tile(
+                        title: 'Quick actions row',
+                        subtitle: 'Deposit, P2P, Withdraw, Reward shortcuts',
+                        value: settings.showQuickActions,
+                        onChanged: (value) {
+                          homeWidgetSettingsNotifier.value = settings.copyWith(
+                            showQuickActions: value,
+                          );
+                        },
+                      ),
+                      tile(
+                        title: 'Announcement ticker',
+                        subtitle: 'Running market notice bar',
+                        value: settings.showTicker,
+                        onChanged: (value) {
+                          homeWidgetSettingsNotifier.value = settings.copyWith(
+                            showTicker: value,
+                          );
+                        },
+                      ),
+                      tile(
+                        title: 'Popular pairs board',
+                        subtitle: 'Popular/Gainers/New/24h Vol section',
+                        value: settings.showPairs,
+                        onChanged: (value) {
+                          homeWidgetSettingsNotifier.value = settings.copyWith(
+                            showPairs: value,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        _TopHeader(onOpenProfile: onOpenProfile),
-        const SizedBox(height: 10),
-        _HomeDepositBanner(
-          onDeposit: () => Navigator.of(
-            context,
-          ).push(MaterialPageRoute<void>(builder: (_) => const DepositPage())),
-          onOpenAssets: () => onNavigateTab(4),
-        ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              _QuickActionButton(
-                label: 'Poker',
-                icon: Icons.casino_outlined,
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Poker module opening soon')),
+    return ValueListenableBuilder<HomeWidgetSettings>(
+      valueListenable: homeWidgetSettingsNotifier,
+      builder: (context, settings, _) {
+        return ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            _TopHeader(
+              onOpenProfile: onOpenProfile,
+              onEditWidgets: () => _openWidgetEditor(context),
+            ),
+            const SizedBox(height: 10),
+            if (settings.showDepositBanner) ...[
+              _HomeDepositBanner(
+                onDeposit: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const DepositPage()),
                 ),
+                onOpenAssets: () => onNavigateTab(4),
               ),
-              _QuickActionButton(
-                label: 'Auto Earn',
-                icon: Icons.savings_outlined,
-                onTap: () => onNavigateTab(2),
-              ),
-              _QuickActionButton(
-                label: 'P2P',
-                icon: Icons.people_alt_outlined,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const P2PPage()),
+              const SizedBox(height: 12),
+            ],
+            if (settings.showQuickActions) ...[
+              _HomeQuickActions(
+                onDeposit: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const DepositPage()),
                 ),
-              ),
-              _QuickActionButton(
-                label: 'LALIGA',
-                icon: Icons.emoji_events_outlined,
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Campaign page opening soon')),
+                onOpenP2POrders: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const P2PPage(startInOrders: true),
+                  ),
                 ),
-              ),
-              _QuickActionButton(
-                label: 'Rewards',
-                icon: Icons.card_giftcard_outlined,
-                onTap: () => Navigator.of(context).push(
+                onWithdraw: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const WithdrawPage()),
+                ),
+                onReward: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const RewardsContestOverviewPage(),
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
             ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        _HomeQuickAccessMenu(onNavigateTab: onNavigateTab),
-        const SizedBox(height: 12),
-        const _HomeP2PTemplateScroller(),
-        const SizedBox(height: 10),
-        const _AnnouncementTicker(items: kMarketNotices),
-        const SizedBox(height: 10),
-        _HomePopularPairsSection(onOpenTradePair: onOpenTradePair),
-      ],
+            if (settings.showPromoScroller) ...[
+              const _HomeP2PTemplateScroller(),
+              const SizedBox(height: 10),
+            ],
+            if (settings.showTicker) ...[
+              const _AnnouncementTicker(items: kMarketNotices),
+              const SizedBox(height: 10),
+            ],
+            if (settings.showPairs)
+              _HomePopularPairsSection(onOpenTradePair: onOpenTradePair),
+          ],
+        );
+      },
     );
   }
 }
@@ -2223,10 +2897,96 @@ class _HomeDepositBanner extends StatelessWidget {
   }
 }
 
+class _HomeQuickActions extends StatelessWidget {
+  const _HomeQuickActions({
+    required this.onDeposit,
+    required this.onOpenP2POrders,
+    required this.onWithdraw,
+    required this.onReward,
+  });
+
+  final VoidCallback onDeposit;
+  final VoidCallback onOpenP2POrders;
+  final VoidCallback onWithdraw;
+  final VoidCallback onReward;
+
+  @override
+  Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final iconBg = isLight ? const Color(0xFFE5E8F0) : const Color(0xFF1C2230);
+    final iconFg = isLight ? const Color(0xFF111420) : Colors.white;
+    final label = isLight ? const Color(0xFF212735) : Colors.white;
+
+    Widget action({
+      required IconData icon,
+      required String text,
+      required VoidCallback onTap,
+    }) {
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Column(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: iconBg,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(icon, color: iconFg, size: 24),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  text,
+                  style: TextStyle(
+                    color: label,
+                    fontSize: 12.6,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        action(
+          icon: Icons.account_balance_wallet_outlined,
+          text: 'Deposit',
+          onTap: onDeposit,
+        ),
+        action(
+          icon: Icons.swap_horiz_rounded,
+          text: 'P2P',
+          onTap: onOpenP2POrders,
+        ),
+        action(
+          icon: Icons.north_east_rounded,
+          text: 'Withdraw',
+          onTap: onWithdraw,
+        ),
+        action(
+          icon: Icons.emoji_events_outlined,
+          text: 'Reward',
+          onTap: onReward,
+        ),
+      ],
+    );
+  }
+}
+
 class _TopHeader extends StatelessWidget {
-  const _TopHeader({required this.onOpenProfile});
+  const _TopHeader({required this.onOpenProfile, required this.onEditWidgets});
 
   final VoidCallback onOpenProfile;
+  final VoidCallback onEditWidgets;
 
   @override
   Widget build(BuildContext context) {
@@ -2270,6 +3030,11 @@ class _TopHeader extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         IconButton(
+          onPressed: onEditWidgets,
+          icon: Icon(Icons.edit_note_rounded, size: 22, color: iconColor),
+          tooltip: 'Widget Edit',
+        ),
+        IconButton(
           onPressed: () => Navigator.of(
             context,
           ).push(MaterialPageRoute<void>(builder: (_) => const ScanPage())),
@@ -2277,7 +3042,7 @@ class _TopHeader extends StatelessWidget {
         ),
         IconButton(
           onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const SupportBotPage()),
+            MaterialPageRoute<void>(builder: (_) => const SupportHomePage()),
           ),
           icon: Icon(Icons.headset_mic_outlined, size: 22, color: iconColor),
         ),
@@ -2316,216 +3081,6 @@ class _TopHeader extends StatelessWidget {
       ],
     );
   }
-}
-
-class _QuickActionButton extends StatelessWidget {
-  const _QuickActionButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final cardBg = isLight ? const Color(0xFFE6EBF4) : const Color(0xFF1A202D);
-    final border = isLight ? const Color(0xFFD0D8E9) : const Color(0xFF2C3344);
-    final iconColor = isLight
-        ? const Color(0xFF10151E)
-        : const Color(0xFFD5DEEF);
-    final labelColor = isLight ? const Color(0xFF2E3647) : Colors.white70;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Container(
-        width: 78,
-        margin: const EdgeInsets.only(right: 10),
-        child: Column(
-          children: [
-            Container(
-              width: 58,
-              height: 52,
-              decoration: BoxDecoration(
-                color: cardBg,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: border),
-              ),
-              child: Icon(icon, size: 21, color: iconColor),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: labelColor,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HomeQuickAccessMenu extends StatelessWidget {
-  const _HomeQuickAccessMenu({required this.onNavigateTab});
-
-  final ValueChanged<int> onNavigateTab;
-
-  @override
-  Widget build(BuildContext context) {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final bg = isLight ? Colors.white : const Color(0xFF0D131D);
-    final border = isLight ? const Color(0xFFD6DDEA) : const Color(0xFF1E293C);
-    final iconBg = isLight ? const Color(0xFFEDEFF4) : const Color(0xFF1A2231);
-    final iconColor = isLight ? const Color(0xFF131823) : Colors.white;
-    final labelColor = isLight ? const Color(0xFF2D3546) : Colors.white70;
-
-    final items = <_QuickAccessItem>[
-      _QuickAccessItem(
-        title: 'Deposit',
-        icon: Icons.arrow_downward_rounded,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const DepositPage()),
-        ),
-      ),
-      _QuickAccessItem(
-        title: 'Withdraw',
-        icon: Icons.arrow_upward_rounded,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const WithdrawPage()),
-        ),
-      ),
-      _QuickAccessItem(
-        title: 'P2P',
-        icon: Icons.people_alt_outlined,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const P2PPage()),
-        ),
-      ),
-      _QuickAccessItem(
-        title: 'Convert',
-        icon: Icons.swap_horiz_rounded,
-        onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Convert module opening soon')),
-        ),
-      ),
-      _QuickAccessItem(
-        title: 'Buy',
-        icon: Icons.add_circle_outline_rounded,
-        onTap: () => onNavigateTab(3),
-      ),
-      _QuickAccessItem(
-        title: 'Sell',
-        icon: Icons.remove_circle_outline_rounded,
-        onTap: () => onNavigateTab(3),
-      ),
-      _QuickAccessItem(
-        title: 'Launchpool',
-        icon: Icons.rocket_launch_outlined,
-        onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Launchpool opening soon')),
-        ),
-      ),
-      _QuickAccessItem(
-        title: 'Coupons',
-        icon: Icons.confirmation_num_outlined,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => const RewardsContestOverviewPage(),
-          ),
-        ),
-      ),
-      _QuickAccessItem(
-        title: 'Promotion',
-        icon: Icons.campaign_outlined,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => const RewardsContestOverviewPage(),
-          ),
-        ),
-      ),
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Quick access',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 5,
-              mainAxisExtent: 78,
-              crossAxisSpacing: 6,
-              mainAxisSpacing: 8,
-            ),
-            itemCount: items.length,
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return InkWell(
-                onTap: item.onTap,
-                borderRadius: BorderRadius.circular(12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: iconBg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(item.icon, size: 20, color: iconColor),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 10.8, color: labelColor),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _QuickAccessItem {
-  const _QuickAccessItem({
-    required this.title,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String title;
-  final IconData icon;
-  final VoidCallback onTap;
 }
 
 class _HomeP2PTemplateScroller extends StatefulWidget {
@@ -2624,7 +3179,7 @@ class _HomeP2PTemplateScrollerState extends State<_HomeP2PTemplateScroller> {
   @override
   void initState() {
     super.initState();
-    _autoSlideTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _autoSlideTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted) return;
       setState(() {
         _activeIndex = (_activeIndex + 1) % _pages.length;
@@ -2715,12 +3270,12 @@ class _HomeP2PTemplateScrollerState extends State<_HomeP2PTemplateScroller> {
         border: Border.all(color: cardBorder),
       ),
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 420),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
+        duration: const Duration(milliseconds: 2200),
+        switchInCurve: Curves.easeInOutSine,
+        switchOutCurve: Curves.easeInOutSine,
         transitionBuilder: (child, animation) {
           final slide = Tween<Offset>(
-            begin: const Offset(0.22, 0),
+            begin: const Offset(0.015, 0),
             end: Offset.zero,
           ).animate(animation);
           return ClipRect(
@@ -2802,12 +3357,12 @@ class _HomeP2PTemplateScrollerState extends State<_HomeP2PTemplateScroller> {
         border: Border.all(color: cardBorder),
       ),
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 420),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
+        duration: const Duration(milliseconds: 2200),
+        switchInCurve: Curves.easeInOutSine,
+        switchOutCurve: Curves.easeInOutSine,
         transitionBuilder: (child, animation) {
           final slide = Tween<Offset>(
-            begin: const Offset(0.22, 0),
+            begin: const Offset(0.015, 0),
             end: Offset.zero,
           ).animate(animation);
           return ClipRect(
@@ -3631,90 +4186,46 @@ class AuthEntryPage extends StatefulWidget {
 
 class _AuthEntryPageState extends State<AuthEntryPage> {
   final TextEditingController _identityController = TextEditingController();
-  bool _sending = false;
+  final TextEditingController _passwordController = TextEditingController();
+  bool _loggingIn = false;
 
   @override
   void dispose() {
     _identityController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  bool _isValidIdentity(String value) {
-    final emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-    final phoneRegex = RegExp(r'^\+?[0-9]{8,15}$');
-    return emailRegex.hasMatch(value) || phoneRegex.hasMatch(value);
-  }
-
-  Future<void> _startOtpFlow(String identity) async {
-    if (_sending) return;
-    final normalized = identity.trim();
-    if (!_isValidIdentity(normalized)) {
+  Future<void> _login() async {
+    if (_loggingIn) return;
+    final identity = _identityController.text.trim();
+    final password = _passwordController.text;
+    if (identity.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter valid email or phone number')),
+        const SnackBar(content: Text('Enter email and password')),
       );
       return;
     }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _FakeGeetestDialog(identity: normalized),
-    );
-    if (!mounted || ok != true) return;
-
-    setState(() => _sending = true);
-    try {
-      final result = await AuthOtpService.requestOtp(normalized);
-      if (!mounted) return;
+    setState(() => _loggingIn = true);
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    final user = _findUserByIdentity(identity);
+    if (!mounted) return;
+    if (user == null || user.password != password) {
+      setState(() => _loggingIn = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result.backendSent
-                ? 'OTP sent to ${_maskIdentity(normalized)}'
-                : '${result.message} Demo OTP: ${result.demoOtp ?? ''}',
-          ),
-        ),
+        const SnackBar(content: Text('Invalid credentials')),
       );
-      final verified = await Navigator.of(context).push<bool>(
-        MaterialPageRoute<bool>(
-          builder: (_) => VerificationCodePage(
-            maskedIdentity: _maskIdentity(normalized),
-            identity: normalized,
-            backendOtpSent: result.backendSent,
-            helperMessage: result.message,
-            demoOtp: result.demoOtp,
-          ),
-        ),
-      );
-      if (verified == true && mounted) {
-        authIdentityNotifier.value = normalized;
-        isUserLoggedInNotifier.value = true;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Login successful')));
-        Navigator.of(context).pop();
-      }
-    } finally {
-      if (mounted) setState(() => _sending = false);
+      return;
     }
-  }
-
-  Future<void> _onNext() async {
-    await _startOtpFlow(_identityController.text.trim());
-  }
-
-  Future<void> _onSocialTap(String provider) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    String identity;
-    if (provider == 'google') {
-      identity = 'user${nowMs % 10000}@gmail.com';
-    } else if (provider == 'apple') {
-      identity = 'appleuser${nowMs % 10000}@icloud.com';
-    } else {
-      identity = 'qruser${nowMs % 10000}@bitegit.com';
+    _hydrateSessionFromUser(user);
+    _syncActiveUserState(walletBalanceUsdt: fundingUsdtBalanceNotifier.value);
+    setState(() => _loggingIn = false);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Login successful')));
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
     }
-    _identityController.text = identity;
-    await _startOtpFlow(identity);
   }
 
   @override
@@ -3748,77 +4259,182 @@ class _AuthEntryPageState extends State<AuthEntryPage> {
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
             decoration: const InputDecoration(hintText: 'Enter email or phone'),
           ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(hintText: 'Password'),
+          ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: _sending ? null : _onNext,
+              onPressed: _loggingIn ? null : _login,
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
+                backgroundColor: const Color(0xFFF1CB3E),
                 foregroundColor: Colors.black,
                 minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(28),
-                ),
               ),
-              child: Text(
-                _sending ? 'Sending OTP...' : 'Next',
-                style: const TextStyle(
-                  fontSize: 14.8,
-                  fontWeight: FontWeight.w700,
-                ),
+              child: const Text(
+                'Continue',
+                style: TextStyle(fontSize: 14.8, fontWeight: FontWeight.w700),
               ),
             ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'No account? ',
+                style: TextStyle(fontSize: 12.4, color: Colors.white70),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SignupEntryPage(),
+                    ),
+                  );
+                },
+                child: const Text('Sign up'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SignupEntryPage extends StatefulWidget {
+  const SignupEntryPage({super.key});
+
+  @override
+  State<SignupEntryPage> createState() => _SignupEntryPageState();
+}
+
+class _SignupEntryPageState extends State<SignupEntryPage> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmController = TextEditingController();
+  bool _creating = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  bool _validEmail(String value) {
+    return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value.trim());
+  }
+
+  Future<void> _createAccount() async {
+    if (_creating) return;
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final confirm = _confirmController.text;
+    if (!_validEmail(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid email address')),
+      );
+      return;
+    }
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password must be at least 6 characters')),
+      );
+      return;
+    }
+    if (password != confirm) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Passwords do not match')),
+      );
+      return;
+    }
+    setState(() => _creating = true);
+    await Future<void>.delayed(const Duration(milliseconds: 260));
+    final createdUserId = _createUser(email: email, password: password);
+    if (!mounted) return;
+    if (createdUserId == null) {
+      setState(() => _creating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User already exists. Please login.')),
+      );
+      return;
+    }
+    final user = _findUserByIdentity(email);
+    if (user == null) {
+      setState(() => _creating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to create user profile')),
+      );
+      return;
+    }
+    _hydrateSessionFromUser(user);
+    _syncActiveUserState(
+      walletBalanceUsdt: 0,
+      canPostAds: false,
+      kycStatus: 'pending',
+    );
+    setState(() => _creating = false);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Signup successful. Complete KYC next.')),
+    );
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(builder: (_) => const KycVerificationPage()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(leading: const BackButton(), title: const Text('Sign Up')),
+      body: ListView(
+        padding: const EdgeInsets.all(14),
+        children: [
+          const SizedBox(height: 10),
+          const Text(
+            'Create your account',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(labelText: 'Email'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _passwordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Password'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _confirmController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Confirm Password'),
           ),
           const SizedBox(height: 12),
-          const Center(
-            child: Text(
-              'Sign up',
-              style: TextStyle(fontSize: 15.6, fontWeight: FontWeight.w700),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _creating ? null : _createAccount,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFF1CB3E),
+                foregroundColor: Colors.black,
+                minimumSize: const Size.fromHeight(50),
+              ),
+              child: Text(
+                _creating ? 'Creating...' : 'Sign Up',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
             ),
-          ),
-          const SizedBox(height: 70),
-          Row(
-            children: const [
-              Expanded(child: Divider(color: Colors.white24)),
-              SizedBox(width: 12),
-              Text('Or', style: TextStyle(color: Colors.white70, fontSize: 14)),
-              SizedBox(width: 12),
-              Expanded(child: Divider(color: Colors.white24)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(30),
-                onTap: () => _onSocialTap('google'),
-                child: const CircleAvatar(
-                  radius: 24,
-                  backgroundColor: Color(0xFF1D222E),
-                  child: Text('G', style: TextStyle(fontSize: 22)),
-                ),
-              ),
-              InkWell(
-                borderRadius: BorderRadius.circular(30),
-                onTap: () => _onSocialTap('qr'),
-                child: const CircleAvatar(
-                  radius: 24,
-                  backgroundColor: Color(0xFF1D222E),
-                  child: Icon(Icons.qr_code_2_rounded, size: 20),
-                ),
-              ),
-              InkWell(
-                borderRadius: BorderRadius.circular(30),
-                onTap: () => _onSocialTap('apple'),
-                child: const CircleAvatar(
-                  radius: 24,
-                  backgroundColor: Color(0xFF1D222E),
-                  child: Icon(Icons.apple, size: 22),
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -4992,45 +5608,73 @@ class TradePage extends StatefulWidget {
 }
 
 class _TradePageState extends State<TradePage> {
+  int _marketTabIndex = 0;
   int _headerTab = 0;
-  int _timeframeIndex = 0;
-  int _tradeViewMode = 0;
+  int _timeframeIndex = 1;
+  int _flowFrameIndex = 0;
+  bool _isBuy = true;
+  String? _activePairSymbol;
+
   final Random _liveRandom = Random();
   final Map<String, double> _livePrice = {};
+  final Map<String, List<_CandleBar>> _seriesCache = {};
+  final Map<String, int> _candleTickCounter = {};
   Timer? _liveTimer;
-  int _liveSeed = 0;
 
-  static const List<String> _headerTabs = ['Chart', 'Overview', 'Data', 'Feed'];
-  static const List<String> _timeframes = ['1m', '5m', '15m', '1h', '4h', '1D'];
-  static const List<String> _indicatorTabs = [
-    'MA',
-    'EMA',
-    'BOLL',
-    'SAR',
-    'VOL',
-    'MACD',
-    'KDJ',
+  static const List<String> _marketTabs = [
+    'Spot',
+    'Margin',
+    'Onchain',
+    'Earn',
+    'Tools',
+  ];
+  static const List<String> _headerTabs = ['Chart', 'Data', 'Square', 'About'];
+  static const List<String> _timeframes = [
+    '1m',
+    '15m',
+    '1h',
+    '4h',
+    '1D',
+    'More',
+  ];
+  static const List<String> _flowFrames = [
+    '15m',
+    '30m',
+    '1h',
+    '2h',
+    '4h',
+    '1D',
   ];
 
   @override
   void initState() {
     super.initState();
-    _liveTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _activePairSymbol = selectedTradePairNotifier.value.symbol;
+    selectedTradePairNotifier.addListener(_handleSelectedPairChanged);
+    _liveTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
       if (!mounted) return;
       final pair = selectedTradePairNotifier.value;
-      final anchor = _priceFromString(pair.price);
-      final current = _livePrice[pair.symbol] ?? anchor;
-      final drift = (_liveRandom.nextDouble() - 0.5) * 0.0065;
-      final next = (current * (1 + drift)).clamp(anchor * 0.7, anchor * 1.3);
-      setState(() {
-        _livePrice[pair.symbol] = next.toDouble();
-        _liveSeed++;
-      });
+      setState(() => _tickLiveSeries(pair));
+    });
+  }
+
+  void _handleSelectedPairChanged() {
+    final symbol = selectedTradePairNotifier.value.symbol;
+    if (_activePairSymbol == symbol) return;
+    _activePairSymbol = symbol;
+    if (!mounted) return;
+    setState(() {
+      _marketTabIndex = 0;
+      _headerTab = 0;
+      _timeframeIndex = 1;
+      _flowFrameIndex = 0;
+      _isBuy = true;
     });
   }
 
   @override
   void dispose() {
+    selectedTradePairNotifier.removeListener(_handleSelectedPairChanged);
     _liveTimer?.cancel();
     super.dispose();
   }
@@ -5039,113 +5683,198 @@ class _TradePageState extends State<TradePage> {
     return double.tryParse(value.replaceAll(',', '')) ?? 1;
   }
 
-  double _currentPriceForPair(MarketPair pair) {
-    return _livePrice[pair.symbol] ?? _priceFromString(pair.price);
+  String _seriesKey(MarketPair pair) =>
+      '${pair.symbol}-${_timeframes[_timeframeIndex]}';
+
+  int _rollEveryForTimeframe() {
+    final tf = _timeframes[_timeframeIndex];
+    if (tf == '1m') return 3;
+    if (tf == '15m') return 5;
+    if (tf == '1h') return 7;
+    if (tf == '4h') return 9;
+    if (tf == '1D') return 12;
+    return 8;
   }
 
-  List<_CandleBar> _buildSeries(MarketPair pair) {
-    final String seed =
-        '${pair.symbol}-${_timeframes[_timeframeIndex]}-$_liveSeed';
-    int hash = 7;
-    for (final code in seed.codeUnits) {
-      hash = ((hash * 31) + code) & 0x7fffffff;
+  int _seedForKey(String key) {
+    int hash = 17;
+    for (final c in key.codeUnits) {
+      hash = ((hash * 31) + c) & 0x7fffffff;
     }
-    final random = Random(hash);
-    final base = _currentPriceForPair(pair);
+    return hash;
+  }
+
+  List<String> _pairParts(String symbol) {
+    if (symbol.contains('/')) {
+      final parts = symbol.split('/');
+      if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+        return [parts[0], parts[1]];
+      }
+    }
+    const quoteCandidates = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'INR', 'USD'];
+    for (final quote in quoteCandidates) {
+      if (symbol.length > quote.length && symbol.endsWith(quote)) {
+        return [symbol.substring(0, symbol.length - quote.length), quote];
+      }
+    }
+    return [symbol, 'USDT'];
+  }
+
+  String _baseAsset(MarketPair pair) => _pairParts(pair.symbol)[0];
+  String _quoteAsset(MarketPair pair) => _pairParts(pair.symbol)[1];
+
+  List<_CandleBar> _generateInitialSeries(MarketPair pair, String key) {
+    final random = Random(_seedForKey(key));
+    final base = _priceFromString(pair.price);
     final List<_CandleBar> candles = [];
     double cursor = base * (0.96 + random.nextDouble() * 0.08);
-    for (int i = 0; i < 56; i++) {
-      final drift = (random.nextDouble() - 0.5) * (base * 0.008);
+    for (int i = 0; i < 66; i++) {
+      final drift = (random.nextDouble() - 0.5) * (base * 0.0048 + 0.03);
       final open = cursor;
-      final close = (cursor + drift).clamp(base * 0.7, base * 1.3).toDouble();
+      final close = (cursor + drift).clamp(base * 0.7, base * 1.4).toDouble();
       final high =
-          max(open, close) + random.nextDouble() * (base * 0.004 + 0.02);
+          max(open, close) + random.nextDouble() * (base * 0.0024 + 0.02);
       final low =
-          min(open, close) - random.nextDouble() * (base * 0.004 + 0.02);
+          min(open, close) - random.nextDouble() * (base * 0.0024 + 0.02);
       candles.add(_CandleBar(open: open, high: high, low: low, close: close));
       cursor = close;
     }
+    _livePrice[pair.symbol] = candles.last.close;
+    _candleTickCounter[key] = 0;
     return candles;
   }
 
-  Widget _buildOverviewCard(MarketPair pair) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0C1324),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1D2A44)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Market Overview',
-            style: TextStyle(fontSize: 12.8, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          _overviewRow('Pair', pair.symbol),
-          _overviewRow('24H Change', pair.change),
-          _overviewRow('Last Price', pair.price),
-          _overviewRow('24H Volume', pair.volume),
-          _overviewRow('Source', 'Live feed ready'),
-        ],
-      ),
+  void _tickLiveSeries(MarketPair pair) {
+    final anchor = _priceFromString(pair.price);
+    final current = _livePrice[pair.symbol] ?? anchor;
+    final drift = (_liveRandom.nextDouble() - 0.5) * 0.00135;
+    final next = (current * (1 + drift)).clamp(anchor * 0.7, anchor * 1.35);
+    final key = _seriesKey(pair);
+    final source = _seriesCache[key] ?? _generateInitialSeries(pair, key);
+    final candles = List<_CandleBar>.from(source);
+    if (candles.isEmpty) {
+      _seriesCache[key] = _generateInitialSeries(pair, key);
+      _livePrice[pair.symbol] = next.toDouble();
+      return;
+    }
+
+    final last = candles.last;
+    candles[candles.length - 1] = _CandleBar(
+      open: last.open,
+      high: max(last.high, next),
+      low: min(last.low, next),
+      close: next.toDouble(),
+    );
+
+    final step = (_candleTickCounter[key] ?? 0) + 1;
+    if (step >= _rollEveryForTimeframe()) {
+      final closeShift = (_liveRandom.nextDouble() - 0.5) * (anchor * 0.0011);
+      final close = (next + closeShift).clamp(anchor * 0.7, anchor * 1.35);
+      final high =
+          max(next, close) +
+          _liveRandom.nextDouble() * (anchor * 0.0015 + 0.02);
+      final low =
+          min(next, close) -
+          _liveRandom.nextDouble() * (anchor * 0.0015 + 0.02);
+      candles.add(
+        _CandleBar(
+          open: next.toDouble(),
+          high: high.toDouble(),
+          low: low.toDouble(),
+          close: close.toDouble(),
+        ),
+      );
+      if (candles.length > 66) candles.removeAt(0);
+      _candleTickCounter[key] = 0;
+    } else {
+      _candleTickCounter[key] = step;
+    }
+
+    _seriesCache[key] = candles;
+    _livePrice[pair.symbol] = next.toDouble();
+  }
+
+  List<_CandleBar> _buildSeries(MarketPair pair) {
+    final key = _seriesKey(pair);
+    return _seriesCache.putIfAbsent(
+      key,
+      () => _generateInitialSeries(pair, key),
     );
   }
 
-  Widget _overviewRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+  Widget _buildTopMarketTabs() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 10.5, color: Colors.white60),
+        children: List.generate(_marketTabs.length, (index) {
+          final active = _marketTabIndex == index;
+          return Padding(
+            padding: EdgeInsets.only(
+              right: index == _marketTabs.length - 1 ? 0 : 20,
             ),
-          ),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 10.8, fontWeight: FontWeight.w600),
-          ),
-        ],
+            child: InkWell(
+              onTap: () => setState(() => _marketTabIndex = index),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  _marketTabs[index],
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: active ? Colors.white : Colors.white60,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
 
-  Widget _buildTradeNoticeRow() {
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B1323),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF1E2B46)),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.campaign_outlined, size: 14, color: Colors.white70),
-          SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              'New user exclusive: complete KYC and unlock higher P2P limits.',
-              style: TextStyle(fontSize: 10.4, color: Colors.white70),
-              overflow: TextOverflow.ellipsis,
+  Widget _buildHeaderTabs() {
+    return Row(
+      children: List.generate(_headerTabs.length, (index) {
+        final active = _headerTab == index;
+        return Padding(
+          padding: const EdgeInsets.only(right: 22),
+          child: InkWell(
+            onTap: () => setState(() => _headerTab = index),
+            borderRadius: BorderRadius.circular(8),
+            child: Column(
+              children: [
+                Text(
+                  _headerTabs[index],
+                  style: TextStyle(
+                    fontSize: 16.2,
+                    color: active ? Colors.white : Colors.white54,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  width: 34,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: active ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      }),
     );
   }
 
-  Widget _styledInputBox(String label, String value, {bool muted = false}) {
+  Widget _buildEntryField(String label, String value, {bool muted = false}) {
     return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF171D2C),
+        color: const Color(0xFF1A202F),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -5154,15 +5883,15 @@ class _TradePageState extends State<TradePage> {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 10.6,
-                color: muted ? Colors.white38 : Colors.white70,
+                fontSize: 11.2,
+                color: muted ? Colors.white38 : Colors.white60,
               ),
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontSize: 10.8,
+              fontSize: 12,
               color: muted ? Colors.white54 : Colors.white,
               fontWeight: FontWeight.w600,
             ),
@@ -5172,235 +5901,771 @@ class _TradePageState extends State<TradePage> {
     );
   }
 
-  Widget _buildOrderEntryPanel(double lastPrice) {
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0C1324),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1D2A44)),
-      ),
-      child: Column(
-        children: [
-          Row(
+  Widget _buildTradeMatrix(
+    MarketPair pair,
+    List<_CandleBar> candles,
+    double lastPrice,
+    bool isDown,
+  ) {
+    final baseAsset = _baseAsset(pair);
+    final quoteAsset = _quoteAsset(pair);
+    final asks = List<double>.generate(
+      8,
+      (i) => lastPrice + ((8 - i) * (lastPrice * 0.00045 + 0.02)),
+    );
+    final bids = List<double>.generate(
+      8,
+      (i) => lastPrice - ((i + 1) * (lastPrice * 0.00045 + 0.02)),
+    );
+    return Column(
+      children: [
+        SizedBox(
+          height: 520,
+          child: Row(
             children: [
               Expanded(
+                flex: 52,
                 child: Container(
-                  height: 34,
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1A2F2A),
+                    color: const Color(0xFF0F1522),
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF1E2A44)),
                   ),
-                  alignment: Alignment.center,
-                  child: const Text(
-                    'Buy',
-                    style: TextStyle(
-                      fontSize: 12.8,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF53D983),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A2232),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: () => setState(() => _isBuy = true),
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: _isBuy
+                                        ? const Color(0xFF13B5D1)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    'Buy',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: _isBuy
+                                          ? Colors.white
+                                          : Colors.white70,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                onTap: () => setState(() => _isBuy = false),
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: !_isBuy
+                                        ? const Color(0xFFEF4E5E)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    'Sell',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: !_isBuy
+                                          ? Colors.white
+                                          : Colors.white70,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A202F),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline_rounded,
+                              size: 16,
+                              color: Colors.white60,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'Limit',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Spacer(),
+                            Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Colors.white70,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildEntryField(
+                        'Price ($quoteAsset)',
+                        lastPrice.toStringAsFixed(2),
+                      ),
+                      _buildEntryField('Quantity', baseAsset, muted: true),
+                      _buildEntryField('Total', quoteAsset, muted: true),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: List.generate(5, (index) {
+                          return Expanded(
+                            child: Container(
+                              margin: EdgeInsets.only(
+                                right: index == 4 ? 0 : 8,
+                              ),
+                              height: 3,
+                              decoration: BoxDecoration(
+                                color: index == 0
+                                    ? Colors.white70
+                                    : const Color(0xFF2A344C),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: const [
+                          Icon(
+                            Icons.check_box_outline_blank_rounded,
+                            size: 19,
+                            color: Colors.white70,
+                          ),
+                          SizedBox(width: 8),
+                          Text('TP/SL', style: TextStyle(fontSize: 14.5)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Text(
+                            'Available',
+                            style: TextStyle(
+                              fontSize: 15.2,
+                              color: Colors.white70,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '0.00 $quoteAsset',
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E2638),
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text(
+                              '+',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: () {},
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _isBuy
+                                ? const Color(0xFF13B5D1)
+                                : const Color(0xFFEF4E5E),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: Text(
+                            _isBuy ? 'Buy $baseAsset' : 'Sell $baseAsset',
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
+                flex: 48,
                 child: Container(
-                  height: 34,
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2A1A20),
+                    color: const Color(0xFF0F1522),
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF1E2A44)),
                   ),
-                  alignment: Alignment.center,
-                  child: const Text(
-                    'Sell',
-                    style: TextStyle(
-                      fontSize: 12.8,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFF04E71),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Price\n($quoteAsset)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              'Quantity\n($baseAsset)',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ...asks.map((price) {
+                        final qty = ((price * 0.00012) % 0.82) + 0.001;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _formatWithCommas(price, decimals: 2),
+                                  style: const TextStyle(
+                                    color: Color(0xFFEF4E5E),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  qty.toStringAsFixed(6),
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                      const SizedBox(height: 3),
+                      Text(
+                        _formatWithCommas(lastPrice, decimals: 2),
+                        style: TextStyle(
+                          fontSize: 45 / 1.7,
+                          fontWeight: FontWeight.w700,
+                          color: isDown
+                              ? const Color(0xFFEF4E5E)
+                              : const Color(0xFF1BB6D1),
+                        ),
+                      ),
+                      Text(
+                        '≈\$${_formatWithCommas(lastPrice, decimals: 2)}',
+                        style: const TextStyle(
+                          fontSize: 11.8,
+                          color: Colors.white54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      ...bids.map((price) {
+                        final qty = ((price * 0.0001) % 0.82) + 0.001;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _formatWithCommas(price, decimals: 2),
+                                  style: const TextStyle(
+                                    color: Color(0xFF1BB6D1),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  qty.toStringAsFixed(6),
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Text(
+                            'B ${(48 + (lastPrice % 10)).toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              color: Color(0xFF1BB6D1),
+                              fontSize: 12.2,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Container(
+                              height: 4,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(4),
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF1BB6D1),
+                                    Color(0xFFEF4E5E),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'S ${(52 - (lastPrice % 10)).toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              color: Color(0xFFEF4E5E),
+                              fontSize: 12.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 38,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A202F),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.dashboard_outlined,
+                              size: 16,
+                              color: Colors.white60,
+                            ),
+                            SizedBox(width: 8),
+                            Text('0.01', style: TextStyle(fontSize: 14.8)),
+                            Spacer(),
+                            Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: Colors.white70,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          _styledInputBox('Order Type', 'Limit'),
-          _styledInputBox('Price (USDC)', lastPrice.toStringAsFixed(1)),
-          _styledInputBox('Quantity', '0.0000 BTC', muted: true),
-          _styledInputBox('Order Value', '0.00 USDC', muted: true),
+        ),
+        const SizedBox(height: 10),
+        const Row(
+          children: [
+            Text(
+              'Orders(0)',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            SizedBox(width: 26),
+            Text(
+              'Assets',
+              style: TextStyle(fontSize: 17, color: Colors.white70),
+            ),
+            SizedBox(width: 26),
+            Text(
+              'Bots(0)',
+              style: TextStyle(fontSize: 17, color: Colors.white70),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+        Row(
+          children: const [
+            Icon(
+              Icons.check_box_outline_blank_rounded,
+              color: Colors.white54,
+              size: 22,
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Show current',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            Spacer(),
+            Icon(Icons.access_time_rounded, color: Colors.white54, size: 20),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0E1420),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF1E2A44)),
+          ),
+          child: Column(
+            children: [
+              const Icon(
+                Icons.description_outlined,
+                size: 34,
+                color: Colors.white24,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Transfer funds to start spot trading.',
+                style: TextStyle(fontSize: 15.4, color: Colors.white60),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {},
+                      child: const Text('Deposit/Transfer'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {},
+                      child: const Text('Spot tutorial'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF090F1A),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF1E2A44)),
+          ),
+          child: Row(
+            children: [
+              Text(
+                '${pair.symbol} Chart',
+                style: const TextStyle(
+                  fontSize: 15.8,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              const Icon(
+                Icons.keyboard_arrow_up_rounded,
+                color: Colors.white70,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDataView(MarketPair pair, double lastPrice) {
+    final baseAsset = _baseAsset(pair);
+    final buyLarge = 24 + (lastPrice % 20);
+    final buyMedium = 1.2 + ((lastPrice * 0.0013) % 1.4);
+    final buySmall = 0.2 + ((lastPrice * 0.00014) % 0.4);
+    final sellLarge = 16 + (lastPrice % 18);
+    final sellMedium = 0.4 + ((lastPrice * 0.0011) % 0.9);
+    final sellSmall = 0.06 + ((lastPrice * 0.00008) % 0.2);
+
+    final slices = <double>[
+      buyLarge,
+      buyMedium,
+      buySmall,
+      sellLarge,
+      sellMedium,
+      sellSmall,
+    ];
+    final total = slices.fold<double>(0, (sum, item) => sum + item);
+    final pct = slices.map((item) => ((item / total) * 100)).toList();
+    final netInflow =
+        (buyLarge + buyMedium + buySmall) -
+        (sellLarge + sellMedium + sellSmall);
+
+    final rows = <Map<String, String>>[
+      {
+        'bucket': 'Large',
+        'buy': buyLarge.toStringAsFixed(6),
+        'sell': sellLarge.toStringAsFixed(6),
+        'net': (buyLarge - sellLarge).toStringAsFixed(6),
+      },
+      {
+        'bucket': 'Medium',
+        'buy': buyMedium.toStringAsFixed(6),
+        'sell': sellMedium.toStringAsFixed(6),
+        'net': (buyMedium - sellMedium).toStringAsFixed(6),
+      },
+      {
+        'bucket': 'Small',
+        'buy': buySmall.toStringAsFixed(6),
+        'sell': sellSmall.toStringAsFixed(6),
+        'net': (buySmall - sellSmall).toStringAsFixed(6),
+      },
+      {
+        'bucket': 'Total',
+        'buy': (buyLarge + buyMedium + buySmall).toStringAsFixed(6),
+        'sell': (sellLarge + sellMedium + sellSmall).toStringAsFixed(6),
+        'net': netInflow.toStringAsFixed(6),
+      },
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F1522),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF1E2A44)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Row(
-            children: List.generate(5, (index) {
-              return Expanded(
-                child: Container(
-                  height: 4,
-                  margin: EdgeInsets.only(right: index == 4 ? 0 : 6),
-                  decoration: BoxDecoration(
-                    color: index == 0
-                        ? const Color(0xFF9DFB3B)
+            children: [
+              _pill('Fund flow', selected: true),
+              const SizedBox(width: 8),
+              _pill('Margin data', selected: false),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: const [
+              Text(
+                'Fund flow analysis',
+                style: TextStyle(fontSize: 41 / 2, fontWeight: FontWeight.w700),
+              ),
+              SizedBox(width: 6),
+              Icon(Icons.info_outline_rounded, size: 17, color: Colors.white60),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(_flowFrames.length, (index) {
+              final active = _flowFrameIndex == index;
+              return OutlinedButton(
+                onPressed: () => setState(() => _flowFrameIndex = index),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(48, 36),
+                  side: BorderSide(
+                    color: active
+                        ? const Color(0xFF13B5D1)
                         : const Color(0xFF2A344C),
-                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  backgroundColor: active
+                      ? const Color(0x2413B5D1)
+                      : Colors.transparent,
+                ),
+                child: Text(
+                  _flowFrames[index],
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: active ? const Color(0xFF13B5D1) : Colors.white70,
                   ),
                 ),
               );
             }),
           ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () {},
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF53D983),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          const SizedBox(height: 16),
+          Center(
+            child: SizedBox(
+              width: 260,
+              height: 260,
+              child: CustomPaint(
+                painter: _FundFlowDonutPainter(
+                  values: slices,
+                  colors: const [
+                    Color(0xFF15B8D8),
+                    Color(0xFF1CC8E6),
+                    Color(0xFF44D7F1),
+                    Color(0xFFEE2F68),
+                    Color(0xFFF2577D),
+                    Color(0xFFF07FA1),
+                  ],
+                ),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Text(
+                    '${pct.first.toStringAsFixed(2)}%',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
-              child: const Text(
-                'Place Buy Order',
-                style: TextStyle(fontSize: 12.4, fontWeight: FontWeight.w700),
-              ),
             ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Buy ($baseAsset)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'Sell ($baseAsset)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'Net inflow',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...rows.map((row) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 62,
+                    child: Text(
+                      row['bucket']!,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      row['buy']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Color(0xFF15B8D8),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      row['sell']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Color(0xFFEE2F68),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      row['net']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 14),
+          Text(
+            '5D large order net inflow ($baseAsset)',
+            style: const TextStyle(
+              fontSize: 37 / 2,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '5D main funds net inflow: ${netInflow >= 0 ? '+' : ''}${netInflow.toStringAsFixed(2)}K',
+            style: const TextStyle(fontSize: 15.2, color: Colors.white60),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildOrderBook(MarketPair pair, List<_CandleBar> candles) {
-    final bool isDown = candles.isNotEmpty
-        ? candles.last.close < candles.first.open
-        : pair.change.startsWith('-');
-    final double mid = candles.isNotEmpty
-        ? candles.last.close
-        : _priceFromString(pair.price);
-    final List<double> asks = List<double>.generate(
-      6,
-      (i) => mid + ((i + 1) * (mid * 0.0008 + 0.01)),
-    );
-    final List<double> bids = List<double>.generate(
-      6,
-      (i) => mid - ((i + 1) * (mid * 0.0008 + 0.01)),
-    );
-
+  Widget _pill(String text, {required bool selected}) {
     return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C1324),
+        color: selected ? const Color(0xFF222C40) : const Color(0xFF151D2B),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1D2A44)),
+        border: Border.all(
+          color: selected ? const Color(0xFF2E3E63) : const Color(0xFF222C40),
+        ),
       ),
-      child: Column(
-        children: [
-          Row(
-            children: const [
-              Expanded(
-                child: Text(
-                  'Price',
-                  style: TextStyle(fontSize: 10.2, color: Colors.white60),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  'Qty',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 10.2, color: Colors.white60),
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  'Total',
-                  textAlign: TextAlign.end,
-                  style: TextStyle(fontSize: 10.2, color: Colors.white60),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          ...asks.map((price) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      price.toStringAsFixed(4),
-                      style: const TextStyle(
-                        fontSize: 10.3,
-                        color: Color(0xFFF04E71),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      (0.6 + (price % 1.2)).toStringAsFixed(2),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 10.1),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      (price * 0.61).toStringAsFixed(2),
-                      textAlign: TextAlign.end,
-                      style: const TextStyle(fontSize: 10.1),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                mid.toStringAsFixed(4),
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: isDown
-                      ? const Color(0xFFF04E71)
-                      : const Color(0xFF53D983),
-                ),
-              ),
-            ),
-          ),
-          ...bids.map((price) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      price.toStringAsFixed(4),
-                      style: const TextStyle(
-                        fontSize: 10.3,
-                        color: Color(0xFF53D983),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      (0.5 + (price % 1.1)).toStringAsFixed(2),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 10.1),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      (price * 0.59).toStringAsFixed(2),
-                      textAlign: TextAlign.end,
-                      style: const TextStyle(fontSize: 10.1),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 14,
+          color: selected ? Colors.white : Colors.white54,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
       ),
     );
   }
@@ -5409,130 +6674,43 @@ class _TradePageState extends State<TradePage> {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<MarketPair>(
       valueListenable: selectedTradePairNotifier,
-      builder: (context, pair, child) {
-        final double anchorPrice = _priceFromString(pair.price);
-        final List<_CandleBar> candles = _buildSeries(pair);
-        final double lastPrice = candles.isNotEmpty
-            ? candles.last.close
-            : anchorPrice;
-        final double liveChangePct =
-            ((lastPrice - anchorPrice) / anchorPrice) * 100;
-        final bool isDown = liveChangePct < 0;
-        final String liveChangeText =
-            '${liveChangePct >= 0 ? '+' : ''}${liveChangePct.toStringAsFixed(2)}%';
+      builder: (context, pair, _) {
+        final anchorPrice = _priceFromString(pair.price);
+        final candles = _buildSeries(pair);
+        final lastPrice = candles.isNotEmpty ? candles.last.close : anchorPrice;
+        final changePct = ((lastPrice - anchorPrice) / anchorPrice) * 100;
+        final isDown = changePct < 0;
+        final changeText =
+            '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%';
+        final changeColor = isDown
+            ? const Color(0xFFEF4E5E)
+            : const Color(0xFF13B5D1);
+
         return ListView(
           padding: const EdgeInsets.all(14),
           children: [
+            _buildTopMarketTabs(),
+            const SizedBox(height: 10),
             Row(
               children: [
-                InkWell(
-                  onTap: () {},
-                  child: const Padding(
-                    padding: EdgeInsets.only(right: 18),
-                    child: Text(
-                      'Spot',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                InkWell(
-                  onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copy trade opening soon')),
-                  ),
-                  child: const Padding(
-                    padding: EdgeInsets.only(right: 18),
-                    child: Text(
-                      'Copy trade 🔥',
-                      style: TextStyle(
-                        fontSize: 21,
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-                InkWell(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const P2PPage()),
-                  ),
-                  child: const Text(
-                    'P2P',
-                    style: TextStyle(
-                      fontSize: 21,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: widget.onOpenProfile,
-                  icon: const Icon(Icons.notifications_none, size: 22),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                CoinLogo(url: pair.logoUrl, fallback: pair.symbol, size: 24),
-                const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    pair.symbol,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: const Color(0xFF2A9D59)),
-                    color: const Color(0x1B2A9D59),
-                  ),
-                  child: const Text(
-                    'MM',
-                    style: TextStyle(
-                      fontSize: 10.4,
-                      color: Color(0xFF53D983),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1C2333),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      IconButton(
-                        onPressed: () => setState(() => _tradeViewMode = 0),
-                        icon: Icon(
-                          Icons.candlestick_chart,
-                          size: 18,
-                          color: _tradeViewMode == 0
-                              ? Colors.white
-                              : Colors.white60,
+                      Text(
+                        pair.symbol,
+                        style: const TextStyle(
+                          fontSize: 48 / 2,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      IconButton(
-                        onPressed: () => setState(() => _tradeViewMode = 1),
-                        icon: Icon(
-                          Icons.receipt_long_outlined,
-                          size: 18,
-                          color: _tradeViewMode == 1
-                              ? Colors.white
-                              : Colors.white60,
+                      const SizedBox(height: 2),
+                      Text(
+                        changeText,
+                        style: TextStyle(
+                          fontSize: 34 / 2,
+                          color: changeColor,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
@@ -5541,266 +6719,72 @@ class _TradePageState extends State<TradePage> {
                 IconButton(
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => TradingViewChartPage(pair: pair),
+                      builder: (_) => TradeFocusedChartPage(pair: pair),
                     ),
                   ),
-                  icon: const Icon(Icons.open_in_full_rounded, size: 20),
-                  tooltip: 'Open TradingView chart',
+                  icon: const Icon(Icons.candlestick_chart, size: 26),
+                  tooltip: 'Open chart',
+                ),
+                IconButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('More options opening soon'),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.more_horiz_rounded, size: 28),
                 ),
               ],
             ),
             const SizedBox(height: 2),
-            Row(
-              children: [
-                Text(
-                  lastPrice.toStringAsFixed(1),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: isDown
-                        ? const Color(0xFFF04E71)
-                        : const Color(0xFF53D983),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  liveChangeText,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: isDown
-                        ? const Color(0xFFF04E71)
-                        : const Color(0xFF53D983),
-                  ),
-                ),
-              ],
-            ),
-            _buildTradeNoticeRow(),
-            const SizedBox(height: 8),
-            Row(
-              children: List.generate(_headerTabs.length, (index) {
-                final active = _headerTab == index;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => setState(() => _headerTab = index),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: active
-                            ? const Color(0xFF1A2640)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: active
-                              ? const Color(0xFF2A3B5E)
-                              : Colors.transparent,
-                        ),
-                      ),
-                      child: Text(
-                        _headerTabs[index],
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: active ? Colors.white : Colors.white60,
-                          fontWeight: active
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            ),
-            const SizedBox(height: 8),
-            if (_headerTab == 0 && _tradeViewMode == 0) ...[
+            _buildHeaderTabs(),
+            const SizedBox(height: 10),
+            if (_headerTab == 0)
+              _buildTradeMatrix(pair, candles, lastPrice, isDown),
+            if (_headerTab == 1) _buildDataView(pair, lastPrice),
+            if (_headerTab == 2)
               Container(
-                height: 390,
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0A0E16),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF1B263F)),
+                  color: const Color(0xFF0F1522),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF1E2A44)),
+                ),
+                child: const Text(
+                  'Square feed is loading live market discussions.',
+                  style: TextStyle(fontSize: 15, color: Colors.white70),
+                ),
+              ),
+            if (_headerTab == 3)
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F1522),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF1E2A44)),
                 ),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        ...List.generate(_timeframes.length, (index) {
-                          final bool active = _timeframeIndex == index;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: OutlinedButton(
-                              onPressed: () =>
-                                  setState(() => _timeframeIndex = index),
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(42, 30),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                                side: BorderSide(
-                                  color: active
-                                      ? const Color(0xFF9DFB3B)
-                                      : const Color(0xFF293955),
-                                ),
-                                backgroundColor: active
-                                    ? const Color(0x1F9DFB3B)
-                                    : Colors.transparent,
-                              ),
-                              child: Text(
-                                _timeframes[index],
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: active
-                                      ? const Color(0xFF9DFB3B)
-                                      : Colors.white70,
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ],
+                    Text(
+                      'About ${pair.symbol}',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        ..._indicatorTabs.map((name) {
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: Text(
-                              name,
-                              style: TextStyle(
-                                fontSize: 10.2,
-                                color: name == 'VOL'
-                                    ? Colors.white
-                                    : Colors.white54,
-                                fontWeight: name == 'VOL'
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: CustomPaint(
-                        painter: _CandleChartPainter(
-                          candles: candles,
-                          isDownTrend: isDown,
-                        ),
-                        child: const SizedBox.expand(),
+                    Text(
+                      'Last price ${_formatWithCommas(lastPrice, decimals: 2)}  •  24H volume ${pair.volume}',
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        color: Colors.white70,
                       ),
                     ),
                   ],
                 ),
               ),
-              _buildOrderEntryPanel(lastPrice),
-              _buildOrderBook(pair, candles),
-            ] else if (_headerTab == 0 && _tradeViewMode == 1) ...[
-              _buildOrderEntryPanel(lastPrice),
-              _buildOrderBook(pair, candles),
-            ] else ...[
-              _buildOverviewCard(pair),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Buy order created for ${pair.symbol} @ ${lastPrice.toStringAsFixed(2)}',
-                          ),
-                        ),
-                      );
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF53D983),
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text(
-                      'Buy',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Sell order created for ${pair.symbol} @ ${lastPrice.toStringAsFixed(2)}',
-                          ),
-                        ),
-                      );
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFEC4B61),
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text(
-                      'Sell',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: const [
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      'Orders(0)',
-                      style: TextStyle(
-                        fontSize: 12.2,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      'Positions(0)',
-                      style: TextStyle(fontSize: 12.2, color: Colors.white60),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      'Assets',
-                      style: TextStyle(fontSize: 12.2, color: Colors.white60),
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ],
         );
       },
@@ -5909,6 +6893,874 @@ class _CandleChartPainter extends CustomPainter {
   bool shouldRepaint(covariant _CandleChartPainter oldDelegate) {
     return oldDelegate.candles != candles ||
         oldDelegate.isDownTrend != isDownTrend;
+  }
+}
+
+class _FundFlowDonutPainter extends CustomPainter {
+  _FundFlowDonutPainter({required this.values, required this.colors});
+
+  final List<double> values;
+  final List<Color> colors;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty || colors.isEmpty) return;
+    final total = values.fold<double>(0, (sum, v) => sum + v);
+    if (total <= 0) return;
+
+    final stroke = min(size.width, size.height) * 0.18;
+    final rect = Rect.fromCircle(
+      center: Offset(size.width / 2, size.height / 2),
+      radius: (min(size.width, size.height) / 2) - stroke / 2,
+    );
+    final basePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..color = const Color(0xFF1A2335);
+    canvas.drawArc(rect, 0, pi * 2, false, basePaint);
+
+    double start = -pi / 2;
+    const gap = 0.018;
+    for (int i = 0; i < values.length; i++) {
+      final sweep = (values[i] / total) * (pi * 2);
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..color = colors[i % colors.length];
+      canvas.drawArc(rect, start + gap, max(0, sweep - gap * 2), false, paint);
+      start += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _FundFlowDonutPainter oldDelegate) {
+    return oldDelegate.values != values || oldDelegate.colors != colors;
+  }
+}
+
+class TradeFocusedChartPage extends StatefulWidget {
+  const TradeFocusedChartPage({super.key, required this.pair});
+
+  final MarketPair pair;
+
+  @override
+  State<TradeFocusedChartPage> createState() => _TradeFocusedChartPageState();
+}
+
+class _TradeFocusedChartPageState extends State<TradeFocusedChartPage> {
+  final Random _random = Random();
+  late List<_CandleBar> _candles;
+  late double _anchor;
+  Timer? _timer;
+  int _tabIndex = 0;
+  int _timeframeIndex = 4;
+  int _flowFrameIndex = 0;
+
+  static const List<String> _tabs = ['Chart', 'Data', 'Square', 'About'];
+  static const List<String> _timeframes = [
+    '1m',
+    '15m',
+    '1h',
+    '4h',
+    '1D',
+    'More',
+  ];
+  static const List<String> _flowFrames = [
+    '15m',
+    '30m',
+    '1h',
+    '2h',
+    '4h',
+    '1D',
+  ];
+  static const List<String> _indicators = [
+    'MA',
+    'EMA',
+    'BOLL',
+    'SAR',
+    'AVL',
+    'VOL',
+    'MACD',
+    'KDJ',
+  ];
+
+  List<String> _pairParts(String symbol) {
+    if (symbol.contains('/')) {
+      final parts = symbol.split('/');
+      if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+        return [parts[0], parts[1]];
+      }
+    }
+    const quoteCandidates = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'INR', 'USD'];
+    for (final quote in quoteCandidates) {
+      if (symbol.length > quote.length && symbol.endsWith(quote)) {
+        return [symbol.substring(0, symbol.length - quote.length), quote];
+      }
+    }
+    return [symbol, 'USDT'];
+  }
+
+  String get _baseAsset => _pairParts(widget.pair.symbol)[0];
+  String get _quoteAsset => _pairParts(widget.pair.symbol)[1];
+
+  @override
+  void initState() {
+    super.initState();
+    _anchor = double.tryParse(widget.pair.price.replaceAll(',', '')) ?? 68000;
+    _candles = _seedCandles();
+    _timer = Timer.periodic(const Duration(milliseconds: 1300), (_) {
+      if (!mounted) return;
+      setState(_tickCandles);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  List<_CandleBar> _seedCandles() {
+    final seed = widget.pair.symbol.codeUnits.fold<int>(
+      17,
+      (sum, ch) => (sum * 31 + ch) & 0x7fffffff,
+    );
+    final random = Random(seed);
+    final List<_CandleBar> list = [];
+    double cursor = _anchor * (0.93 + random.nextDouble() * 0.14);
+    for (int i = 0; i < 62; i++) {
+      final drift = (random.nextDouble() - 0.5) * (_anchor * 0.006 + 0.04);
+      final open = cursor;
+      final close = (cursor + drift)
+          .clamp(_anchor * 0.72, _anchor * 1.38)
+          .toDouble();
+      final high =
+          max(open, close) + random.nextDouble() * (_anchor * 0.0023 + 0.03);
+      final low =
+          min(open, close) - random.nextDouble() * (_anchor * 0.0023 + 0.03);
+      list.add(_CandleBar(open: open, high: high, low: low, close: close));
+      cursor = close;
+    }
+    return list;
+  }
+
+  void _tickCandles() {
+    if (_candles.isEmpty) return;
+    final next =
+        (_candles.last.close * (1 + ((_random.nextDouble() - 0.5) * 0.0016)))
+            .clamp(_anchor * 0.72, _anchor * 1.38)
+            .toDouble();
+    final list = List<_CandleBar>.from(_candles);
+    final last = list.last;
+    list[list.length - 1] = _CandleBar(
+      open: last.open,
+      high: max(last.high, next),
+      low: min(last.low, next),
+      close: next,
+    );
+    if (_random.nextBool()) {
+      final close = (next + ((_random.nextDouble() - 0.5) * (_anchor * 0.0014)))
+          .clamp(_anchor * 0.72, _anchor * 1.38)
+          .toDouble();
+      final high = max(next, close) + _random.nextDouble() * (_anchor * 0.0018);
+      final low = min(next, close) - _random.nextDouble() * (_anchor * 0.0018);
+      list.add(_CandleBar(open: next, high: high, low: low, close: close));
+      if (list.length > 62) list.removeAt(0);
+    }
+    _candles = list;
+  }
+
+  Widget _buildMainTabs() {
+    return Row(
+      children: List.generate(_tabs.length, (index) {
+        final active = _tabIndex == index;
+        return Padding(
+          padding: const EdgeInsets.only(right: 22),
+          child: InkWell(
+            onTap: () => setState(() => _tabIndex = index),
+            child: Column(
+              children: [
+                Text(
+                  _tabs[index],
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    color: active ? Colors.white : Colors.white54,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  width: 34,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: active ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildChartTab(double lastPrice) {
+    final baseAsset = _baseAsset;
+    final quoteAsset = _quoteAsset;
+    final bool down = lastPrice < _anchor;
+    final Color changeColor = down
+        ? const Color(0xFFEF4E5E)
+        : const Color(0xFF13B5D1);
+    final changePct = ((lastPrice - _anchor) / _anchor) * 100;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _formatWithCommas(lastPrice, decimals: 2),
+                    style: const TextStyle(
+                      fontSize: 57,
+                      height: 0.95,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '≈\$${_formatWithCommas(lastPrice, decimals: 2)}  ${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(2)}%',
+                    style: TextStyle(
+                      fontSize: 16.2,
+                      color: changeColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF181F30),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Public Chain',
+                      style: TextStyle(fontSize: 12.8, color: Colors.white70),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _infoLabel(
+                  '24h high',
+                  _formatWithCommas(lastPrice * 1.044, decimals: 2),
+                ),
+                _infoLabel(
+                  '24h low',
+                  _formatWithCommas(lastPrice * 0.972, decimals: 2),
+                ),
+                _infoLabel(
+                  '24h Vol ($baseAsset)',
+                  _formatWithCommas(
+                    (lastPrice % 10000) / 11 + 3200,
+                    decimals: 2,
+                  ),
+                ),
+                _infoLabel(
+                  '24h Turnover ($quoteAsset)',
+                  '${_formatWithCommas((lastPrice * 3840) / 1000000, decimals: 2)}M',
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Icon(Icons.campaign_outlined, size: 16, color: Colors.white60),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$baseAsset market moved sharply: latest updates and analysis...',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12.8, color: Colors.white70),
+              ),
+            ),
+            Icon(Icons.close, size: 16, color: Colors.white54),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            ...List.generate(_timeframes.length, (index) {
+              final active = _timeframeIndex == index;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: InkWell(
+                  onTap: () => setState(() => _timeframeIndex = index),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: active
+                          ? const Color(0xFF1D2435)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _timeframes[index],
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: active ? Colors.white : Colors.white70,
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            const Spacer(),
+            const Icon(
+              Icons.insert_chart_outlined_rounded,
+              size: 22,
+              color: Colors.white70,
+            ),
+            const SizedBox(width: 12),
+            const Icon(Icons.draw_rounded, size: 22, color: Colors.white70),
+            const SizedBox(width: 12),
+            const Icon(Icons.tune_rounded, size: 22, color: Colors.white70),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'MA(5): ${_formatWithCommas(lastPrice * 1.004, decimals: 2)}   MA(10): ${_formatWithCommas(lastPrice * 0.997, decimals: 2)}   MA(20): ${_formatWithCommas(lastPrice * 0.985, decimals: 2)}',
+          style: const TextStyle(
+            fontSize: 13.6,
+            color: Color(0xFFED55E8),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 430,
+          width: double.infinity,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF090E17),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF1B263F)),
+          ),
+          child: CustomPaint(
+            painter: _CandleChartPainter(candles: _candles, isDownTrend: down),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _indicators.length,
+            separatorBuilder: (_, index) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final active = _indicators[index] == 'VOL';
+              return Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: active ? const Color(0xFF1A2233) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  _indicators[index],
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: active ? Colors.white : Colors.white60,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _perfCell('Today', '-3.24%'),
+            _perfCell('7 days', '+4.12%'),
+            _perfCell('30 days', '-6.26%'),
+            _perfCell('90 days', '-23.13%'),
+            _perfCell('180 days', '-38.28%'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _infoLabel(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 13.6, color: Colors.white60),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 14.8, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _perfCell(String title, String value) {
+    final up = value.startsWith('+');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 12.8, color: Colors.white60),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14.4,
+            fontWeight: FontWeight.w700,
+            color: up ? const Color(0xFF1BC8E0) : const Color(0xFFEF4E5E),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDataTab(double lastPrice) {
+    final baseAsset = _baseAsset;
+    final buyLarge = 24 + (lastPrice % 20);
+    final buyMedium = 1.2 + ((lastPrice * 0.0013) % 1.4);
+    final buySmall = 0.2 + ((lastPrice * 0.00014) % 0.4);
+    final sellLarge = 16 + (lastPrice % 18);
+    final sellMedium = 0.4 + ((lastPrice * 0.0011) % 0.9);
+    final sellSmall = 0.06 + ((lastPrice * 0.00008) % 0.2);
+
+    final slices = <double>[
+      buyLarge,
+      buyMedium,
+      buySmall,
+      sellLarge,
+      sellMedium,
+      sellSmall,
+    ];
+    final total = slices.fold<double>(0, (sum, item) => sum + item);
+    final pct = slices.map((item) => ((item / total) * 100)).toList();
+    final netInflow =
+        (buyLarge + buyMedium + buySmall) -
+        (sellLarge + sellMedium + sellSmall);
+
+    final rows = <Map<String, String>>[
+      {
+        'bucket': 'Large',
+        'buy': buyLarge.toStringAsFixed(6),
+        'sell': sellLarge.toStringAsFixed(6),
+        'net': (buyLarge - sellLarge).toStringAsFixed(6),
+      },
+      {
+        'bucket': 'Medium',
+        'buy': buyMedium.toStringAsFixed(6),
+        'sell': sellMedium.toStringAsFixed(6),
+        'net': (buyMedium - sellMedium).toStringAsFixed(6),
+      },
+      {
+        'bucket': 'Small',
+        'buy': buySmall.toStringAsFixed(6),
+        'sell': sellSmall.toStringAsFixed(6),
+        'net': (buySmall - sellSmall).toStringAsFixed(6),
+      },
+      {
+        'bucket': 'Total',
+        'buy': (buyLarge + buyMedium + buySmall).toStringAsFixed(6),
+        'sell': (sellLarge + sellMedium + sellSmall).toStringAsFixed(6),
+        'net': netInflow.toStringAsFixed(6),
+      },
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F1522),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF1E2A44)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _tagPill('Fund flow', selected: true),
+              const SizedBox(width: 8),
+              _tagPill('Margin data', selected: false),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: const [
+              Text(
+                'Fund flow analysis',
+                style: TextStyle(fontSize: 20.5, fontWeight: FontWeight.w700),
+              ),
+              SizedBox(width: 6),
+              Icon(Icons.info_outline_rounded, size: 17, color: Colors.white60),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(_flowFrames.length, (index) {
+              final active = _flowFrameIndex == index;
+              return OutlinedButton(
+                onPressed: () => setState(() => _flowFrameIndex = index),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(48, 36),
+                  side: BorderSide(
+                    color: active
+                        ? const Color(0xFF13B5D1)
+                        : const Color(0xFF2A344C),
+                  ),
+                  backgroundColor: active
+                      ? const Color(0x2413B5D1)
+                      : Colors.transparent,
+                ),
+                child: Text(
+                  _flowFrames[index],
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: active ? const Color(0xFF13B5D1) : Colors.white70,
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: SizedBox(
+              width: 260,
+              height: 260,
+              child: CustomPaint(
+                painter: _FundFlowDonutPainter(
+                  values: slices,
+                  colors: const [
+                    Color(0xFF15B8D8),
+                    Color(0xFF1CC8E6),
+                    Color(0xFF44D7F1),
+                    Color(0xFFEE2F68),
+                    Color(0xFFF2577D),
+                    Color(0xFFF07FA1),
+                  ],
+                ),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Text(
+                    '${pct.first.toStringAsFixed(2)}%',
+                    style: const TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Buy ($baseAsset)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'Sell ($baseAsset)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'Net inflow',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...rows.map((row) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 62,
+                    child: Text(
+                      row['bucket']!,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      row['buy']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Color(0xFF15B8D8),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      row['sell']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Color(0xFFEE2F68),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      row['net']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14.2,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 14),
+          Text(
+            '5D large order net inflow ($baseAsset)',
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '5D main funds net inflow: ${netInflow >= 0 ? '+' : ''}${netInflow.toStringAsFixed(2)}K',
+            style: const TextStyle(fontSize: 15.2, color: Colors.white60),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tagPill(String text, {required bool selected}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFF222C40) : const Color(0xFF151D2B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: selected ? const Color(0xFF2E3E63) : const Color(0xFF222C40),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 14,
+          color: selected ? Colors.white : Colors.white54,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomDock() {
+    Widget dockItem(IconData icon, String label) {
+      return Expanded(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 22, color: Colors.white70),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11.5, color: Colors.white70),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        height: 86,
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        decoration: const BoxDecoration(
+          color: Color(0xFF080D15),
+          border: Border(top: BorderSide(color: Color(0xFF1A263E))),
+        ),
+        child: Row(
+          children: [
+            dockItem(Icons.more_horiz_rounded, 'More'),
+            dockItem(Icons.library_books_outlined, 'Futures'),
+            dockItem(Icons.smart_toy_outlined, 'Bot'),
+            dockItem(Icons.person_pin_circle_outlined, 'Margin'),
+            Expanded(
+              flex: 2,
+              child: Container(
+                height: 52,
+                margin: const EdgeInsets.only(left: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  'Trade',
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: Color(0xFF0E1420),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lastPrice = _candles.isEmpty ? _anchor : _candles.last.close;
+    return Scaffold(
+      backgroundColor: const Color(0xFF060A15),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.arrow_back, size: 26),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      widget.pair.symbol,
+                      style: const TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const Icon(Icons.arrow_drop_down_rounded, size: 24),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.star_outline_rounded),
+                    ),
+                    IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.article_outlined),
+                    ),
+                    IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.notifications_active_outlined),
+                    ),
+                    IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.share_outlined),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                _buildMainTabs(),
+                const SizedBox(height: 10),
+                if (_tabIndex == 0) _buildChartTab(lastPrice),
+                if (_tabIndex == 1) _buildDataTab(lastPrice),
+                if (_tabIndex == 2)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F1522),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF1E2A44)),
+                    ),
+                    child: const Text(
+                      'Square feed is loading live market discussions.',
+                      style: TextStyle(fontSize: 15, color: Colors.white70),
+                    ),
+                  ),
+                if (_tabIndex == 3)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F1522),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF1E2A44)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'About ${widget.pair.symbol}',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Last price ${_formatWithCommas(lastPrice, decimals: 2)}  •  24H volume ${widget.pair.volume}',
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          _buildBottomDock(),
+        ],
+      ),
+    );
   }
 }
 
@@ -7048,7 +8900,10 @@ class _UserCenterPageState extends State<UserCenterPage> {
               ),
               const SizedBox(height: 12),
               OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () {
+                  _logoutActiveSession();
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                },
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Color(0xFF2A344C)),
                   shape: RoundedRectangleBorder(
@@ -7154,7 +9009,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
                 value: 'Open',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const SupportBotPage(),
+                    builder: (_) => const SupportHomePage(),
                   ),
                 ),
               ),
@@ -7170,7 +9025,7 @@ class _UserCenterPageState extends State<UserCenterPage> {
                 value: 'Chat',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const SupportBotPage(),
+                    builder: (_) => const ChatSupportPage(),
                   ),
                 ),
               ),
@@ -7435,10 +9290,10 @@ class _KycVerificationPageState extends State<KycVerificationPage> {
       return;
     }
 
-    kycAdvancedVerifiedNotifier.value = true;
-    kycVerifiedNotifier.value = true;
+    _setKycStatus('under_review');
+    _syncActiveUserState(kycStatus: 'under_review', canPostAds: false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Level 2 advanced verification submitted')),
+      const SnackBar(content: Text('KYC Under Review')),
     );
     Navigator.of(context).pop();
   }
@@ -7461,11 +9316,13 @@ class _KycVerificationPageState extends State<KycVerificationPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  kycVerifiedNotifier.value
+                  kycStatusNotifier.value == 'verified'
                       ? 'KYC Status: Lv.2 Verified'
-                      : (kycBasicVerifiedNotifier.value
-                            ? 'KYC Status: Lv.1 Basic done'
-                            : 'KYC Status: Pending'),
+                      : (kycStatusNotifier.value == 'under_review'
+                            ? 'KYC Status: Under Review'
+                            : (kycBasicVerifiedNotifier.value
+                                  ? 'KYC Status: Lv.1 Basic done'
+                                  : 'KYC Status: Pending')),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -7866,7 +9723,9 @@ class _DepositPageState extends State<DepositPage> {
           title: 'Select Coin',
           items: kDepositAddressBook.keys.toList(),
           balances: {
-            'USDT': fundingUsdtBalanceNotifier.value + spotUsdtBalanceNotifier.value,
+            'USDT':
+                fundingUsdtBalanceNotifier.value +
+                spotUsdtBalanceNotifier.value,
             'BTC': 0,
             'ETH': 0,
             'BNB': 0,
@@ -7945,7 +9804,8 @@ class _DepositPageState extends State<DepositPage> {
                             border: Border.all(
                               color: code == _network
                                   ? const Color(0xFFE4C657)
-                                  : Theme.of(context).brightness == Brightness.light
+                                  : Theme.of(context).brightness ==
+                                        Brightness.light
                                   ? const Color(0xFFD4DCEB)
                                   : const Color(0xFF1E2942),
                             ),
@@ -7977,15 +9837,24 @@ class _DepositPageState extends State<DepositPage> {
                               const SizedBox(height: 8),
                               Text(
                                 'Network fee ${fee.toStringAsFixed(3)} USDT',
-                                style: const TextStyle(fontSize: 12.6, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 12.6,
+                                  color: Colors.grey,
+                                ),
                               ),
                               Text(
                                 'Minimum deposit ${min.toStringAsFixed(4).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\\.$'), '')} $_coin',
-                                style: const TextStyle(fontSize: 12.6, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 12.6,
+                                  color: Colors.grey,
+                                ),
                               ),
                               Text(
                                 'Estimated arrival $arrival',
-                                style: const TextStyle(fontSize: 12.6, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 12.6,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ],
                           ),
@@ -8014,6 +9883,7 @@ class _DepositPageState extends State<DepositPage> {
     if (_coin == 'USDT') {
       spotUsdtBalanceNotifier.value += amount * 0.25;
     }
+    _syncActiveUserState(walletBalanceUsdt: fundingUsdtBalanceNotifier.value);
     kAssetTxHistory.insert(
       0,
       AssetTransactionRecord(
@@ -8066,7 +9936,11 @@ class _DepositPageState extends State<DepositPage> {
                 children: [
                   Text(
                     _coin,
-                    style: TextStyle(fontSize: 20, color: primary, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: primary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -8094,7 +9968,11 @@ class _DepositPageState extends State<DepositPage> {
                 children: [
                   Text(
                     _network,
-                    style: TextStyle(fontSize: 18, color: primary, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: primary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -8129,7 +10007,11 @@ class _DepositPageState extends State<DepositPage> {
                   '${_networkMeta.minDepositUsdt.toStringAsFixed(4).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\\.$'), '')} $_coin',
                   secondary,
                 ),
-                _networkInfoRow('Estimated arrival', _networkMeta.arrival, secondary),
+                _networkInfoRow(
+                  'Estimated arrival',
+                  _networkMeta.arrival,
+                  secondary,
+                ),
               ],
             ),
           ),
@@ -8248,7 +10130,9 @@ class _DepositPageState extends State<DepositPage> {
               const Spacer(),
               TextButton(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const AssetHistoryPage()),
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AssetHistoryPage(),
+                  ),
                 ),
                 child: const Text('View all'),
               ),
@@ -8266,7 +10150,9 @@ class _DepositPageState extends State<DepositPage> {
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: isLight ? const Color(0xFFE0E6F2) : const Color(0xFF1B263B),
+                    color: isLight
+                        ? const Color(0xFFE0E6F2)
+                        : const Color(0xFF1B263B),
                   ),
                 ),
               ),
@@ -8320,9 +10206,15 @@ class _DepositPageState extends State<DepositPage> {
       child: Row(
         children: [
           Expanded(
-            child: Text(label, style: TextStyle(fontSize: 12, color: secondary)),
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12, color: secondary),
+            ),
           ),
-          Text(value, style: const TextStyle(fontSize: 12.6, fontWeight: FontWeight.w600)),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 12.6, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -8391,9 +10283,7 @@ class _CoinSelectPageState extends State<_CoinSelectPage> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: _history
-                .map((item) => Chip(label: Text(item)))
-                .toList(),
+            children: _history.map((item) => Chip(label: Text(item))).toList(),
           ),
           const SizedBox(height: 12),
           const Text(
@@ -8404,24 +10294,31 @@ class _CoinSelectPageState extends State<_CoinSelectPage> {
           ...rows.map((coin) {
             final value = widget.balances[coin] ?? 0;
             return ListTile(
-              contentPadding: const EdgeInsets.symmetric(vertical: 2, horizontal: 0),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 2,
+                horizontal: 0,
+              ),
               onTap: () => Navigator.of(context).pop(coin),
               leading: CircleAvatar(
                 radius: 15,
                 backgroundColor: const Color(0xFF17B7AE),
                 child: Text(
                   coin.isNotEmpty ? coin[0] : '?',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               title: Text(
                 coin,
-                style: const TextStyle(fontSize: 16.8, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  fontSize: 16.8,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               subtitle: Text(
-                coin == 'USDT'
-                    ? 'TetherUS'
-                    : (coin == 'SPK' ? 'Spark' : coin),
+                coin == 'USDT' ? 'TetherUS' : (coin == 'SPK' ? 'Spark' : coin),
                 style: TextStyle(fontSize: 12.8, color: secondary),
               ),
               trailing: Column(
@@ -8430,7 +10327,10 @@ class _CoinSelectPageState extends State<_CoinSelectPage> {
                 children: [
                   Text(
                     _formatWithCommas(value, decimals: 4),
-                    style: const TextStyle(fontSize: 15.2, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      fontSize: 15.2,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   Text(
                     '₹${_formatWithCommas(value * 91.8, decimals: 2)}',
@@ -9007,7 +10907,8 @@ class _WithdrawPageState extends State<WithdrawPage> {
       );
       return;
     }
-    final requiredSecurityFilled = _emailCodeController.text.trim().isNotEmpty &&
+    final requiredSecurityFilled =
+        _emailCodeController.text.trim().isNotEmpty &&
         _smsCodeController.text.trim().isNotEmpty &&
         _googleCodeController.text.trim().isNotEmpty &&
         _fundPasswordController.text.trim().isNotEmpty;
@@ -9027,6 +10928,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
       return;
     }
     fundingUsdtBalanceNotifier.value = available - finalAmount;
+    _syncActiveUserState(walletBalanceUsdt: fundingUsdtBalanceNotifier.value);
     kAssetTxHistory.insert(
       0,
       AssetTransactionRecord(
@@ -9040,7 +10942,9 @@ class _WithdrawPageState extends State<WithdrawPage> {
       ),
     );
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Withdrawal request submitted successfully')),
+      const SnackBar(
+        content: Text('Withdrawal request submitted successfully'),
+      ),
     );
     Navigator.of(context).pop();
   }
@@ -9065,7 +10969,10 @@ class _WithdrawPageState extends State<WithdrawPage> {
                 children: [
                   Text(
                     _coin,
-                    style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      fontSize: 16.5,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const Spacer(),
                   const Icon(Icons.chevron_right_rounded),
@@ -9078,9 +10985,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
             onTap: _selectNetwork,
             borderRadius: BorderRadius.circular(12),
             child: InputDecorator(
-              decoration: const InputDecoration(
-                labelText: 'Network',
-              ),
+              decoration: const InputDecoration(labelText: 'Network'),
               child: Row(
                 children: [
                   Expanded(
@@ -9108,7 +11013,8 @@ class _WithdrawPageState extends State<WithdrawPage> {
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
               labelText: 'Withdrawal Amount',
-              hintText: 'Minimum ${_networkMeta.minWithdrawUsdt.toStringAsFixed(2)}',
+              hintText:
+                  'Minimum ${_networkMeta.minWithdrawUsdt.toStringAsFixed(2)}',
               suffixText: _coin,
             ),
           ),
@@ -9119,7 +11025,9 @@ class _WithdrawPageState extends State<WithdrawPage> {
               color: isLight ? Colors.white : const Color(0xFF0E1523),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isLight ? const Color(0xFFD5DDEC) : const Color(0xFF1E2C46),
+                color: isLight
+                    ? const Color(0xFFD5DDEC)
+                    : const Color(0xFF1E2C46),
               ),
             ),
             child: Column(
@@ -9159,17 +11067,23 @@ class _WithdrawPageState extends State<WithdrawPage> {
           const SizedBox(height: 8),
           TextField(
             controller: _emailCodeController,
-            decoration: const InputDecoration(labelText: 'Email verification code'),
+            decoration: const InputDecoration(
+              labelText: 'Email verification code',
+            ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _smsCodeController,
-            decoration: const InputDecoration(labelText: 'SMS verification code'),
+            decoration: const InputDecoration(
+              labelText: 'SMS verification code',
+            ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _googleCodeController,
-            decoration: const InputDecoration(labelText: 'Google Authenticator code'),
+            decoration: const InputDecoration(
+              labelText: 'Google Authenticator code',
+            ),
           ),
           const SizedBox(height: 8),
           TextField(
@@ -9304,9 +11218,7 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
       1 => 'withdraw',
       _ => 'transfer',
     };
-    return kAssetTxHistory
-        .where((item) => item.type == type)
-        .toList()
+    return kAssetTxHistory.where((item) => item.type == type).toList()
       ..sort((a, b) => b.time.compareTo(a.time));
   }
 
@@ -9332,7 +11244,10 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
       appBar: AppBar(
         title: const Text('Assets'),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.download_outlined)),
+          IconButton(
+            onPressed: () {},
+            icon: const Icon(Icons.download_outlined),
+          ),
         ],
       ),
       body: Column(
@@ -9372,7 +11287,9 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
                           width: 44,
                           height: 2.5,
                           decoration: BoxDecoration(
-                            color: active ? const Color(0xFFE4C657) : Colors.transparent,
+                            color: active
+                                ? const Color(0xFFE4C657)
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
@@ -9415,7 +11332,12 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
                           ? const Color(0xFFEF4E5E)
                           : const Color(0xFF56C08C);
                       return ListTile(
-                        contentPadding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                        contentPadding: const EdgeInsets.fromLTRB(
+                          16,
+                          10,
+                          16,
+                          10,
+                        ),
                         title: Text(
                           item.coin,
                           style: TextStyle(
@@ -9442,7 +11364,10 @@ class _AssetHistoryPageState extends State<AssetHistoryPage> {
                             ),
                             Text(
                               item.status,
-                              style: TextStyle(fontSize: 12.6, color: secondary),
+                              style: TextStyle(
+                                fontSize: 12.6,
+                                color: secondary,
+                              ),
                             ),
                           ],
                         ),
@@ -9464,39 +11389,83 @@ class SupportBotPage extends StatefulWidget {
 }
 
 class _SupportBotPageState extends State<SupportBotPage> {
+  static const String _supportApiBase = String.fromEnvironment(
+    'SUPPORT_API_BASE',
+    defaultValue: 'https://www.bitegit.com',
+  );
+  static const String _supportApiBearer = String.fromEnvironment(
+    'SUPPORT_API_BEARER',
+    defaultValue: '',
+  );
+
   final TextEditingController _queryController = TextEditingController();
-  final TextEditingController _orderIdController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<_SupportMessage> _messages = [];
   final List<_SupportTicket> _tickets = [];
+
   SupportQuickCategory? _selectedCategory;
   SupportHelpArticle? _activeArticle;
-  P2POrderItem? _queriedOrder;
-  bool _showFeedbackSheet = false;
-  int _ticketSeed = 1000;
+  Map<String, dynamic>? _analytics;
+
+  Timer? _pollTimer;
+  String? _remoteTicketId;
+  int _remoteMessageCount = 0;
+  int _localTicketSeed = 1100;
+  bool _sending = false;
+  bool _loadingAnalytics = false;
+  bool _showP2POptions = false;
+  bool _showHelpfulPrompt = false;
+  bool _showUnresolvedSuggestions = false;
+  bool _showEscalationActions = false;
+  bool? _helpfulSelection;
+  String? _selectedP2POption;
+
+  final TextEditingController _guestNameController = TextEditingController();
+  final TextEditingController _guestMobileController = TextEditingController();
+
+  static const List<String> _p2pOptions = <String>[
+    'P2P Appeals',
+    'Unable to use P2P function',
+    'Security Deposit Inquiry',
+    'Become a P2P Advertiser',
+    'Unable to Post Advertisements',
+  ];
+
+  static const List<String> _p2pUnresolvedSuggestions = <String>[
+    'I Want to Know More About P2P Trading',
+    'Understanding P2P Advertiser',
+    'What You Need to Know to Start P2P Trading',
+    'Tips for Safe P2P Trading',
+    'Everything You Need to Know for Safe P2P Trading',
+  ];
 
   static const List<String> _topQuestions = [
-    "I haven't receive my crypto deposit",
+    'P2P order issue',
+    'Crypto deposit not credited',
     'How to submit a withdrawal?',
     'Verification code not received - SMS',
     'Verification code not received - Email',
-    "I didn't receive my rewards",
+    "Why is my crypto asset frozen?",
   ];
-
-  @override
-  void dispose() {
-    _queryController.dispose();
-    _orderIdController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
 
   @override
   void initState() {
     super.initState();
-    _appendBot(
-      "Hey user! I'm your virtual assistant. How can I help today?",
-    );
+    _appendBot("Hello there! I'm Bybot, how can I assist you today?");
+    _loadAnalytics();
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _pollRemoteSupportUpdates();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _queryController.dispose();
+    _scrollController.dispose();
+    _guestNameController.dispose();
+    _guestMobileController.dispose();
+    super.dispose();
   }
 
   String _timeTag(DateTime dt) {
@@ -9507,21 +11476,13 @@ class _SupportBotPageState extends State<SupportBotPage> {
 
   void _appendBot(String text) {
     _messages.add(
-      _SupportMessage(
-        role: 'bot',
-        text: text,
-        time: DateTime.now(),
-      ),
+      _SupportMessage(role: 'bot', text: text, time: DateTime.now()),
     );
   }
 
   void _appendUser(String text) {
     _messages.add(
-      _SupportMessage(
-        role: 'user',
-        text: text,
-        time: DateTime.now(),
-      ),
+      _SupportMessage(role: 'user', text: text, time: DateTime.now()),
     );
   }
 
@@ -9529,14 +11490,105 @@ class _SupportBotPageState extends State<SupportBotPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent + 180,
-        duration: const Duration(milliseconds: 220),
+        _scrollController.position.maxScrollExtent + 220,
+        duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
       );
     });
   }
 
-  SupportHelpArticle _findArticleByQuestion(String question) {
+  String _normalizedApiBase() {
+    return _supportApiBase.endsWith('/')
+        ? _supportApiBase.substring(0, _supportApiBase.length - 1)
+        : _supportApiBase;
+  }
+
+  Future<_HttpJsonResponse> _supportPost(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 12);
+    try {
+      final req = await client.postUrl(
+        Uri.parse('${_normalizedApiBase()}$path'),
+      );
+      req.headers.contentType = ContentType.json;
+      if (_supportApiBearer.trim().isNotEmpty) {
+        req.headers.set('Authorization', 'Bearer ${_supportApiBearer.trim()}');
+      }
+      req.add(utf8.encode(jsonEncode(payload)));
+      final resp = await req.close();
+      final raw = await resp.transform(utf8.decoder).join();
+
+      Map<String, dynamic>? map;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) {
+          map = decoded;
+        }
+      } catch (_) {
+        map = null;
+      }
+
+      final ok =
+          resp.statusCode >= 200 &&
+          resp.statusCode < 300 &&
+          (map == null || map['success'] != false);
+
+      return _HttpJsonResponse(
+        ok: ok,
+        statusCode: resp.statusCode,
+        bodyMap: map,
+      );
+    } catch (_) {
+      return const _HttpJsonResponse(ok: false, statusCode: 0, bodyMap: null);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<_HttpJsonResponse> _supportGet(String path) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 12);
+    try {
+      final req = await client.getUrl(
+        Uri.parse('${_normalizedApiBase()}$path'),
+      );
+      if (_supportApiBearer.trim().isNotEmpty) {
+        req.headers.set('Authorization', 'Bearer ${_supportApiBearer.trim()}');
+      }
+      final resp = await req.close();
+      final raw = await resp.transform(utf8.decoder).join();
+
+      Map<String, dynamic>? map;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) {
+          map = decoded;
+        }
+      } catch (_) {
+        map = null;
+      }
+
+      final ok =
+          resp.statusCode >= 200 &&
+          resp.statusCode < 300 &&
+          (map == null || map['success'] != false);
+
+      return _HttpJsonResponse(
+        ok: ok,
+        statusCode: resp.statusCode,
+        bodyMap: map,
+      );
+    } catch (_) {
+      return const _HttpJsonResponse(ok: false, statusCode: 0, bodyMap: null);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  SupportHelpArticle? _matchFaqArticle(String question) {
     final q = question.toLowerCase();
     if (q.contains('sms')) {
       return kSupportHelpArticles.firstWhere((a) => a.id == 'verification-sms');
@@ -9547,7 +11599,9 @@ class _SupportBotPageState extends State<SupportBotPage> {
       );
     }
     if (q.contains('deposit')) {
-      return kSupportHelpArticles.firstWhere((a) => a.id == 'deposit-not-credited');
+      return kSupportHelpArticles.firstWhere(
+        (a) => a.id == 'deposit-not-credited',
+      );
     }
     if (q.contains('withdraw')) {
       return kSupportHelpArticles.firstWhere((a) => a.id == 'withdraw-howto');
@@ -9561,44 +11615,133 @@ class _SupportBotPageState extends State<SupportBotPage> {
     if (q.contains('p2p') || q.contains('merchant') || q.contains('dispute')) {
       return kSupportHelpArticles.firstWhere((a) => a.id == 'p2p-issue');
     }
+    return null;
+  }
+
+  SupportHelpArticle _findCategoryGuide(String category) {
+    if (category == 'Account & Security') {
+      return kSupportHelpArticles.firstWhere(
+        (a) => a.id == 'account-security-guide',
+      );
+    }
+    if (category == 'Deposit & Withdrawal') {
+      return kSupportHelpArticles.firstWhere(
+        (a) => a.id == 'deposit-withdraw-guide',
+      );
+    }
+    if (category == 'P2P') {
+      return kSupportHelpArticles.firstWhere((a) => a.id == 'p2p-guide');
+    }
+    if (category == 'Identity Verification') {
+      return kSupportHelpArticles.firstWhere((a) => a.id == 'kyc-full-guide');
+    }
+    if (category == 'Promotion & Bonus') {
+      return kSupportHelpArticles.firstWhere(
+        (a) => a.id == 'promotion-bonus-guide',
+      );
+    }
     return kSupportHelpArticles.first;
   }
 
-  void _openArticleByQuestion(String question) {
-    final article = _findArticleByQuestion(question);
+  String _quickAnswerForArticle(SupportHelpArticle article) {
+    final lines = article.body
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) return 'I opened the article details for you.';
+    final content = lines.length > 1 ? lines.sublist(1) : lines;
+    return content.take(5).join('\n');
+  }
+
+  SupportQuickCategory? _categoryFromArticle(SupportHelpArticle article) {
+    for (final item in kSupportQuickCategories) {
+      if (item.title == article.category) return item;
+    }
+    return null;
+  }
+
+  String? _extractTicketId(Map<String, dynamic>? root) {
+    final data = root?['data'];
+    if (data is Map<String, dynamic>) {
+      final ticket = data['ticket'];
+      if (ticket is Map<String, dynamic>) {
+        final id = ticket['id'];
+        if (id != null) return id.toString();
+      }
+    }
+    return null;
+  }
+
+  String? _extractTicketStatus(Map<String, dynamic>? root) {
+    final data = root?['data'];
+    if (data is Map<String, dynamic>) {
+      final ticket = data['ticket'];
+      if (ticket is Map<String, dynamic>) {
+        final status = ticket['status'];
+        if (status != null) return status.toString();
+      }
+    }
+    return null;
+  }
+
+  List<dynamic> _extractMessageList(Map<String, dynamic>? root) {
+    final data = root?['data'];
+    if (data is Map<String, dynamic>) {
+      final messages = data['messages'];
+      if (messages is List) {
+        return messages;
+      }
+    }
+    return const [];
+  }
+
+  String? _extractBotReply(Map<String, dynamic>? root) {
+    final messages = _extractMessageList(root);
+    for (final item in messages.reversed) {
+      if (item is! Map) continue;
+      final senderType = (item['sender_type'] ?? '').toString().toLowerCase();
+      final isAi = item['is_ai_generated'] == true;
+      if (senderType == 'bot' || isAi) {
+        final text = (item['message'] ?? '').toString().trim();
+        if (text.isNotEmpty) return text;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _loadAnalytics() async {
+    if (_loadingAnalytics) return;
+    setState(() => _loadingAnalytics = true);
+
+    final resp = await _supportGet('/api/admin/support/analytics');
+    if (!mounted) return;
+
     setState(() {
-      _activeArticle = article;
-      _appendUser(question);
-      _appendBot('I found this help article: ${article.title}');
+      _loadingAnalytics = false;
+      if (resp.ok && resp.bodyMap != null) {
+        final data = resp.bodyMap!['data'];
+        if (data is Map<String, dynamic>) {
+          _analytics = data;
+        }
+      }
     });
-    _scrollToBottomSoon();
   }
 
-  bool _isAgentRequest(String q) {
-    const keywords = [
-      'connect agent',
-      'live agent',
-      'human agent',
-      'talk to agent',
-      'support agent',
-      'customer care',
-    ];
-    return keywords.any(q.contains);
-  }
+  Future<void> _createSupportTicket(
+    String reason, {
+    bool liveAgent = false,
+  }) async {
+    _localTicketSeed += 1;
+    final localId = 'STK-$_localTicketSeed';
 
-  bool _looksLikeOrderId(String text) {
-    final normalized = text.toUpperCase();
-    return normalized.contains('P2P-') || RegExp(r'\d{6,}').hasMatch(normalized);
-  }
-
-  void _createSupportTicket(String reason) {
-    _ticketSeed += 1;
     final alert = addSupportAgentAlert(reason);
+
     setState(() {
       _tickets.insert(
         0,
         _SupportTicket(
-          id: 'STK-$_ticketSeed',
+          id: localId,
           reason: reason,
           status: 'OPEN',
           createdAt: DateTime.now(),
@@ -9606,68 +11749,404 @@ class _SupportBotPageState extends State<SupportBotPage> {
         ),
       );
       _appendBot(
-        'Ticket STK-$_ticketSeed created. Human support has been notified.',
+        'Ticket $localId created. ${liveAgent ? 'Live agent has been requested.' : 'Support has been notified.'}',
+      );
+    });
+
+    final resp = await _supportPost('/api/support/tickets', {
+      'subject': liveAgent ? 'Live Agent Request' : 'Mobile Support',
+      'message': reason,
+      'live_agent': liveAgent,
+    });
+
+    final remoteTicketId = _extractTicketId(resp.bodyMap);
+    final botReply = _extractBotReply(resp.bodyMap);
+
+    if (!mounted) return;
+
+    setState(() {
+      if (remoteTicketId != null) {
+        _remoteTicketId = remoteTicketId;
+        _remoteMessageCount = _extractMessageList(resp.bodyMap).length;
+      }
+
+      if (botReply != null && botReply.isNotEmpty) {
+        _appendBot(botReply);
+      }
+    });
+
+    _scrollToBottomSoon();
+  }
+
+  Future<void> _pollRemoteSupportUpdates() async {
+    final ticketId = _remoteTicketId;
+    if (ticketId == null || ticketId.trim().isEmpty) {
+      return;
+    }
+
+    final resp = await _supportGet('/api/support/tickets/$ticketId/messages');
+    if (!resp.ok || resp.bodyMap == null || !mounted) {
+      return;
+    }
+
+    final messages = _extractMessageList(resp.bodyMap);
+    if (messages.length <= _remoteMessageCount) {
+      return;
+    }
+
+    final newItems = messages.skip(_remoteMessageCount).toList();
+    final status = _extractTicketStatus(resp.bodyMap)?.toLowerCase();
+
+    setState(() {
+      for (final item in newItems) {
+        if (item is! Map) continue;
+        final senderType = (item['sender_type'] ?? '').toString().toLowerCase();
+        final text = (item['message'] ?? '').toString().trim();
+        if (text.isEmpty) continue;
+
+        if (senderType == 'admin') {
+          _appendBot('Agent: $text');
+          addSupportAgentAlert('Agent replied on ticket #$ticketId');
+        } else if (senderType == 'system') {
+          _appendBot(text);
+        }
+      }
+
+      if (status == 'closed') {
+        _appendBot('Your ticket #$ticketId is now closed.');
+        addSupportAgentAlert('Ticket #$ticketId was closed by support.');
+      }
+
+      _remoteMessageCount = messages.length;
+    });
+
+    _scrollToBottomSoon();
+  }
+
+  bool _isP2PIntent(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('p2p') ||
+        lower.contains('appeal') ||
+        lower.contains('merchant') ||
+        lower.contains('advertiser') ||
+        lower.contains('release crypto');
+  }
+
+  void _startP2PFlow() {
+    _appendBot(
+      "If you're experiencing issues with P2P Trading, please select the option that best matches your concern.",
+    );
+    _appendBot(
+      'Live chat agents cannot handle P2P order or appeal cases. Please check the P2P Order Appeal Progress page.',
+    );
+    _showP2POptions = true;
+    _showHelpfulPrompt = false;
+    _showUnresolvedSuggestions = false;
+    _showEscalationActions = false;
+    _helpfulSelection = null;
+    _selectedP2POption = null;
+  }
+
+  void _selectP2POption(String option) {
+    setState(() {
+      _selectedP2POption = option;
+      _showHelpfulPrompt = true;
+      _showUnresolvedSuggestions = false;
+      _showEscalationActions = false;
+      _appendUser(option);
+      _appendBot(
+        'P2P module selected: $option\nCheck order timeline, payment proof, and appeal status first.',
       );
     });
     _scrollToBottomSoon();
   }
 
-  void _searchOrderById([String? value]) {
-    final query = (value ?? _orderIdController.text).trim();
-    if (query.isEmpty) return;
-    final normalized = query.toUpperCase();
-    P2POrderItem? matched;
-    for (final order in kP2PSampleOrders) {
-      if (order.id.toUpperCase().contains(normalized)) {
-        matched = order;
-        break;
-      }
-    }
+  void _setHelpfulFeedback(bool helpful) {
     setState(() {
-      _appendUser('Order inquiry: $query');
-      if (matched == null) {
-        _queriedOrder = null;
-        _appendBot(
-          'No order found for "$query". Please re-check Order ID or open support ticket.',
-        );
+      _helpfulSelection = helpful;
+      if (helpful) {
+        _appendBot('Great. If anything else comes up, I am here to help.');
+        _showUnresolvedSuggestions = false;
       } else {
-        _queriedOrder = matched;
         _appendBot(
-          'Order found: ${matched.id} (${matched.side} ${matched.fiatAmount.toStringAsFixed(0)} INR → ${matched.usdtAmount.toStringAsFixed(2)} USDT).',
+          'You might be looking for one of these guides. If still unresolved, choose "My issue isn\'t listed above".',
         );
+        _showUnresolvedSuggestions = true;
       }
+      _showEscalationActions = false;
     });
     _scrollToBottomSoon();
   }
 
-  void _sendQuestion([String? preset]) {
-    final question = (preset ?? _queryController.text).trim();
-    if (question.isEmpty) return;
-    final lower = question.toLowerCase();
-
-    if (_looksLikeOrderId(question)) {
-      _searchOrderById(question);
-      _queryController.clear();
-      return;
-    }
-
-    if (_isAgentRequest(lower)) {
-      setState(() {
-        _appendUser(question);
-      });
-      _createSupportTicket('Escalation requested: $question');
-      _queryController.clear();
-      return;
-    }
-
-    final article = _findArticleByQuestion(question);
+  void _markIssueNotListed() {
     setState(() {
-      _appendUser(question);
-      _activeArticle = article;
-      _appendBot('Opening help article: ${article.title}');
-      _queryController.clear();
+      _showEscalationActions = true;
+      _appendBot('Choose Submit Case or Connect to Live Agent.');
     });
     _scrollToBottomSoon();
+  }
+
+  Future<void> _openSubmitCase() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SubmitCasePage()));
+  }
+
+  Future<void> _connectToLiveAgent() async {
+    final bool? registered = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Live Agent'),
+        content: const Text('Are you a Bitegit registered user?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+
+    if (registered == null) return;
+    if (!mounted) return;
+
+    if (registered) {
+      final int queue = 4 + Random().nextInt(7);
+      setState(() {
+        _appendBot(
+          'You are now connected to live support. Your position in the queue is $queue.',
+        );
+      });
+      _scrollToBottomSoon();
+      await _requestLiveAgent();
+      return;
+    }
+
+    _guestNameController.clear();
+    _guestMobileController.clear();
+    bool submitted = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guest Live Support'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _guestNameController,
+              decoration: const InputDecoration(labelText: 'Full name'),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _guestMobileController,
+              decoration: const InputDecoration(labelText: 'Mobile number'),
+              keyboardType: TextInputType.phone,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (_guestNameController.text.trim().isEmpty ||
+                  _guestMobileController.text.trim().isEmpty) {
+                return;
+              }
+              submitted = true;
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+
+    if (!submitted) return;
+    if (!mounted) return;
+
+    final String name = _guestNameController.text.trim();
+    final String mobile = _guestMobileController.text.trim();
+    final int queue = 4 + Random().nextInt(7);
+
+    setState(() {
+      _appendBot(
+        'Thanks $name. Your position in the queue is $queue. Our agent will contact $mobile shortly.',
+      );
+    });
+    _scrollToBottomSoon();
+
+    await _createSupportTicket(
+      'Guest live-agent request from $name ($mobile).',
+      liveAgent: true,
+    );
+  }
+
+  Future<void> _sendQuestion([String? preset]) async {
+    final question = (preset ?? _queryController.text).trim();
+    if (question.isEmpty || _sending) return;
+
+    _queryController.clear();
+
+    if (_isP2PIntent(question)) {
+      setState(() {
+        _appendUser(question);
+        _startP2PFlow();
+      });
+      _scrollToBottomSoon();
+      return;
+    }
+
+    final faqArticle = _matchFaqArticle(question);
+    if (faqArticle != null) {
+      setState(() {
+        _selectedCategory = _categoryFromArticle(faqArticle);
+        _activeArticle = faqArticle;
+        _appendUser(question);
+        _showP2POptions = false;
+        _showHelpfulPrompt = false;
+        _showUnresolvedSuggestions = false;
+        _showEscalationActions = false;
+        _appendBot(
+          'Bitegit Assistant quick help:\n${_quickAnswerForArticle(faqArticle)}\n\nIf still unresolved, tap Live Agent.',
+        );
+      });
+      _scrollToBottomSoon();
+      return;
+    }
+
+    setState(() {
+      _sending = true;
+      _appendUser(question);
+    });
+
+    final hasRemoteTicket =
+        _remoteTicketId != null && _remoteTicketId!.trim().isNotEmpty;
+
+    final resp = await _supportPost(
+      hasRemoteTicket
+          ? '/api/support/tickets/${_remoteTicketId!}/messages'
+          : '/api/support/tickets',
+      hasRemoteTicket
+          ? {'message': question}
+          : {'subject': 'Mobile AI Support', 'message': question},
+    );
+
+    final remoteTicketId = _extractTicketId(resp.bodyMap);
+    final botReply = _extractBotReply(resp.bodyMap);
+
+    if (!mounted) return;
+
+    setState(() {
+      _sending = false;
+
+      if (remoteTicketId != null) {
+        _remoteTicketId = remoteTicketId;
+        _remoteMessageCount = _extractMessageList(resp.bodyMap).length;
+      }
+
+      if (botReply != null && botReply.isNotEmpty) {
+        _appendBot(botReply);
+      } else {
+        _appendBot(
+          'I could not fetch a live AI reply right now. Please share TX hash/order id and tap Live Agent for priority help.',
+        );
+      }
+    });
+
+    _scrollToBottomSoon();
+  }
+
+  Future<void> _requestLiveAgent() async {
+    await _createSupportTicket(
+      'User requested live support agent from mobile app.',
+      liveAgent: true,
+    );
+  }
+
+  Widget _analyticsCard(bool isLight) {
+    final data = _analytics;
+    if (data == null && !_loadingAnalytics) {
+      return const SizedBox.shrink();
+    }
+
+    final bg = isLight ? Colors.white : const Color(0xFF101824);
+    final border = isLight ? const Color(0xFFD8DFEB) : const Color(0xFF202C3F);
+
+    final total = data?['total_tickets']?.toString() ?? '--';
+    final open = data?['open_tickets']?.toString() ?? '--';
+    final closed = data?['closed_tickets']?.toString() ?? '--';
+    final avg = data?['avg_response_time']?.toString() ?? '--';
+    final today = data?['tickets_today']?.toString() ?? '--';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Support Analytics',
+                  style: TextStyle(fontSize: 16.8, fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton(
+                onPressed: _loadingAnalytics ? null : _loadAnalytics,
+                icon: _loadingAnalytics
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _metricChip('Total', total),
+              _metricChip('Open', open),
+              _metricChip('Closed', closed),
+              _metricChip('Avg Resp(s)', avg),
+              _metricChip('Today', today),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFF162335),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(fontSize: 11.8, color: Colors.white),
+      ),
+    );
   }
 
   Widget _categorySection(bool isLight) {
@@ -9685,7 +12164,7 @@ class _SupportBotPageState extends State<SupportBotPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "👋 Hey user! I'm your virtual assistant. How can I help today?",
+            'Quick categories',
             style: TextStyle(
               fontSize: 13.8,
               fontWeight: FontWeight.w600,
@@ -9700,10 +12179,13 @@ class _SupportBotPageState extends State<SupportBotPage> {
               final active = _selectedCategory?.title == cat.title;
               return InkWell(
                 onTap: () {
+                  final article = _findCategoryGuide(cat.title);
                   setState(() {
                     _selectedCategory = cat;
-                    _appendUser(cat.title);
-                    _appendBot('Showing help for ${cat.title}.');
+                    _activeArticle = article;
+                    _appendBot(
+                      'Guide opened: ${article.title}\n\n${_quickAnswerForArticle(article)}',
+                    );
                   });
                   _scrollToBottomSoon();
                 },
@@ -9714,9 +12196,7 @@ class _SupportBotPageState extends State<SupportBotPage> {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: active
-                        ? const Color(0xFF16A7C8)
-                        : chipBg,
+                    color: active ? const Color(0xFF16A7C8) : chipBg,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -9740,13 +12220,9 @@ class _SupportBotPageState extends State<SupportBotPage> {
     );
   }
 
-  Widget _questionCard(bool isLight) {
-    final category = _selectedCategory;
-    if (category == null) return const SizedBox.shrink();
-    final bg = isLight ? Colors.white : const Color(0xFF101721);
+  Widget _topQuestionsCard(bool isLight) {
+    final bg = isLight ? Colors.white : const Color(0xFF0F1724);
     final border = isLight ? const Color(0xFFD8DFEB) : const Color(0xFF202C3F);
-    final primary = isLight ? const Color(0xFF141A25) : Colors.white;
-    final secondary = isLight ? const Color(0xFF596177) : Colors.white70;
 
     return Container(
       margin: const EdgeInsets.only(top: 12),
@@ -9759,43 +12235,50 @@ class _SupportBotPageState extends State<SupportBotPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Common questions you can ask me:',
-            style: TextStyle(
-              fontSize: 16.5,
-              fontWeight: FontWeight.w700,
-              color: primary,
-            ),
+          const Text(
+            'Top questions',
+            style: TextStyle(fontSize: 18.5, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 10),
-          ...category.questions.map((question) {
-            return InkWell(
-              onTap: () => _openArticleByQuestion(question),
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+          const SizedBox(height: 8),
+          ..._topQuestions.map((q) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: OutlinedButton(
+                onPressed: () => _sendQuestion(q),
+                style: OutlinedButton.styleFrom(
+                  alignment: Alignment.centerLeft,
+                  minimumSize: const Size.fromHeight(44),
+                ),
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        question,
-                        style: TextStyle(
-                          fontSize: 14.2,
-                          color: secondary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
+                      child: Text(q, style: const TextStyle(fontSize: 14)),
                     ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: secondary,
-                      size: 20,
-                    ),
+                    const Icon(Icons.chevron_right_rounded, size: 18),
                   ],
                 ),
               ),
             );
           }),
+          const SizedBox(height: 2),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _connectToLiveAgent,
+              style: FilledButton.styleFrom(
+                backgroundColor: isLight
+                    ? const Color(0xFFE9EDF4)
+                    : const Color(0xFF202A3A),
+                foregroundColor: isLight ? Colors.black : Colors.white,
+                minimumSize: const Size.fromHeight(50),
+              ),
+              icon: const Icon(Icons.support_agent_outlined),
+              label: const Text(
+                'Connect to Live Agent',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -9804,6 +12287,7 @@ class _SupportBotPageState extends State<SupportBotPage> {
   Widget _activeArticleCard(bool isLight) {
     final article = _activeArticle;
     if (article == null) return const SizedBox.shrink();
+
     final bg = isLight ? const Color(0xFFF0F2F6) : const Color(0xFF141D2A);
     final border = isLight ? const Color(0xFFD3DBE9) : const Color(0xFF1E2C44);
     final primary = isLight ? const Color(0xFF151A25) : Colors.white;
@@ -9833,9 +12317,7 @@ class _SupportBotPageState extends State<SupportBotPage> {
                 ),
               ),
               TextButton(
-                onPressed: () {
-                  setState(() => _activeArticle = null);
-                },
+                onPressed: () => setState(() => _activeArticle = null),
                 child: const Text('Close'),
               ),
             ],
@@ -9850,37 +12332,23 @@ class _SupportBotPageState extends State<SupportBotPage> {
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _chatWithSupport,
-              style: FilledButton.styleFrom(
-                backgroundColor: isLight
-                    ? const Color(0xFFE9EDF5)
-                    : const Color(0xFF202B3F),
-                foregroundColor: isLight
-                    ? const Color(0xFF161A25)
-                    : Colors.white,
-                minimumSize: const Size.fromHeight(46),
-              ),
-              icon: const Icon(Icons.headset_mic_outlined),
-              label: const Text(
-                'Chat with Support',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _orderQueryCard(bool isLight) {
-    final bg = isLight ? Colors.white : const Color(0xFF101824);
-    final border = isLight ? const Color(0xFFD8DFED) : const Color(0xFF1F2B42);
-    final primary = isLight ? const Color(0xFF141924) : Colors.white;
-    final secondary = isLight ? const Color(0xFF5A6377) : Colors.white70;
+  Widget _p2pGuidedCard(bool isLight) {
+    if (!_showP2POptions &&
+        !_showHelpfulPrompt &&
+        !_showUnresolvedSuggestions &&
+        !_showEscalationActions) {
+      return const SizedBox.shrink();
+    }
+
+    final bg = isLight ? Colors.white : const Color(0xFF0F1724);
+    final border = isLight ? const Color(0xFFD8DFEB) : const Color(0xFF202C3F);
+    final secondary = isLight ? const Color(0xFF586176) : Colors.white70;
+    const accent = Color(0xFFF7931A);
 
     return Container(
       margin: const EdgeInsets.only(top: 12),
@@ -9893,123 +12361,128 @@ class _SupportBotPageState extends State<SupportBotPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Order Inquiry',
-            style: TextStyle(
-              fontSize: 16.8,
-              fontWeight: FontWeight.w700,
-              color: primary,
+          if (_showP2POptions) ...[
+            const Text(
+              'P2P Support',
+              style: TextStyle(fontSize: 16.8, fontWeight: FontWeight.w700),
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _orderIdController,
-                  decoration: const InputDecoration(
-                    hintText: 'Search by Order ID (P2P-104293)',
+            const SizedBox(height: 8),
+            Text(
+              "If you're experiencing issues with P2P Trading, please select the option that best matches your concern.",
+              style: TextStyle(fontSize: 12.4, color: secondary, height: 1.35),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _p2pOptions.map((option) {
+                final selected = _selectedP2POption == option;
+                return ChoiceChip(
+                  label: Text(option, style: const TextStyle(fontSize: 11.4)),
+                  selected: selected,
+                  selectedColor: accent.withValues(alpha: 0.22),
+                  onSelected: (_) => _selectP2POption(option),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Live chat agents cannot handle P2P order or appeal cases. Please check the P2P Order Appeal Progress page.',
+              style: TextStyle(fontSize: 11.8, color: secondary),
+            ),
+          ],
+          if (_showHelpfulPrompt) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Text(
+                  'Helpful?',
+                  style: TextStyle(fontSize: 13.2, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _setHelpfulFeedback(true),
+                  icon: Icon(
+                    _helpfulSelection == true
+                        ? Icons.thumb_up_alt
+                        : Icons.thumb_up_alt_outlined,
+                    color: _helpfulSelection == true
+                        ? accent
+                        : (isLight ? const Color(0xFF5C667B) : Colors.white70),
                   ),
-                  onSubmitted: _searchOrderById,
                 ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: _searchOrderById,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF11151E),
-                  foregroundColor: Colors.white,
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _setHelpfulFeedback(false),
+                  icon: Icon(
+                    _helpfulSelection == false
+                        ? Icons.thumb_down_alt
+                        : Icons.thumb_down_alt_outlined,
+                    color: _helpfulSelection == false
+                        ? const Color(0xFFEF4E5E)
+                        : (isLight ? const Color(0xFF5C667B) : Colors.white70),
+                  ),
                 ),
-                child: const Text('Query'),
+              ],
+            ),
+          ],
+          if (_showUnresolvedSuggestions) ...[
+            const SizedBox(height: 8),
+            Text(
+              'You might be looking for:',
+              style: TextStyle(
+                fontSize: 12.8,
+                color: secondary,
+                fontWeight: FontWeight.w700,
               ),
-            ],
-          ),
-          if (_queriedOrder != null) ...[
+            ),
+            const SizedBox(height: 8),
+            ..._p2pUnresolvedSuggestions.map((item) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: OutlinedButton(
+                  onPressed: () => _sendQuestion(item),
+                  style: OutlinedButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    minimumSize: const Size.fromHeight(42),
+                  ),
+                  child: Text(item, style: const TextStyle(fontSize: 12.2)),
+                ),
+              );
+            }),
+            const SizedBox(height: 2),
+            FilledButton(
+              onPressed: _markIssueNotListed,
+              style: FilledButton.styleFrom(
+                backgroundColor: accent,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text("My issue isn't listed above"),
+            ),
+          ],
+          if (_showEscalationActions) ...[
             const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: isLight ? const Color(0xFFF1F4F9) : const Color(0xFF131D2C),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Order ID ${_queriedOrder!.id}',
-                    style: TextStyle(
-                      color: primary,
-                      fontSize: 13.3,
-                      fontWeight: FontWeight.w700,
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _openSubmitCase,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: accent,
+                      foregroundColor: Colors.black,
                     ),
+                    child: const Text('Submit Case'),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Amount: ${_queriedOrder!.fiatAmount.toStringAsFixed(0)} INR',
-                    style: TextStyle(fontSize: 12.4, color: secondary),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _connectToLiveAgent,
+                    child: const Text('Connect to Live Agent'),
                   ),
-                  Text(
-                    'Price: ${_queriedOrder!.pricePerUsdt.toStringAsFixed(2)} INR',
-                    style: TextStyle(fontSize: 12.4, color: secondary),
-                  ),
-                  Text(
-                    'Buyer: ${_queriedOrder!.side.toLowerCase() == 'buy' ? 'You' : _queriedOrder!.counterparty}',
-                    style: TextStyle(fontSize: 12.4, color: secondary),
-                  ),
-                  Text(
-                    'Seller: ${_queriedOrder!.side.toLowerCase() == 'sell' ? 'You' : _queriedOrder!.counterparty}',
-                    style: TextStyle(fontSize: 12.4, color: secondary),
-                  ),
-                  Text(
-                    'Order status: ${_queriedOrder!.status}',
-                    style: TextStyle(
-                      fontSize: 12.8,
-                      color: p2pStateColor(_queriedOrder!.orderState),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      OutlinedButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const P2PPage(),
-                            ),
-                          );
-                        },
-                        child: const Text('View Order'),
-                      ),
-                      OutlinedButton(
-                        onPressed: () {
-                          if (_queriedOrder == null) return;
-                          _createSupportTicket(
-                            'Dispute opened for ${_queriedOrder!.id}',
-                          );
-                        },
-                        child: const Text('Open Dispute'),
-                      ),
-                      OutlinedButton(
-                        onPressed: () {
-                          final order = _queriedOrder;
-                          if (order == null) return;
-                          setState(() {
-                            _appendUser('Contact merchant for ${order.id}');
-                            _appendBot(
-                              'Merchant ${order.counterparty} has been notified in chat.',
-                            );
-                          });
-                          _scrollToBottomSoon();
-                        },
-                        child: const Text('Contact Merchant'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ],
@@ -10017,82 +12490,9 @@ class _SupportBotPageState extends State<SupportBotPage> {
     );
   }
 
-  void _chatWithSupport() {
-    _createSupportTicket('User requested live support from help center');
-    setState(() {
-      _showFeedbackSheet = true;
-    });
-  }
-
-  Widget _topQuestionsCard(bool isLight) {
-    final bg = isLight ? Colors.white : const Color(0xFF0F1724);
-    final border = isLight ? const Color(0xFFD8DFEB) : const Color(0xFF202C3F);
-
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Top questions',
-            style: TextStyle(fontSize: 18.5, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          ..._topQuestions.map((q) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: OutlinedButton(
-                onPressed: () => _openArticleByQuestion(q),
-                style: OutlinedButton.styleFrom(
-                  alignment: Alignment.centerLeft,
-                  minimumSize: const Size.fromHeight(44),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        q,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right_rounded, size: 18),
-                  ],
-                ),
-              ),
-            );
-          }),
-          const SizedBox(height: 2),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _chatWithSupport,
-              style: FilledButton.styleFrom(
-                backgroundColor: isLight
-                    ? const Color(0xFFE9EDF4)
-                    : const Color(0xFF202A3A),
-                foregroundColor: isLight ? Colors.black : Colors.white,
-                minimumSize: const Size.fromHeight(50),
-              ),
-              icon: const Icon(Icons.headset_mic_outlined),
-              label: const Text(
-                'Chat with us',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _chatThreadCard(bool isLight) {
     if (_messages.isEmpty) return const SizedBox.shrink();
+
     final bg = isLight ? Colors.white : const Color(0xFF0F1724);
     final border = isLight ? const Color(0xFFD8DFEB) : const Color(0xFF202C3F);
     final botBg = isLight ? const Color(0xFFF0F3F8) : const Color(0xFF1A2436);
@@ -10155,6 +12555,7 @@ class _SupportBotPageState extends State<SupportBotPage> {
 
   Widget _ticketSummaryCard(bool isLight) {
     if (_tickets.isEmpty) return const SizedBox.shrink();
+
     final bg = isLight ? Colors.white : const Color(0xFF101822);
     final border = isLight ? const Color(0xFFD8DFEB) : const Color(0xFF203047);
 
@@ -10174,14 +12575,16 @@ class _SupportBotPageState extends State<SupportBotPage> {
             style: TextStyle(fontSize: 16.8, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
-          ..._tickets.take(4).map((ticket) {
+          ..._tickets.take(5).map((ticket) {
             final created = _timeTag(ticket.createdAt);
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isLight ? const Color(0xFFF2F5FA) : const Color(0xFF1B2434),
+                  color: isLight
+                      ? const Color(0xFFF2F5FA)
+                      : const Color(0xFF1B2434),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
@@ -10218,19 +12621,20 @@ class _SupportBotPageState extends State<SupportBotPage> {
   Widget build(BuildContext context) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final inputHint = isLight ? const Color(0xFF8C94A5) : Colors.white54;
+    const accent = Color(0xFFF7931A);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
-          children: [
-            Text('🤖', style: TextStyle(fontSize: 18)),
-            SizedBox(width: 8),
-            Text('Bitget Support'),
-          ],
-        ),
+        title: const Text('24/7 Dedicated Support'),
         actions: [
           IconButton(
+            tooltip: 'Language',
+            onPressed: () {},
+            icon: const Icon(Icons.language_rounded),
+          ),
+          IconButton(
             onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.power_settings_new_rounded),
           ),
         ],
       ),
@@ -10241,62 +12645,13 @@ class _SupportBotPageState extends State<SupportBotPage> {
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               children: [
+                _analyticsCard(isLight),
                 _categorySection(isLight),
-                _questionCard(isLight),
                 _activeArticleCard(isLight),
-                _orderQueryCard(isLight),
                 _ticketSummaryCard(isLight),
                 _topQuestionsCard(isLight),
+                _p2pGuidedCard(isLight),
                 _chatThreadCard(isLight),
-                if (_showFeedbackSheet)
-                  Container(
-                    margin: const EdgeInsets.only(top: 12),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: isLight
-                          ? const Color(0xFFF1F3F8)
-                          : const Color(0xFF151E2B),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'We value your feedback! Please rate your experience.',
-                          style: TextStyle(
-                            fontSize: 16.8,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: List.generate(5, (index) {
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: IconButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _showFeedbackSheet = false;
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        'Thanks for rating ${index + 1} star',
-                                      ),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(
-                                  Icons.star_border_rounded,
-                                  size: 28,
-                                ),
-                              ),
-                            );
-                          }),
-                        ),
-                      ],
-                    ),
-                  ),
               ],
             ),
           ),
@@ -10308,7 +12663,7 @@ class _SupportBotPageState extends State<SupportBotPage> {
                   child: TextField(
                     controller: _queryController,
                     decoration: InputDecoration(
-                      hintText: 'Input your question(s) here',
+                      hintText: 'Drop your question(s) here',
                       hintStyle: TextStyle(color: inputHint),
                       isDense: true,
                     ),
@@ -10317,21 +12672,2088 @@ class _SupportBotPageState extends State<SupportBotPage> {
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
-                  onPressed: _sendQuestion,
+                  onPressed: _sending ? null : () => _sendQuestion(),
                   style: FilledButton.styleFrom(
-                    backgroundColor: isLight
-                        ? const Color(0xFFE6EAF3)
-                        : const Color(0xFF2A3346),
-                    foregroundColor: isLight
-                        ? const Color(0xFF1A1F2A)
-                        : Colors.white,
+                    backgroundColor: accent,
+                    foregroundColor: Colors.black,
+                    shape: const CircleBorder(),
+                    padding: const EdgeInsets.all(12),
                   ),
-                  child: const Icon(Icons.arrow_upward_rounded, size: 16),
+                  child: _sending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.arrow_upward_rounded, size: 16),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class HelpCenterHubPage extends StatefulWidget {
+  const HelpCenterHubPage({super.key, this.initialTab = 0});
+
+  final int initialTab;
+
+  @override
+  State<HelpCenterHubPage> createState() => _HelpCenterHubPageState();
+}
+
+class _HelpCenterHubPageState extends State<HelpCenterHubPage> {
+  final TextEditingController _helpSearchController = TextEditingController();
+  final TextEditingController _coinSearchController = TextEditingController();
+  final TextEditingController _uidController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _orderIdController = TextEditingController();
+  final TextEditingController _subjectController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _orderLookupController = TextEditingController();
+
+  final Map<String, int> _helpFeedback = <String, int>{};
+  PlatformFile? _attachmentFile;
+
+  String _helpSearch = '';
+  String _coinSearch = '';
+  String? _selectedHelpTopic;
+  String? _selectedCaseCategory;
+  String? _selectedCaseSubCategory;
+  String? _selectedDisputeStatus;
+  bool _showSubmitForm = false;
+  bool _hideSuspendedDeposits = false;
+  bool _showOnlySuspendedCoins = false;
+  P2POrderItem? _lookedUpOrder;
+
+  @override
+  void initState() {
+    super.initState();
+    _uidController.text = currentUserUid;
+    _emailController.text = authIdentityNotifier.value.trim().isNotEmpty
+        ? authIdentityNotifier.value.trim()
+        : 'user@bitegit.com';
+    _helpSearchController.addListener(() {
+      final next = _helpSearchController.text.trim();
+      if (_helpSearch != next) {
+        setState(() => _helpSearch = next);
+      }
+    });
+    _coinSearchController.addListener(() {
+      final next = _coinSearchController.text.trim();
+      if (_coinSearch != next) {
+        setState(() => _coinSearch = next);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _helpSearchController.dispose();
+    _coinSearchController.dispose();
+    _uidController.dispose();
+    _emailController.dispose();
+    _orderIdController.dispose();
+    _subjectController.dispose();
+    _descriptionController.dispose();
+    _orderLookupController.dispose();
+    super.dispose();
+  }
+
+  List<SupportHelpArticle> _filteredArticles() {
+    final q = _helpSearch.toLowerCase();
+    final List<SupportHelpArticle> source = kSupportHelpArticles.where((item) {
+      if (q.isEmpty) return true;
+      return item.title.toLowerCase().contains(q) ||
+          item.category.toLowerCase().contains(q) ||
+          item.body.toLowerCase().contains(q) ||
+          item.description.toLowerCase().contains(q);
+    }).toList();
+    if (_selectedHelpTopic == null) return source;
+    return source
+        .where((item) => _topicMatch(item, _selectedHelpTopic!))
+        .toList();
+  }
+
+  bool _topicMatch(SupportHelpArticle article, String topic) {
+    final t = topic.toLowerCase();
+    final category = article.category.toLowerCase();
+    final title = article.title.toLowerCase();
+    if (t == 'account management') {
+      return category.contains('account') || category.contains('identity');
+    }
+    if (t == 'security') return category.contains('security');
+    if (t == 'p2p trading') return category.contains('p2p');
+    if (t == 'deposits') return title.contains('deposit');
+    if (t == 'withdrawals') return title.contains('withdraw');
+    if (t == 'trading') {
+      return title.contains('trading') || title.contains('order');
+    }
+    if (t == 'api') return title.contains('api');
+    if (t == 'finance') {
+      return title.contains('reward') || title.contains('bonus');
+    }
+    if (t == 'nft') return title.contains('nft');
+    return true;
+  }
+
+  String _articleDescription(SupportHelpArticle article) {
+    if (article.description.trim().isNotEmpty) {
+      return article.description.trim();
+    }
+    final lines = article.body
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.length <= 1) return article.body.trim();
+    return lines[1];
+  }
+
+  List<SupportHelpArticle> _relatedArticles(SupportHelpArticle article) {
+    if (article.related.isNotEmpty) {
+      final mapped = article.related
+          .map(
+            (id) =>
+                kSupportHelpArticles.where((item) => item.id == id).toList(),
+          )
+          .expand((items) => items)
+          .toList();
+      if (mapped.isNotEmpty) return mapped.take(3).toList();
+    }
+    return kSupportHelpArticles
+        .where(
+          (item) => item.category == article.category && item.id != article.id,
+        )
+        .take(3)
+        .toList();
+  }
+
+  bool _requiresDisputeStatus() {
+    if (_selectedCaseSubCategory == null) return false;
+    final text = _selectedCaseSubCategory!.toLowerCase();
+    return text.contains('appeal') ||
+        text.contains('release') ||
+        text.contains('dispute') ||
+        text.contains('frozen');
+  }
+
+  String _tipText() {
+    final category = _selectedCaseCategory ?? '';
+    if (category == 'P2P Trading') {
+      return 'Useful Tips: Please transfer your assets to your Funding Account before using P2P trading. '
+          'If you recently changed your security settings, selling coins may be restricted for 24 hours.';
+    }
+    if (category == 'Deposit & Withdrawals') {
+      return 'Useful Tips: Confirm coin + network match, minimum amount, and chain confirmations before submitting. '
+          'Large withdrawals may be delayed by additional risk checks.';
+    }
+    if (category == 'Account Verification (KYC)') {
+      return 'Useful Tips: Upload clear document photos, keep all 4 edges visible, and avoid blur/glare. '
+          'Face verification fails when lighting is poor.';
+    }
+    return 'Useful Tips: Check Help Center article steps first. If issue persists, submit complete details '
+        '(UID, order ID, screenshots, and exact timestamp) for faster resolution.';
+  }
+
+  Future<void> _pickSupportAttachment() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const <String>['pdf', 'png', 'jpg', 'jpeg', 'mp4'],
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() => _attachmentFile = result.files.first);
+  }
+
+  String _createTicketId() {
+    final random = Random();
+    final stamp = DateTime.now().millisecondsSinceEpoch.toString();
+    final suffix = (random.nextInt(9000) + 1000).toString();
+    return 'SUP-${stamp.substring(stamp.length - 6)}-$suffix';
+  }
+
+  void _searchOrderById() {
+    final query = _orderLookupController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      setState(() => _lookedUpOrder = null);
+      return;
+    }
+    final matched = p2pOrdersNotifier.value.where((order) {
+      return order.id.toLowerCase().contains(query);
+    }).toList();
+    setState(() => _lookedUpOrder = matched.isEmpty ? null : matched.first);
+  }
+
+  void _submitSupportTicket() {
+    final uid = _uidController.text.trim();
+    final email = _emailController.text.trim();
+    final subject = _subjectController.text.trim();
+    final description = _descriptionController.text.trim();
+
+    if (uid.isEmpty ||
+        email.isEmpty ||
+        _selectedCaseCategory == null ||
+        _selectedCaseSubCategory == null ||
+        subject.isEmpty ||
+        description.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill all required support fields first')),
+      );
+      return;
+    }
+
+    final id = _createTicketId();
+    final ticket = SubmittedSupportTicket(
+      ticketId: id,
+      uid: uid,
+      email: email,
+      category: _selectedCaseCategory!,
+      subcategory: _selectedCaseSubCategory!,
+      subject: subject,
+      description: description,
+      createdAt: DateTime.now(),
+      orderId: _orderIdController.text.trim().isEmpty
+          ? null
+          : _orderIdController.text.trim(),
+      attachmentName: _attachmentFile?.name,
+      disputeStatus: _selectedDisputeStatus,
+    );
+
+    submittedSupportTicketsNotifier.value = <SubmittedSupportTicket>[
+      ticket,
+      ...submittedSupportTicketsNotifier.value,
+    ];
+    addSupportAgentAlert(
+      'New support ticket ${ticket.ticketId} (${ticket.category})',
+    );
+
+    _subjectController.clear();
+    _descriptionController.clear();
+    _orderIdController.clear();
+    setState(() {
+      _attachmentFile = null;
+      _showSubmitForm = false;
+    });
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Support Ticket Created'),
+        content: Text(
+          'Your ticket ID is ${ticket.ticketId}.\nOur team will respond soon.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openAiChat() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ChatSupportPage()));
+  }
+
+  void _openAdminPanel() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SupportModerationPanelPage(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isLight = Theme.of(context).brightness == Brightness.light;
+    final Color background = isLight
+        ? const Color(0xFFF5F7FB)
+        : const Color(0xFF0B0B0F);
+    final Color card = isLight ? Colors.white : const Color(0xFF141414);
+    final Color secondary = isLight
+        ? const Color(0xFF6A7282)
+        : const Color(0xFFA0A0A0);
+    final Color accent = const Color(0xFFF7A600);
+    final textColor = isLight ? const Color(0xFF10131A) : Colors.white;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Bitegit Help Center'),
+        actions: [
+          IconButton(
+            onPressed: _openAiChat,
+            tooltip: 'AI Support Chatbot',
+            icon: const Icon(Icons.smart_toy_outlined),
+          ),
+          IconButton(
+            onPressed: _openAdminPanel,
+            tooltip: 'Admin Panel',
+            icon: const Icon(Icons.admin_panel_settings_outlined),
+          ),
+        ],
+      ),
+      body: DefaultTabController(
+        initialIndex: widget.initialTab < 0
+            ? 0
+            : (widget.initialTab > 2 ? 2 : widget.initialTab),
+        length: 3,
+        child: Column(
+          children: [
+            Container(
+              color: background,
+              child: TabBar(
+                indicatorColor: accent,
+                labelColor: textColor,
+                unselectedLabelColor: secondary,
+                tabs: const [
+                  Tab(text: 'Help Center'),
+                  Tab(text: 'Submit Case'),
+                  Tab(text: 'Coin Status'),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildHelpCenterTab(
+                    context: context,
+                    card: card,
+                    accent: accent,
+                    textColor: textColor,
+                    secondary: secondary,
+                    isLight: isLight,
+                  ),
+                  _buildSubmitCaseTab(
+                    card: card,
+                    accent: accent,
+                    textColor: textColor,
+                    secondary: secondary,
+                  ),
+                  _buildCoinStatusTab(
+                    card: card,
+                    accent: accent,
+                    textColor: textColor,
+                    secondary: secondary,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHelpCenterTab({
+    required BuildContext context,
+    required Color card,
+    required Color accent,
+    required Color textColor,
+    required Color secondary,
+    required bool isLight,
+  }) {
+    final filtered = _filteredArticles();
+    final Map<String, List<SupportHelpArticle>> grouped =
+        <String, List<SupportHelpArticle>>{};
+    for (final item in filtered) {
+      grouped
+          .putIfAbsent(item.category, () => <SupportHelpArticle>[])
+          .add(item);
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isLight
+                  ? const Color(0xFFD8DFEB)
+                  : const Color(0xFF262626),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _helpSearchController,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search_rounded),
+                  hintText: 'Need help? Ask me anything',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: () =>
+                        DefaultTabController.of(context).animateTo(1),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: accent,
+                      foregroundColor: Colors.black,
+                    ),
+                    icon: const Icon(Icons.support_agent_outlined, size: 16),
+                    label: const Text('Submit Case'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _openAiChat,
+                    icon: const Icon(Icons.smart_toy_outlined, size: 16),
+                    label: const Text('AI Support Chatbot'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Start Now',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: textColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: kHelpCenterMainCategories.map((topic) {
+            final selected = topic == _selectedHelpTopic;
+            return ChoiceChip(
+              label: Text(topic, style: const TextStyle(fontSize: 12.4)),
+              selected: selected,
+              selectedColor: accent.withValues(alpha: 0.22),
+              onSelected: (_) {
+                setState(() {
+                  _selectedHelpTopic = selected ? null : topic;
+                });
+              },
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Top Articles',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: textColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...filtered.take(6).map((article) {
+          final vote = _helpFeedback[article.id] ?? 0;
+          final related = _relatedArticles(article);
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isLight
+                    ? const Color(0xFFD8DFEB)
+                    : const Color(0xFF262626),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  article.title,
+                  style: TextStyle(
+                    fontSize: 15.2,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _articleDescription(article),
+                  style: TextStyle(fontSize: 12.8, color: secondary),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      article.lastUpdated,
+                      style: TextStyle(fontSize: 11.8, color: secondary),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () =>
+                          setState(() => _helpFeedback[article.id] = 1),
+                      icon: Icon(
+                        vote == 1
+                            ? Icons.thumb_up_alt
+                            : Icons.thumb_up_alt_outlined,
+                        size: 18,
+                        color: vote == 1 ? accent : secondary,
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () =>
+                          setState(() => _helpFeedback[article.id] = -1),
+                      icon: Icon(
+                        vote == -1
+                            ? Icons.thumb_down_alt
+                            : Icons.thumb_down_alt_outlined,
+                        size: 18,
+                        color: vote == -1 ? const Color(0xFFEF4E5E) : secondary,
+                      ),
+                    ),
+                  ],
+                ),
+                if (related.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: related.map((item) {
+                      return ActionChip(
+                        label: Text(
+                          item.title,
+                          style: const TextStyle(fontSize: 11.6),
+                        ),
+                        onPressed: () {
+                          showModalBottomSheet<void>(
+                            context: context,
+                            backgroundColor: isLight
+                                ? Colors.white
+                                : const Color(0xFF141414),
+                            showDragHandle: true,
+                            builder: (_) => Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.title,
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      item.body,
+                                      style: TextStyle(
+                                        fontSize: 13.5,
+                                        color: secondary,
+                                        height: 1.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }),
+        const SizedBox(height: 4),
+        Text(
+          'All Topics',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: textColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...grouped.entries.map((entry) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isLight
+                    ? const Color(0xFFD8DFEB)
+                    : const Color(0xFF262626),
+              ),
+            ),
+            child: ExpansionTile(
+              title: Text(
+                entry.key,
+                style: TextStyle(fontSize: 14.2, color: textColor),
+              ),
+              children: entry.value.map((article) {
+                return ListTile(
+                  dense: true,
+                  title: Text(
+                    article.title,
+                    style: TextStyle(fontSize: 12.8, color: textColor),
+                  ),
+                  subtitle: Text(
+                    _articleDescription(article),
+                    style: TextStyle(fontSize: 11.8, color: secondary),
+                  ),
+                  trailing: Icon(Icons.chevron_right_rounded, color: secondary),
+                  onTap: () {
+                    showModalBottomSheet<void>(
+                      context: context,
+                      backgroundColor: isLight
+                          ? Colors.white
+                          : const Color(0xFF141414),
+                      showDragHandle: true,
+                      isScrollControlled: true,
+                      builder: (_) => FractionallySizedBox(
+                        heightFactor: 0.86,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  article.title,
+                                  style: TextStyle(
+                                    fontSize: 19,
+                                    fontWeight: FontWeight.w700,
+                                    color: textColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  article.body,
+                                  style: TextStyle(
+                                    fontSize: 13.8,
+                                    color: secondary,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              }).toList(),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildSubmitCaseTab({
+    required Color card,
+    required Color accent,
+    required Color textColor,
+    required Color secondary,
+  }) {
+    final categories = kSubmitCaseSubcategories.keys.toList();
+    final subcategories = _selectedCaseCategory == null
+        ? const <String>[]
+        : kSubmitCaseSubcategories[_selectedCaseCategory!] ?? const <String>[];
+
+    return ValueListenableBuilder<List<SubmittedSupportTicket>>(
+      valueListenable: submittedSupportTicketsNotifier,
+      builder: (context, tickets, child) {
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0x33F7A600),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0x88F7A600)),
+              ),
+              child: const Text(
+                'We are currently experiencing a large volume of inquiries. '
+                'To facilitate faster responses please check the help center first.',
+                style: TextStyle(fontSize: 12.8, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _selectedCaseCategory,
+              decoration: const InputDecoration(labelText: 'Category'),
+              items: categories
+                  .map(
+                    (item) => DropdownMenuItem(value: item, child: Text(item)),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedCaseCategory = value;
+                  _selectedCaseSubCategory = null;
+                  _selectedDisputeStatus = null;
+                  _showSubmitForm = false;
+                });
+              },
+            ),
+            const SizedBox(height: 10),
+            if (_selectedCaseCategory != null)
+              DropdownButtonFormField<String>(
+                initialValue: _selectedCaseSubCategory,
+                decoration: const InputDecoration(labelText: 'Subcategory'),
+                items: subcategories
+                    .map(
+                      (item) =>
+                          DropdownMenuItem(value: item, child: Text(item)),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedCaseSubCategory = value;
+                    _selectedDisputeStatus = null;
+                    _showSubmitForm = false;
+                  });
+                },
+              ),
+            if (_requiresDisputeStatus()) ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedDisputeStatus,
+                decoration: const InputDecoration(labelText: 'Dispute status'),
+                items: kP2PDisputeStatuses
+                    .map(
+                      (item) =>
+                          DropdownMenuItem(value: item, child: Text(item)),
+                    )
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => _selectedDisputeStatus = value),
+              ),
+            ],
+            if (_selectedCaseSubCategory != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF7A600).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0x88F7A600)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _tipText(),
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: secondary,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton(
+                      onPressed: () => setState(() => _showSubmitForm = true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: accent,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: const Text('Yes – Submit Request'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: card,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF262626)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'P2P Order Query',
+                    style: TextStyle(
+                      fontSize: 13.8,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _orderLookupController,
+                          decoration: const InputDecoration(
+                            hintText: 'Search by Order ID',
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: _searchOrderById,
+                        child: const Text('Search'),
+                      ),
+                    ],
+                  ),
+                  if (_lookedUpOrder != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0x1A16A7C8),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Order ID: ${_lookedUpOrder!.id}',
+                            style: TextStyle(color: textColor, fontSize: 12.4),
+                          ),
+                          Text(
+                            'Amount: ${_lookedUpOrder!.amount}',
+                            style: TextStyle(color: secondary, fontSize: 12),
+                          ),
+                          Text(
+                            'Buyer/Seller: ${_lookedUpOrder!.counterparty}',
+                            style: TextStyle(color: secondary, fontSize: 12),
+                          ),
+                          Text(
+                            'Order Status: ${_lookedUpOrder!.status}',
+                            style: const TextStyle(
+                              color: Color(0xFF16A7C8),
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              OutlinedButton(
+                                onPressed: () {},
+                                child: const Text('View Order'),
+                              ),
+                              OutlinedButton(
+                                onPressed: () => setState(() {
+                                  _selectedCaseCategory = 'P2P Trading';
+                                  _selectedCaseSubCategory =
+                                      'Appeal in progress';
+                                  _showSubmitForm = true;
+                                }),
+                                child: const Text('Open Dispute'),
+                              ),
+                              OutlinedButton(
+                                onPressed: _openAiChat,
+                                child: const Text('Contact Merchant'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (_showSubmitForm) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: card,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF262626)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Submit Support Ticket',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _uidController,
+                      decoration: const InputDecoration(labelText: 'User UID'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _emailController,
+                      decoration: const InputDecoration(
+                        labelText: 'Email Address',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _orderIdController,
+                      decoration: const InputDecoration(labelText: 'Order ID'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _subjectController,
+                      decoration: const InputDecoration(labelText: 'Subject'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _descriptionController,
+                      minLines: 4,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: const Color(0x14000000),
+                        border: Border.all(color: const Color(0x3FFFFFFF)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _attachmentFile == null
+                                  ? 'Attachments: PDF, PNG, JPG, JPEG, MP4'
+                                  : 'Attachment: ${_attachmentFile!.name}',
+                              style: TextStyle(
+                                fontSize: 11.8,
+                                color: secondary,
+                              ),
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: _pickSupportAttachment,
+                            child: const Text('Attach'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _submitSupportTicket,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: accent,
+                          foregroundColor: Colors.black,
+                        ),
+                        child: const Text('Submit Ticket'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (tickets.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(
+                'Recent Tickets',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...tickets.take(8).map((ticket) {
+                final created =
+                    '${ticket.createdAt.year}-${ticket.createdAt.month.toString().padLeft(2, '0')}-${ticket.createdAt.day.toString().padLeft(2, '0')} '
+                    '${ticket.createdAt.hour.toString().padLeft(2, '0')}:${ticket.createdAt.minute.toString().padLeft(2, '0')}';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: card,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF262626)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        ticket.ticketId,
+                        style: TextStyle(
+                          fontSize: 12.6,
+                          fontWeight: FontWeight.w700,
+                          color: accent,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${ticket.category} • ${ticket.subcategory}',
+                        style: TextStyle(fontSize: 12, color: textColor),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${ticket.status} • $created',
+                        style: TextStyle(fontSize: 11.4, color: secondary),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildCoinStatusTab({
+    required Color card,
+    required Color accent,
+    required Color textColor,
+    required Color secondary,
+  }) {
+    final query = _coinSearch.toLowerCase();
+    final rows = kCoinServiceStatuses.where((coin) {
+      final suspended = !coin.depositEnabled || !coin.withdrawEnabled;
+      final matchesSearch =
+          query.isEmpty ||
+          coin.symbol.toLowerCase().contains(query) ||
+          coin.name.toLowerCase().contains(query);
+      if (!matchesSearch) return false;
+      if (_showOnlySuspendedCoins && !suspended) return false;
+      if (_hideSuspendedDeposits && !coin.depositEnabled) return false;
+      return true;
+    }).toList();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      children: [
+        TextField(
+          controller: _coinSearchController,
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search_rounded),
+            hintText: 'Search coin status',
+          ),
+        ),
+        const SizedBox(height: 10),
+        SwitchListTile.adaptive(
+          value: _hideSuspendedDeposits,
+          onChanged: (v) => setState(() => _hideSuspendedDeposits = v),
+          title: const Text(
+            'Hide coins with suspended deposits',
+            style: TextStyle(fontSize: 12.4),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        SwitchListTile.adaptive(
+          value: _showOnlySuspendedCoins,
+          onChanged: (v) => setState(() => _showOnlySuspendedCoins = v),
+          title: const Text(
+            'Show only coins with suspended deposits',
+            style: TextStyle(fontSize: 12.4),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        const SizedBox(height: 8),
+        ...rows.map((coin) {
+          final depositLabel = coin.depositEnabled
+              ? 'Deposit: ON'
+              : 'Deposit: OFF';
+          final withdrawLabel = coin.withdrawEnabled
+              ? 'Withdraw: ON'
+              : 'Withdraw: OFF';
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF262626)),
+            ),
+            child: ExpansionTile(
+              title: Text(
+                '${coin.symbol} • ${coin.name}',
+                style: TextStyle(fontSize: 14, color: textColor),
+              ),
+              subtitle: Text(
+                coin.networkStatus,
+                style: TextStyle(fontSize: 11.8, color: secondary),
+              ),
+              trailing: const Icon(Icons.expand_more_rounded),
+              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: coin.depositEnabled
+                            ? const Color(0x1A53D983)
+                            : const Color(0x1AEF4E5E),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        depositLabel,
+                        style: TextStyle(
+                          color: coin.depositEnabled
+                              ? const Color(0xFF53D983)
+                              : const Color(0xFFEF4E5E),
+                          fontSize: 11.3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: coin.withdrawEnabled
+                            ? const Color(0x1A53D983)
+                            : const Color(0x1AEF4E5E),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        withdrawLabel,
+                        style: TextStyle(
+                          color: coin.withdrawEnabled
+                              ? const Color(0xFF53D983)
+                              : const Color(0xFFEF4E5E),
+                          fontSize: 11.3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Maintenance Alert: ${coin.maintenanceAlert}',
+                  style: TextStyle(fontSize: 12, color: secondary),
+                ),
+                const SizedBox(height: 8),
+                ...coin.networks.map((network) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0x12000000),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0x2FFFFFFF)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${network.code} • ${network.display}',
+                          style: TextStyle(
+                            fontSize: 12.4,
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Fee: ${network.feeUsdt} USDT  |  Min deposit: ${network.minDepositUsdt}  |  ETA: ${network.arrival}',
+                          style: TextStyle(fontSize: 11.5, color: secondary),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    OutlinedButton(
+                      onPressed: _openAiChat,
+                      child: const Text('Report issue'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () {},
+                      style: FilledButton.styleFrom(
+                        backgroundColor: accent,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: const Text('Got it'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class SupportHomePage extends StatefulWidget {
+  const SupportHomePage({super.key});
+
+  @override
+  State<SupportHomePage> createState() => _SupportHomePageState();
+}
+
+class _SupportHomePageState extends State<SupportHomePage> {
+  static const Map<String, List<String>> _faqByCategory =
+      <String, List<String>>{
+        'Event & Bonus': <String>[
+          "Why can't I join token splash?",
+          "I didn't receive my rewards",
+          'How does reward distribution work?',
+          'Where can I find promotion rules?',
+        ],
+        'Account & Identity Verification': <String>[
+          'KYC verification problems',
+          'Verification code not received',
+          'Why is my account restricted?',
+          'How to reset security settings?',
+        ],
+        'P2P Trading': <String>[
+          'P2P order issue',
+          'How to open P2P appeal?',
+          'Unable to post P2P advertisement',
+          'Merchant completion rate appeal',
+        ],
+        'Crypto Deposit & Withdrawal': <String>[
+          'How can I deposit crypto?',
+          'Crypto deposit not credited',
+          'How to submit a withdrawal?',
+          'Why is withdrawal delayed?',
+        ],
+        'Trading Issues': <String>[
+          "Why can't I trade?",
+          'Order failed or pending',
+          'Futures risk limit reached',
+          'Spot order not executing',
+        ],
+        'Security Issues': <String>[
+          'Anti-phishing setup',
+          'Device risk warning',
+          '2FA reset request',
+          'Suspicious login alert',
+        ],
+      };
+
+  late String _selectedCategory = _faqByCategory.keys.first;
+
+  Future<void> _openNoticeModal() async {
+    final bool isLight = Theme.of(context).brightness == Brightness.light;
+    bool doNotShow = false;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setInnerState) {
+            return AlertDialog(
+              backgroundColor: isLight ? Colors.white : const Color(0xFF141414),
+              title: const Text('Important Notice'),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Temporary Suspension of Selected Fiat Services',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'SEPA Beneficiary Details Change:\n'
+                      '1) Check latest bank details before transfer.\n'
+                      '2) Old beneficiary routes are disabled.\n'
+                      '3) Contact support if transfer is pending for 24h+.',
+                    ),
+                    const SizedBox(height: 10),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: doNotShow,
+                      onChanged: (v) =>
+                          setInnerState(() => doNotShow = v ?? false),
+                      title: const Text(
+                        "Don't show again for the next 24 hours",
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFF7A600),
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Got It'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (doNotShow) {
+      _announcementDismissedUntil = DateTime.now().add(
+        const Duration(hours: 24),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isLight = Theme.of(context).brightness == Brightness.light;
+    final Color bg = isLight
+        ? const Color(0xFFF5F7FB)
+        : const Color(0xFF0B0B0F);
+    final Color card = isLight ? Colors.white : const Color(0xFF141414);
+    final Color textColor = isLight ? const Color(0xFF11131A) : Colors.white;
+    final Color secondary = isLight
+        ? const Color(0xFF667085)
+        : const Color(0xFFA0A0A0);
+    final Color border = isLight
+        ? const Color(0xFFD7DEEA)
+        : const Color(0xFF262626);
+    const accent = Color(0xFFF7A600);
+    final List<String> questions =
+        _faqByCategory[_selectedCategory] ?? const <String>[];
+
+    return Scaffold(
+      backgroundColor: bg,
+      appBar: AppBar(
+        title: const Text('24/7 Dedicated Support'),
+        actions: [
+          IconButton(
+            tooltip: 'Language',
+            onPressed: () {},
+            icon: const Icon(Icons.language_rounded),
+          ),
+          IconButton(
+            tooltip: 'Exit',
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.power_settings_new_rounded),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Color(0xFFF7A600),
+                      child: Icon(
+                        Icons.smart_toy_outlined,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "Hello there! I'm Bybot, how can I assist you today?",
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          color: secondary,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ChatSupportPage(),
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: accent,
+                      foregroundColor: Colors.black,
+                    ),
+                    child: const Text('Start Asking'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: _openNoticeModal,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: border),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Important Notice',
+                              style: TextStyle(
+                                fontSize: 14.6,
+                                fontWeight: FontWeight.w700,
+                                color: textColor,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: accent.withValues(alpha: 0.22),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'NEW',
+                                style: TextStyle(
+                                  color: Color(0xFFF7A600),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Temporary Suspension of Selected Fiat Services\nSEPA Beneficiary Details Change',
+                          style: TextStyle(
+                            fontSize: 12.4,
+                            color: secondary,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: secondary),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Action Required',
+                  style: TextStyle(
+                    fontSize: 14.6,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Identity Verification',
+                  style: TextStyle(
+                    fontSize: 13.4,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Advanced Verification Failed\nReason: Unaccepted proof of address',
+                  style: TextStyle(
+                    fontSize: 12.3,
+                    color: secondary,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SubmitCasePage(),
+                    ),
+                  ),
+                  child: const Text('Quick Fixes'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'FAQ',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 680;
+              final categories = _faqByCategory.keys.toList();
+              final leftPane = Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: card,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: categories.map((cat) {
+                    final active = cat == _selectedCategory;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 7),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => setState(() => _selectedCategory = cat),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 9,
+                          ),
+                          decoration: BoxDecoration(
+                            color: active
+                                ? accent.withValues(alpha: 0.16)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            cat,
+                            style: TextStyle(
+                              fontSize: 12.3,
+                              color: active ? accent : textColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              );
+
+              final rightPane = Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: card,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...questions.map((q) {
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(
+                          q,
+                          style: TextStyle(fontSize: 13, color: textColor),
+                        ),
+                        trailing: Icon(
+                          Icons.chevron_right_rounded,
+                          color: secondary,
+                        ),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const FAQPage(),
+                          ),
+                        ),
+                      );
+                    }),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const FAQPage(),
+                          ),
+                        ),
+                        child: const Text('View All'),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+
+              if (isCompact) {
+                return Column(
+                  children: [leftPane, const SizedBox(height: 8), rightPane],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 240, child: leftPane),
+                  const SizedBox(width: 8),
+                  Expanded(child: rightPane),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const SubmitCasePage(),
+                  ),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: accent,
+                  foregroundColor: Colors.black,
+                ),
+                icon: const Icon(Icons.assignment_outlined),
+                label: const Text('Submit Case'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CryptoStatusPage(),
+                  ),
+                ),
+                icon: const Icon(Icons.storage_outlined),
+                label: const Text('Crypto Status'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'BITEGIT',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: const [
+                    Icon(Icons.facebook_rounded, size: 18),
+                    Icon(Icons.alternate_email_rounded, size: 18),
+                    Icon(Icons.camera_alt_outlined, size: 18),
+                    Icon(Icons.play_circle_outline_rounded, size: 18),
+                    Icon(Icons.business_center_outlined, size: 18),
+                    Icon(Icons.send_rounded, size: 18),
+                    Icon(Icons.forum_outlined, size: 18),
+                    Icon(Icons.sports_esports_outlined, size: 18),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ChatSupportPage extends StatelessWidget {
+  const ChatSupportPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SupportBotPage();
+  }
+}
+
+class SubmitCasePage extends StatelessWidget {
+  const SubmitCasePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const HelpCenterHubPage(initialTab: 1);
+  }
+}
+
+class CryptoStatusPage extends StatelessWidget {
+  const CryptoStatusPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const HelpCenterHubPage(initialTab: 2);
+  }
+}
+
+class FAQPage extends StatelessWidget {
+  const FAQPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const HelpCenterHubPage(initialTab: 0);
+  }
+}
+
+class SupportModerationPanelPage extends StatefulWidget {
+  const SupportModerationPanelPage({super.key});
+
+  @override
+  State<SupportModerationPanelPage> createState() =>
+      _SupportModerationPanelPageState();
+}
+
+class _SupportModerationPanelPageState
+    extends State<SupportModerationPanelPage> {
+  final TextEditingController _announcementController = TextEditingController(
+    text:
+        'Scheduled maintenance: Fiat services temporarily paused from 02:00 - 02:30 UTC.',
+  );
+
+  @override
+  void dispose() {
+    _announcementController.dispose();
+    super.dispose();
+  }
+
+  void _approveKyc() {
+    _setKycStatus('verified');
+    _syncActiveUserState(kycStatus: 'verified', canPostAds: true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('KYC approved')));
+    setState(() {});
+  }
+
+  void _rejectKyc() {
+    _setKycStatus('rejected');
+    _syncActiveUserState(kycStatus: 'rejected', canPostAds: false);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('KYC rejected')));
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isLight = Theme.of(context).brightness == Brightness.light;
+    final Color card = isLight ? Colors.white : const Color(0xFF141414);
+    final Color secondary = isLight
+        ? const Color(0xFF6A7282)
+        : const Color(0xFFA0A0A0);
+    final Color textColor = isLight ? const Color(0xFF10131A) : Colors.white;
+    final p2pDisputes = p2pOrdersNotifier.value
+        .where(
+          (order) =>
+              order.orderState == P2POrderState.appealOpened ||
+              order.orderState == P2POrderState.underReview,
+        )
+        .toList();
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Admin Moderation Panel')),
+      body: ValueListenableBuilder<List<SubmittedSupportTicket>>(
+        valueListenable: submittedSupportTicketsNotifier,
+        builder: (context, tickets, child) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            children: [
+              Text(
+                'Support Tickets',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (tickets.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: card,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF262626)),
+                  ),
+                  child: Text(
+                    'No support tickets yet.',
+                    style: TextStyle(color: secondary),
+                  ),
+                ),
+              ...tickets.take(15).map((ticket) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: card,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF262626)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        ticket.ticketId,
+                        style: const TextStyle(
+                          fontSize: 12.8,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        ticket.subject,
+                        style: TextStyle(fontSize: 12.8, color: textColor),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${ticket.category} • ${ticket.subcategory}',
+                        style: TextStyle(fontSize: 11.8, color: secondary),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () {},
+                            child: const Text('Respond'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () {},
+                            child: const Text('Resolve'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () {},
+                            child: const Text('Escalate'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 14),
+              Text(
+                'P2P Disputes',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...p2pDisputes.map((order) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: card,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF262626)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${order.id} • ${order.pair}',
+                        style: const TextStyle(
+                          fontSize: 12.8,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        'Status: ${order.status}',
+                        style: TextStyle(fontSize: 11.8, color: secondary),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () {},
+                            child: const Text('Release Crypto'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () {},
+                            child: const Text('Return to Seller'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () {},
+                            child: const Text('Freeze Order'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () {},
+                            child: const Text('Ban User'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 14),
+              Text(
+                'Coin Deposit/Withdraw Controls',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...kCoinServiceStatuses.map((coin) {
+                return SwitchListTile.adaptive(
+                  value: coin.depositEnabled && coin.withdrawEnabled,
+                  onChanged: (_) {},
+                  title: Text(
+                    '${coin.symbol} • ${coin.name}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    coin.networkStatus,
+                    style: TextStyle(fontSize: 11.8, color: secondary),
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                );
+              }),
+              const SizedBox(height: 10),
+              Text(
+                'KYC Moderation',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: card,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF262626)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Current KYC status: ${kycStatusNotifier.value.toUpperCase()}',
+                      style: const TextStyle(
+                        fontSize: 13.2,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Approve to enable ad posting for verified users.',
+                      style: TextStyle(fontSize: 11.8, color: secondary),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _approveKyc,
+                          child: const Text('Approve'),
+                        ),
+                        OutlinedButton(
+                          onPressed: _rejectKyc,
+                          child: const Text('Reject'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'System Announcement',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _announcementController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Announcement message',
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Announcement sent to users'),
+                      ),
+                    );
+                  },
+                  child: const Text('Send Announcement'),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -10772,7 +15194,9 @@ class _P2PPostAdPageState extends State<P2PPostAdPage> {
 enum _P2PTab { p2p, orders, ads, profile }
 
 class P2PPage extends StatefulWidget {
-  const P2PPage({super.key});
+  const P2PPage({super.key, this.startInOrders = false});
+
+  final bool startInOrders;
 
   @override
   State<P2PPage> createState() => _P2PPageState();
@@ -10780,8 +15204,8 @@ class P2PPage extends StatefulWidget {
 
 class _P2PPageState extends State<P2PPage> {
   _P2PTab _activeTab = _P2PTab.p2p;
-  List<P2PAdItem> _ads = List<P2PAdItem>.from(kP2PSampleAds);
-  List<P2POrderItem> _orders = List<P2POrderItem>.from(kP2PSampleOrders);
+  List<P2PAdItem> _ads = List<P2PAdItem>.from(p2pMarketplaceAdsNotifier.value);
+  List<P2POrderItem> _orders = List<P2POrderItem>.from(p2pOrdersNotifier.value);
   String _orderPrimaryTab = 'ONGOING';
   String _orderSecondaryTab = 'ALL';
   String _adType = 'sell';
@@ -10790,7 +15214,7 @@ class _P2PPageState extends State<P2PPage> {
   String _marketCurrency = 'INR';
   String _amountFilter = 'Any Amount';
   String _marketPaymentFilter = 'All Payment Methods';
-  bool _marketPaused = false;
+  final bool _marketPaused = false;
   int _nextOrderNumber = 104500;
   final String _buyerUid = currentUserUid;
   final String _sessionIp = '103.42.19.${28 + Random().nextInt(180)}';
@@ -10820,6 +15244,13 @@ class _P2PPageState extends State<P2PPage> {
   @override
   void initState() {
     super.initState();
+    _ads = List<P2PAdItem>.from(p2pMarketplaceAdsNotifier.value);
+    _orders = List<P2POrderItem>.from(p2pOrdersNotifier.value);
+    p2pMarketplaceAdsNotifier.addListener(_syncAdsFromNotifier);
+    p2pOrdersNotifier.addListener(_syncOrdersFromNotifier);
+    if (widget.startInOrders) {
+      _activeTab = _P2PTab.orders;
+    }
     _orders = _orders
         .map(
           (order) => order.copyWith(
@@ -10846,18 +15277,43 @@ class _P2PPageState extends State<P2PPage> {
           return ad.copyWith(price: '${next.toStringAsFixed(2)} INR');
         }).toList();
       });
+      _publishAds();
     });
   }
 
   @override
   void dispose() {
     _offerTicker?.cancel();
+    p2pMarketplaceAdsNotifier.removeListener(_syncAdsFromNotifier);
+    p2pOrdersNotifier.removeListener(_syncOrdersFromNotifier);
     _adPairController.dispose();
     _adPriceController.dispose();
     _adLimitsController.dispose();
     _adAvailableController.dispose();
     _adPaymentController.dispose();
     super.dispose();
+  }
+
+  void _syncAdsFromNotifier() {
+    if (!mounted) return;
+    setState(() {
+      _ads = List<P2PAdItem>.from(p2pMarketplaceAdsNotifier.value);
+    });
+  }
+
+  void _syncOrdersFromNotifier() {
+    if (!mounted) return;
+    setState(() {
+      _orders = List<P2POrderItem>.from(p2pOrdersNotifier.value);
+    });
+  }
+
+  void _publishAds() {
+    p2pMarketplaceAdsNotifier.value = List<P2PAdItem>.from(_ads);
+  }
+
+  void _publishOrders() {
+    p2pOrdersNotifier.value = List<P2POrderItem>.from(_orders);
   }
 
   void _appendAdminLog({
@@ -10895,6 +15351,7 @@ class _P2PPageState extends State<P2PPage> {
         _orders[idx] = order;
       }
     });
+    _publishOrders();
     if (order.orderState == P2POrderState.appealOpened &&
         order.appealProofPath != null &&
         order.disputeReason != null) {
@@ -11000,6 +15457,7 @@ class _P2PPageState extends State<P2PPage> {
         ),
       );
     });
+    _publishAds();
 
     ScaffoldMessenger.of(
       context,
@@ -11007,16 +15465,33 @@ class _P2PPageState extends State<P2PPage> {
   }
 
   Future<void> _openPostAdWizard() async {
-    if (!kycVerifiedNotifier.value) {
+    if (fundingUsdtBalanceNotifier.value <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You must have USDT balance to create an advertisement.'),
+        ),
+      );
+      return;
+    }
+    final user = activeExchangeUserNotifier.value;
+    if (user == null || !user.canPostAds || !kycVerifiedNotifier.value) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Complete KYC verification before posting ads.'),
         ),
       );
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const KycVerificationPage()),
-      );
-      if (!mounted || !kycVerifiedNotifier.value) return;
+      if (user == null || !kycVerifiedNotifier.value) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const KycVerificationPage()),
+        );
+      }
+      if (!mounted) return;
+      final refreshedUser = activeExchangeUserNotifier.value;
+      if (!kycVerifiedNotifier.value ||
+          refreshedUser == null ||
+          !refreshedUser.canPostAds) {
+        return;
+      }
     }
     final draft = await Navigator.of(context).push<_PostAdDraft>(
       MaterialPageRoute<_PostAdDraft>(builder: (_) => const P2PPostAdPage()),
@@ -11178,20 +15653,18 @@ class _P2PPageState extends State<P2PPage> {
         final Color identityColor = verified
             ? const Color(0xFF9DFB3B)
             : const Color(0xFFFFAE42);
-        final P2PAdItem metricBase = _ads.isNotEmpty
-            ? _ads.first
-            : kP2PSampleAds.first;
+        final P2PAdItem? metricBase = _ads.isNotEmpty ? _ads.first : null;
         final String completedOrders = verified
-            ? metricBase.completed30d
+            ? (metricBase?.completed30d ?? '0')
             : (basic ? '14' : '0');
         final String completionRate = verified
-            ? metricBase.completionRate30d
+            ? (metricBase?.completionRate30d ?? '--')
             : (basic ? '92.1%' : '--');
         final String avgReleaseTime = verified
-            ? metricBase.avgReleaseTime
+            ? (metricBase?.avgReleaseTime ?? '--')
             : '--';
         final String avgPaymentTime = verified
-            ? metricBase.avgPaymentTime
+            ? (metricBase?.avgPaymentTime ?? '--')
             : '--';
 
         return Container(
@@ -11418,7 +15891,7 @@ class _P2PPageState extends State<P2PPage> {
           const SizedBox(height: 8),
           FilledButton(
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SupportBotPage()),
+              MaterialPageRoute<void>(builder: (_) => const SupportHomePage()),
             ),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF111B31),
@@ -11801,103 +16274,6 @@ class _P2PPageState extends State<P2PPage> {
     );
   }
 
-  Future<void> _freezeOrderByAdmin(String orderId) async {
-    final idx = _orders.indexWhere((order) => order.id == orderId);
-    if (idx < 0) return;
-    final current = _orders[idx];
-    final updated = current.copyWith(
-      orderState: P2POrderState.frozen,
-      status: p2pOrderStateLabel(P2POrderState.frozen),
-      isFrozen: true,
-    );
-    _upsertOrder(updated);
-    _appendAdminLog(
-      action: 'freeze_order',
-      target: orderId,
-      meta: 'Order frozen by admin',
-    );
-  }
-
-  Future<void> _releaseEscrowByAdmin(String orderId) async {
-    final idx = _orders.indexWhere((order) => order.id == orderId);
-    if (idx < 0) return;
-    try {
-      final released = await _api.releaseOrder(
-        order: _orders[idx],
-        buyerId: _buyerUid,
-      );
-      _upsertOrder(released);
-      _appendAdminLog(
-        action: 'release_escrow',
-        target: orderId,
-        meta: 'Escrow force released to buyer',
-      );
-    } catch (_) {}
-  }
-
-  Future<void> _cancelOrderByAdmin(String orderId) async {
-    final idx = _orders.indexWhere((order) => order.id == orderId);
-    if (idx < 0) return;
-    final cancelled = await _api.cancelOrder(
-      order: _orders[idx],
-      reason: 'Cancelled by admin override',
-    );
-    _upsertOrder(cancelled);
-    _appendAdminLog(
-      action: 'cancel_order',
-      target: orderId,
-      meta: 'Admin override cancel',
-    );
-  }
-
-  Future<void> _returnEscrowToSellerByAdmin(String orderId) async {
-    final idx = _orders.indexWhere((order) => order.id == orderId);
-    if (idx < 0) return;
-    final returned = await _api.cancelOrder(
-      order: _orders[idx],
-      reason: 'Admin resolved dispute: escrow returned to seller',
-    );
-    _upsertOrder(returned);
-    _appendAdminLog(
-      action: 'return_escrow',
-      target: orderId,
-      meta: 'Escrow returned to seller',
-    );
-  }
-
-  void _banMerchant(String merchant) {
-    setState(() {
-      _bannedMerchants.add(merchant);
-    });
-    _appendAdminLog(
-      action: 'ban_merchant',
-      target: merchant,
-      meta: 'Merchant disabled from new offers',
-    );
-  }
-
-  Future<void> _openAdminPanel() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => P2PAdminPanelPage(
-          orders: _orders,
-          appeals: _appeals,
-          bannedMerchants: _bannedMerchants,
-          logs: _adminLogs,
-          onFreezeOrder: _freezeOrderByAdmin,
-          onReleaseEscrow: _releaseEscrowByAdmin,
-          onReturnEscrow: _returnEscrowToSellerByAdmin,
-          onCancelOrder: _cancelOrderByAdmin,
-          onBanMerchant: _banMerchant,
-          onTogglePause: (paused) => setState(() => _marketPaused = paused),
-          marketPaused: _marketPaused,
-        ),
-      ),
-    );
-    if (!mounted) return;
-    setState(() {});
-  }
-
   Widget _buildProfileTab(BuildContext context) {
     return ListView(
       key: const ValueKey<String>('p2p-profile'),
@@ -11953,14 +16329,8 @@ class _P2PPageState extends State<P2PPage> {
           title: 'Customer Support',
           subtitle: 'Connect AI bot or live agent',
           onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const SupportBotPage()),
+            MaterialPageRoute<void>(builder: (_) => const SupportHomePage()),
           ),
-        ),
-        _P2PProfileNavTile(
-          icon: Icons.admin_panel_settings_outlined,
-          title: 'Admin Support Panel',
-          subtitle: 'Disputes, escrow release and risk controls',
-          onTap: _openAdminPanel,
         ),
       ],
     );
