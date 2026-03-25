@@ -3627,8 +3627,10 @@ function loadBybitorOrders() {
       console.log('[loadBybitorOrders] my-active status=' + r1.status + (r1._timedOut ? ' TIMED_OUT' : '') + ' ok=' + r1.ok);
       if (r1.status === 401) { showLoginPrompt(); return; }
       if (r1._timedOut) { showRetry('Server is starting up… tap Retry'); return; }
-      return (r1.ok ? r1.json().catch(function() { return { orders: [] }; }) : Promise.resolve({ orders: [] }))
+      if (!r1.ok) { showRetry('Could not load orders (server error ' + r1.status + ')'); return; }
+      return r1.json().catch(function() { return { orders: [] }; })
         .then(function(d1) {
+          if (!d1) return;
           // Reset lock FIRST — so any render exception never leaves it stuck true
           _ordFetching = false;
           // Fix 2: Normalize response — handle array, { orders: [] }, or { data: [] }
