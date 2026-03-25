@@ -8,3 +8,4 @@ frontend/.next/
 frontend/.env.local
 backend/node_modules/
 backend/.env
+public/downloads/*.apk
