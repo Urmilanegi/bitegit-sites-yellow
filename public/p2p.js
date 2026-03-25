@@ -1118,13 +1118,21 @@ async function loadMyAds() {
     myAdsList.innerHTML = '<p class="empty-row">Login required to view your ads.</p>';
     return;
   }
+  console.log('[loadMyAds] fetching /api/p2p/my-ads');
+  var _adsAbort = new AbortController();
+  var _adsTimer = setTimeout(function() { _adsAbort.abort(); }, 12000);
   try {
-    const res = await fetch('/api/p2p/my-ads');
+    const res = await fetch('/api/p2p/my-ads', { credentials: 'include', signal: _adsAbort.signal });
+    clearTimeout(_adsTimer);
+    console.log('[loadMyAds] response', res.status);
     const data = await res.json().catch(() => ({ offers: [] }));
     const myOffers = Array.isArray(data.offers) ? data.offers.sort((a, b) => Number(b.price || 0) - Number(a.price || 0)) : [];
+    console.log('[loadMyAds] rendering', myOffers.length, 'ads');
     renderMyAds(myOffers);
   } catch (error) {
-    myAdsList.innerHTML = '<p class="empty-row">Unable to load your ads right now.</p>';
+    clearTimeout(_adsTimer);
+    console.warn('[loadMyAds] error:', error && error.message);
+    myAdsList.innerHTML = '<p class="empty-row">Unable to load your ads. <a href="#" onclick="loadMyAds();return false;" style="color:#00d4d4;">Retry</a></p>';
   }
 }
 
@@ -2279,8 +2287,14 @@ function getDummyOffers(side) {
 
 var _offersOffset = 0;
 var _offersHasMore = false;
+var _offersFetching = false; // in-flight lock — prevents stacked parallel calls
 
 async function loadOffers(append) {
+  // Prevent parallel non-append calls (append = "load more" button, always allow)
+  if (!append && _offersFetching) {
+    console.log('[loadOffers] skipped — already in flight');
+    return;
+  }
   if (!append) _offersOffset = 0;
   var loadMoreBtn = document.getElementById('loadMoreOffersBtn');
 
@@ -2297,14 +2311,24 @@ async function loadOffers(append) {
 
   if (!append && metaEl) metaEl.textContent = 'Loading offers...';
   if (loadMoreBtn) loadMoreBtn.textContent = 'Loading...';
+  if (!append) _offersFetching = true;
+
+  console.log('[loadOffers] fetching /api/p2p/offers side=' + currentSide + ' asset=' + currentAsset);
+
+  // 12-second timeout via AbortController
+  var _offerAbort = new AbortController();
+  var _offerTimer = setTimeout(function() { _offerAbort.abort(); }, 12000);
 
   try {
-    const response = await fetch(`/api/p2p/offers?${params.toString()}`);
+    const response = await fetch(`/api/p2p/offers?${params.toString()}`, { signal: _offerAbort.signal });
+    clearTimeout(_offerTimer);
+    console.log('[loadOffers] response', response.status);
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Unable to load offers.');
 
     if (!Array.isArray(data.offers) || data.offers.length === 0) {
       if (!append) {
+        _offersFetching = false; // reset lock on empty result
         // p2pCards is the real mobile element (offerCards does not exist in HTML)
         var mobileEmpty = document.getElementById('p2pCards') || document.getElementById('offerCards');
         if (mobileEmpty) mobileEmpty.innerHTML = '<div class="p2p-empty-state"><p>No ads yet.<br>Be the first to post an ad!</p><button class="p2p-post-ad-cta" onclick="document.querySelector(\'[data-mob=\\\'post\\\']\')?.click()">Post Ad</button></div>';
@@ -2314,6 +2338,8 @@ async function loadOffers(append) {
       return;
     }
 
+    if (!append) _offersFetching = false;
+    console.log('[loadOffers] rendered', data.offers ? data.offers.length : 0, 'offers');
     renderOffers(data, append);
     _offersOffset += data.offers.length;
     _offersHasMore = Boolean(data.hasMore);
@@ -2325,6 +2351,9 @@ async function loadOffers(append) {
       metaEl.textContent = `${data.side.toUpperCase()} ${data.asset} offers: ${data.total} | Updated ${new Date(data.updatedAt).toLocaleTimeString()}`;
     }
   } catch (error) {
+    clearTimeout(_offerTimer);
+    if (!append) _offersFetching = false; // always reset lock on error
+    console.warn('[loadOffers] error:', error && error.message);
     if (!append) {
       // Show retry button in the real mobile element (p2pCards)
       var mobileErr = document.getElementById('p2pCards') || document.getElementById('offerCards');
@@ -2333,7 +2362,7 @@ async function loadOffers(append) {
           '<div class="p2p-empty-state" style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 20px;">' +
           '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
           '<p style="color:rgba(255,255,255,0.45);font-size:14px;margin:0;text-align:center;">Could not load ads</p>' +
-          '<button onclick="loadOffers()" style="background:#00d4d4;color:#000;border:none;border-radius:8px;padding:10px 26px;font-size:14px;font-weight:700;cursor:pointer;">Retry</button>' +
+          '<button onclick="_offersFetching=false;loadOffers()" style="background:#00d4d4;color:#000;border:none;border-radius:8px;padding:10px 26px;font-size:14px;font-weight:700;cursor:pointer;">Retry</button>' +
           '</div>';
       }
       if (metaEl) metaEl.textContent = '';
@@ -3460,12 +3489,14 @@ function loadBybitorOrders() {
   }
 
   // skip if a fetch is already in flight (prevents stacked requests)
-  if (_ordFetching) return;
+  if (_ordFetching) { console.log('[loadBybitorOrders] skipped — already in flight'); return; }
   _ordFetching = true;
+  console.log('[loadBybitorOrders] fetching /api/p2p/orders/my-active');
 
   // fetch active orders first (most important), then history
   fetchOrFail('/api/p2p/orders/my-active', { credentials: 'include' })
     .then(function(r1) {
+      console.log('[loadBybitorOrders] my-active response', r1.status, r1._timedOut ? '(timed out)' : '');
       if (r1.status === 401) { showLoginPrompt(); return; }
       if (r1._timedOut) { showRetry('Server is starting up… tap Retry'); return; }
       return (r1.ok ? r1.json().catch(function() { return { orders: [] }; }) : Promise.resolve({ orders: [] }))
@@ -4037,19 +4068,31 @@ window.addEventListener('pagehide', () => {
 
 (async function init() {
   initTheme();
+  // loadCurrentUser MUST complete first so currentUser is set before other loads
   await loadCurrentUser();
-  await loadOffers();
-  await loadLiveOrders();
-  await loadMyAds();
-  await loadProfilePanel({ refreshWallet: true });
-  await loadExchangeTicker();
+  console.log('[init] loadCurrentUser done, currentUser:', currentUser ? currentUser.email : 'null');
+
+  // Run all data loads in PARALLEL — sequential await caused one hanging call
+  // to block all subsequent loads (including the orders prefetch setTimeout below)
+  Promise.allSettled([
+    loadOffers(),
+    loadLiveOrders(),
+    loadMyAds(),
+    loadProfilePanel({ refreshWallet: true }),
+    loadExchangeTicker()
+  ]).then(function(results) {
+    results.forEach(function(r, i) {
+      if (r.status === 'rejected') console.warn('[init] parallel load #' + i + ' failed:', r.reason);
+    });
+  });
+
   syncMobileTabFromHash();
   syncBodyInteractionState();
-  // Pre-fetch orders silently after all init is done.
-  // So when user taps Orders screen the data is already in cache → instant open.
-  if (currentUser) {
-    setTimeout(function() { loadBybitorOrders(); }, 500);
-  }
+
+  // Always prefetch orders — loadBybitorOrders handles its own auth check
+  // (shows "Login to view orders" if 401). Do NOT gate on currentUser here.
+  console.log('[init] scheduling loadBybitorOrders in 500ms');
+  setTimeout(function() { _ordFetching = false; loadBybitorOrders(); }, 500);
 })();
 
 // ── Keep Render free-tier server awake ──────────────────────────────
