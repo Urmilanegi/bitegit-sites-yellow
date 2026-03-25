@@ -193,6 +193,15 @@ const KYC_ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/w
 const KYC_MAX_FILE_SIZE = 6 * 1024 * 1024;
 const KYC_TARGET_IMAGE_BYTES = 320 * 1024;
 
+function maskEmail(s) {
+  var str = String(s || '');
+  if (str.indexOf('@') === -1) return str;
+  var parts = str.split('@');
+  var local = parts[0];
+  var masked = local.length > 3 ? local.slice(0, 3) + '***' : local.slice(0, 1) + '***';
+  return masked + '@' + parts[1];
+}
+
 function escapeHtml(text) {
   return String(text)
     .replace(/&/g, '&amp;')
@@ -2778,7 +2787,7 @@ function updateOrderUi(order) {
       timerLabel.style.color = '#f0b90b';
     } else if (normalizedStatus === 'PAID' && activeOrderRole === 'buyer') {
       timerLabel.textContent = 'Waiting for seller to release';
-      timerLabel.style.color = '#00d4d4';
+      timerLabel.style.color = '#fff';
     } else {
       timerLabel.textContent = '';
     }
@@ -2810,7 +2819,7 @@ async function fetchMessages(options = {}) {
   }
 
   try {
-    const response = await fetch(`/api/p2p/orders/${activeOrderId}/messages`);
+    const response = await fetch(`/api/p2p/orders/${activeOrderId}/messages`, { credentials: 'include' });
     const data = await response.json();
 
     if (!response.ok) {
@@ -2828,6 +2837,7 @@ async function postChatPayload(payload) {
   const response = await fetch(`/api/p2p/orders/${activeOrderId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ text: encodeChatPayload(payload) })
   });
   const data = await response.json();
@@ -3410,10 +3420,22 @@ function _ordEmpty(msg) {
 }
 
 function _ordLoadingHtml() {
-  return '<div style="display:flex;align-items:center;justify-content:center;padding:70px 20px;">'+
-    '<div style="width:24px;height:24px;border:2px solid #222;border-top-color:#00d4d4;border-radius:50%;animation:ord-spin 0.7s linear infinite;"></div>'+
-  '</div>'+
-  '<style>@keyframes ord-spin{to{transform:rotate(360deg)}}</style>';
+  var skRow = '<div style="padding:16px;border-bottom:1px solid rgba(255,255,255,0.06);">' +
+    '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
+      '<div style="width:80px;height:16px;background:rgba(255,255,255,0.07);border-radius:4px;"></div>' +
+      '<div style="width:60px;height:16px;background:rgba(255,255,255,0.07);border-radius:4px;"></div>' +
+    '</div>' +
+    '<div style="width:130px;height:12px;background:rgba(255,255,255,0.04);border-radius:4px;margin-bottom:12px;"></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-end;">' +
+      '<div style="display:flex;flex-direction:column;gap:6px;">' +
+        '<div style="width:110px;height:11px;background:rgba(255,255,255,0.04);border-radius:4px;"></div>' +
+        '<div style="width:85px;height:11px;background:rgba(255,255,255,0.04);border-radius:4px;"></div>' +
+      '</div>' +
+      '<div style="width:75px;height:20px;background:rgba(255,255,255,0.07);border-radius:4px;"></div>' +
+    '</div>' +
+  '</div>';
+  return '<style>@keyframes _sk{0%,100%{opacity:.45}50%{opacity:1}}[data-sk]{animation:_sk 1.4s ease-in-out infinite}</style>' +
+    '<div data-sk>' + skRow + skRow + skRow + '</div>';
 }
 
 function _setOrdSubPill(activeId, inactiveIds) {
@@ -3618,71 +3640,48 @@ function loadBybitorOrders() {
   // skip if a fetch is already in flight (prevents stacked requests)
   if (_ordFetching) { console.log('[loadBybitorOrders] skipped — already in flight, spinner shown'); return; }
   _ordFetching = true;
-  console.log('[loadBybitorOrders] fetching /api/p2p/orders/my-active');
+  console.log('[loadBybitorOrders] fetching orders in parallel');
 
-  // fetch active orders first (most important), then history
-  // Cache-Control: no-store prevents browser from serving stale orders
-  fetchOrFail('/api/p2p/orders/my-active', { credentials: 'include', headers: { 'Cache-Control': 'no-store' } })
-    .then(function(r1) {
-      console.log('[loadBybitorOrders] my-active status=' + r1.status + (r1._timedOut ? ' TIMED_OUT' : '') + ' ok=' + r1.ok);
-      if (r1.status === 401) { showLoginPrompt(); return; }
-      if (r1._timedOut) { showRetry('Server is starting up… tap Retry'); return; }
-      if (!r1.ok) { showRetry('Could not load orders (server error ' + r1.status + ')'); return; }
-      return r1.json().catch(function() { return { orders: [] }; })
-        .then(function(d1) {
-          if (!d1) return;
-          // Reset lock FIRST — so any render exception never leaves it stuck true
-          _ordFetching = false;
-          // Fix 2: Normalize response — handle array, { orders: [] }, or { data: [] }
-          var activeOrders = Array.isArray(d1) ? d1 : (d1.orders || d1.data || []);
-          console.log('[loadBybitorOrders] my-active parsed orders=' + activeOrders.length + ' keys=' + Object.keys(d1||{}).join(','));
-          if (activeOrders.length) {
-            console.log('[loadBybitorOrders] first order:', JSON.stringify(activeOrders[0]).slice(0, 200));
-          }
-          // Render active orders immediately — don't wait for history
-          try {
-            renderAll(activeOrders, false);
-            // Fix 3: Always ensure orders section is visible after render
-            if (ordersSection) ordersSection.style.display = 'block';
-          } catch(e) {
-            console.error('[loadBybitorOrders] renderAll(active) threw:', e);
-            _ordFetching = false; // Fix 5: reset on error
-            var fallbackEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-            if (fallbackEl) { fallbackEl.style.display = 'block'; fallbackEl.innerHTML = _ordEmpty('No orders'); }
-          }
-          // Then fetch history in the background and merge
-          fetchOrFail('/api/p2p/orders/history?limit=50&offset=0', { credentials: 'include', headers: { 'Cache-Control': 'no-store' } })
-            .then(function(r2) {
-              console.log('[loadBybitorOrders] history status=' + r2.status + (r2._timedOut ? ' TIMED_OUT' : ''));
-              if (!r2.ok || r2._timedOut) return;
-              return r2.json().catch(function() { return { orders: [] }; });
-            })
-            .then(function(d2) {
-              if (!d2) return;
-              // Fix 2: Normalize history response
-              var histOrders = Array.isArray(d2) ? d2 : (d2.orders || d2.data || []);
-              console.log('[loadBybitorOrders] history parsed orders=' + histOrders.length);
-              // Fix 4: Do NOT overwrite active orders if history is empty
-              if (!histOrders.length) return;
-              // merge history with already-fetched active orders (dedup handled in renderAll)
-              var merged = histOrders.concat(_ordAllOrders);
-              try {
-                renderAll(merged, false);
-                // Fix 3: keep section visible after merge render
-                if (ordersSection) ordersSection.style.display = 'block';
-              } catch(e) {
-                console.error('[loadBybitorOrders] renderAll(merged) threw:', e);
-                _ordFetching = false; // Fix 5: reset on error
-              }
-            })
-            .catch(function(e) { console.warn('[loadBybitorOrders] history fetch error:', e); _ordFetching = false; });
-        });
-    })
-    .catch(function(e) {
-      _ordFetching = false; // belt-and-suspenders: ensure lock is freed on any unexpected error
-      console.error('[loadBybitorOrders] outer catch:', e);
-      showRetry('Could not load orders');
+  var _hdr = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
+  Promise.all([
+    fetchOrFail('/api/p2p/orders/my-active', _hdr),
+    fetchOrFail('/api/p2p/orders/history?limit=50&offset=0', _hdr)
+  ]).then(function(results) {
+    var r1 = results[0], r2 = results[1];
+    console.log('[loadBybitorOrders] active=' + r1.status + ' history=' + r2.status);
+    if (r1.status === 401) { showLoginPrompt(); return; }
+    if (r1._timedOut) { showRetry('Server is starting up… tap Retry'); return; }
+    if (!r1.ok) { showRetry('Could not load orders (server error ' + r1.status + ')'); return; }
+
+    var p1 = r1.json().catch(function() { return { orders: [] }; });
+    var p2 = (r2.ok && !r2._timedOut) ? r2.json().catch(function() { return { orders: [] }; }) : Promise.resolve({ orders: [] });
+
+    return Promise.all([p1, p2]).then(function(data) {
+      _ordFetching = false;
+      var d1 = data[0], d2 = data[1];
+      var activeOrders = Array.isArray(d1) ? d1 : (d1.orders || d1.data || []);
+      var histOrders   = Array.isArray(d2) ? d2 : (d2.orders || d2.data || []);
+      console.log('[loadBybitorOrders] active=' + activeOrders.length + ' history=' + histOrders.length);
+
+      // Merge: history + active, dedup in renderAll
+      var merged = histOrders.concat(activeOrders);
+      // If both empty just render empty
+      if (!merged.length) merged = activeOrders;
+      try {
+        renderAll(merged, false);
+        if (ordersSection) ordersSection.style.display = 'block';
+      } catch(e) {
+        console.error('[loadBybitorOrders] renderAll threw:', e);
+        _ordFetching = false;
+        var fallbackEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+        if (fallbackEl) { fallbackEl.style.display = 'block'; fallbackEl.innerHTML = _ordEmpty('No orders'); }
+      }
     });
+  }).catch(function(e) {
+    _ordFetching = false;
+    console.error('[loadBybitorOrders] outer catch:', e);
+    showRetry('Could not load orders');
+  });
 }
 // Wire orders screen tab buttons (click + touchend for iOS)
 (function() {
@@ -3991,6 +3990,9 @@ if (closeModalBackdrop) {
 if (markPaidBtn) {
   markPaidBtn.addEventListener('click', async () => {
     const action = markPaidBtn.dataset.action;
+    markPaidBtn.style.transform = 'scale(0.95)';
+    markPaidBtn.style.transition = 'transform 0.1s ease';
+    setTimeout(function() { markPaidBtn.style.transform = ''; }, 150);
     if (action === 'release') {
       try {
         await updateOrderStatus('release');
@@ -5304,11 +5306,21 @@ window.deleteMobAd = async function(offerId) {
         return;
       }
       if (hint) hint.textContent = '';
+      // Check 1 active order limit
+      var hasActive = _ordAllOrders.some(function(o) {
+        return ['CREATED','PENDING','PAID','PAYMENT_SENT'].indexOf((o.status || '').toUpperCase()) !== -1;
+      });
+      if (hasActive) {
+        if (hint) hint.textContent = 'You already have an active order. Complete it first.';
+        return;
+      }
       if (btn._creating) return; // prevent double-submit
       btn._creating = true;
       btn.disabled = true;
-      btn.style.opacity = '0.7';
-      btn.textContent = 'Placing order...';
+      btn.style.transform = 'scale(0.95)';
+      btn.style.transition = 'transform 0.1s ease';
+      btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;"><span style="width:14px;height:14px;border:2px solid rgba(0,0,0,0.3);border-top-color:#000;border-radius:50%;animation:ord-spin 0.7s linear infinite;display:inline-block;"></span>Placing order...</span>';
+      setTimeout(function() { btn.style.transform = ''; }, 150);
       // Show loading toast
       var toast = document.createElement('div');
       toast.id = 'bfToast';
@@ -5364,15 +5376,20 @@ window.deleteMobAd = async function(offerId) {
     document.getElementById('bfPaidSheet').addEventListener('click', function(e) { if (e.target === this) this.style.display = 'none'; });
     document.getElementById('bfPaidConfirmBtn').onclick = async function() {
       if (_bfPaidSel !== 1) return;
-      var btn = this; btn.disabled = true; btn.textContent = 'Processing...';
+      var btn = this;
+      btn.disabled = true;
+      btn.style.transform = 'scale(0.95)';
+      btn.style.transition = 'transform 0.1s ease';
+      btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px;"><span style="width:14px;height:14px;border:2px solid rgba(0,0,0,0.3);border-top-color:#000;border-radius:50%;animation:ord-spin 0.7s linear infinite;display:inline-block;"></span>Processing...</span>';
+      setTimeout(function() { btn.style.transform = ''; }, 150);
+      // Optimistic: close sheet immediately, show waiting state
+      var sheet = document.getElementById('bfPaidSheet'); if (sheet) sheet.style.display = 'none';
+      bfClose(); bfShowOldOrderModal();
       try {
         await updateOrderStatus('mark_paid');
-        var sheet = document.getElementById('bfPaidSheet'); if (sheet) sheet.style.display = 'none';
-        bfClose(); bfShowOldOrderModal();
       } catch(e) {
-        alert(e.message || 'Failed. Please try again.');
-        btn.disabled = false; btn.textContent = 'Confirm';
-        window.bfSelectPaidOpt(_bfPaidSel);
+        console.error('[bfPaidConfirm] error:', e.message);
+        // Don't reopen — order may have been marked paid already
       }
     };
   }
@@ -5454,8 +5471,9 @@ window.deleteMobAd = async function(offerId) {
 
     if (isSystem) {
       var sysEl = document.createElement('div');
-      sysEl.style.cssText = 'text-align:center;font-size:0.72rem;color:rgba(255,255,255,0.35);padding:0.2rem 0;';
-      sysEl.textContent = msg.text || '';
+      sysEl.style.cssText = 'text-align:center;padding:0.35rem 0.75rem;margin:4px 0;';
+      sysEl.innerHTML = '<span style="display:inline-block;background:rgba(255,255,255,0.08);border-radius:20px;padding:4px 14px;font-size:0.75rem;font-weight:700;color:#fff;letter-spacing:0.01em;">' +
+        (msg.text ? msg.text.replace(/[&<>"]/g, function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]||c;}) : '') + '</span>';
       return sysEl;
     }
 
@@ -5527,7 +5545,7 @@ window.deleteMobAd = async function(offerId) {
     var orderId = getOrderId();
     if (!orderId) return;
     try {
-      var resp = await fetch('/api/p2p/orders/' + orderId + '/messages');
+      var resp = await fetch('/api/p2p/orders/' + orderId + '/messages', { credentials: 'include' });
       if (!resp.ok) return;
       var data = await resp.json();
       var msgs = data.messages || [];
@@ -5568,9 +5586,10 @@ window.deleteMobAd = async function(offerId) {
       await fetch('/api/p2p/orders/' + orderId + '/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ text: text })
       });
-    } catch(e) { /* silent */ }
+    } catch(e) { console.error('[bfChat] send error:', e); }
     btn.disabled = false;
   }
 
@@ -5589,12 +5608,13 @@ window.deleteMobAd = async function(offerId) {
         // Try the existing image upload endpoint if available
         var formData = new FormData();
         formData.append('image', file);
-        var resp = await fetch('/api/p2p/orders/' + orderId + '/messages/image', { method: 'POST', body: formData });
+        var resp = await fetch('/api/p2p/orders/' + orderId + '/messages/image', { method: 'POST', credentials: 'include', body: formData });
         if (!resp.ok) {
           // Fallback: send as text message with note
           await fetch('/api/p2p/orders/' + orderId + '/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({ text: '[Image sent]' })
           });
         }
@@ -5656,7 +5676,7 @@ window.deleteMobAd = async function(offerId) {
     var avatar = document.getElementById('bfChatAvatar');
     var nameEl = document.getElementById('bfChatName');
     if (avatar) avatar.textContent = String(counterparty || 'S').slice(0,1).toUpperCase();
-    if (nameEl) nameEl.textContent = counterparty || 'Seller';
+    if (nameEl) nameEl.textContent = (typeof maskEmail === 'function' ? maskEmail(counterparty) : counterparty) || 'Seller';
 
     // Reset message list (keep cache for dedup)
     var container = document.getElementById('bfChatMsgs');

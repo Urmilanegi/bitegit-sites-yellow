@@ -902,7 +902,7 @@
   <div id="loadingOverlay" style="position:fixed;inset:0;background:#000;z-index:999;display:flex;align-items:center;justify-content:center;transition:opacity 0.15s;">
     <div style="width:32px;height:32px;border:2px solid #222;border-top-color:#00d4d4;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
   </div>
-  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  <style>@keyframes spin{to{transform:rotate(360deg)}} @keyframes _spin{to{transform:rotate(360deg)}}</style>
 
   <!-- Toast -->
   <div class="toast-msg" id="toast">Copied!</div>
@@ -1094,8 +1094,17 @@
     document.getElementById('tfBackBtn').addEventListener('click', function() { showScreen('screen-order-generated'); });
     document.getElementById('tfChatBtn').addEventListener('click', function() { openChat('screen-transfer'); });
     document.getElementById('tfChatBtn').addEventListener('touchend', function(e) { e.preventDefault(); openChat('screen-transfer'); });
-    document.getElementById('tfPaidBtn').addEventListener('click', showPaidModal);
-    document.getElementById('tfPaidBtn').addEventListener('touchend', function(e) { e.preventDefault(); showPaidModal(); });
+    document.getElementById('tfPaidBtn').addEventListener('click', function() {
+      var b = this; b.style.transform = 'scale(0.95)'; b.style.transition = 'transform 0.12s ease';
+      setTimeout(function() { b.style.transform = ''; }, 150);
+      showPaidModal();
+    });
+    document.getElementById('tfPaidBtn').addEventListener('touchend', function(e) {
+      e.preventDefault();
+      var b = this; b.style.transform = 'scale(0.95)'; b.style.transition = 'transform 0.12s ease';
+      setTimeout(function() { b.style.transform = ''; }, 150);
+      showPaidModal();
+    });
     document.getElementById('tfCancelBtn').addEventListener('click', function() { cancelSource = 'transfer'; showScreen('screen-before-cancel'); });
     document.getElementById('tfCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); cancelSource = 'transfer'; showScreen('screen-before-cancel'); });
 
@@ -1342,13 +1351,39 @@
   // ============================================================
   async function doCreateOrder() {
     if (!currentUser) { showLoginModal(); return; }
+    var btn = document.getElementById('buyBtn');
+    if (btn && btn._creating) return;
+
     var val = parseFloat(document.getElementById('buyAmount').value) || 0;
     if (val <= 0) { showToast('Enter a valid amount'); return; }
+
     var price = currentAd ? Number(currentAd.price || 101.3) : 101.3;
     var isFiat = currentTab === 'fiat';
     var fiatAmt = isFiat ? val : Math.round(val * price);
     var cryptoAmt = isFiat ? (val / price) : val;
+
+    // Validate min/max
+    if (currentAd) {
+      var minF = Number(currentAd.minLimit || 0);
+      var maxF = Number(currentAd.maxLimit || Infinity);
+      var checkFiat = isFiat ? fiatAmt : fiatAmt;
+      if (checkFiat < minF || checkFiat > maxF) {
+        showToast('Amount must be between ₹' + minF + ' - ₹' + maxF);
+        return;
+      }
+    }
+
     var payment = document.getElementById('selectedPayment').textContent || 'UPI';
+
+    // Button feedback
+    if (btn) {
+      btn._creating = true;
+      btn.style.transform = 'scale(0.95)';
+      btn.style.transition = 'transform 0.12s ease';
+      btn.style.opacity = '0.85';
+      btn.textContent = 'Placing order...';
+      setTimeout(function() { btn.style.transform = ''; }, 150);
+    }
 
     if (currentAd && currentAd.id) {
       try {
@@ -1363,15 +1398,21 @@
         var data = await res.json();
         if (res.ok) {
           currentOrder = data.order || data;
+          // Cache order immediately for instant navigation
+          try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {}
           startTimerFromOrder(currentOrder);
           renderOrderDetails();
           showScreen('screen-order-generated');
           return;
         }
         showToast(data.message || 'Order failed');
-        return;
-      } catch (e) { showToast('Network error'); return; }
+      } catch (e) { showToast('Network error'); }
+      finally {
+        if (btn) { btn._creating = false; btn.style.opacity = ''; btn.textContent = 'Buy USDT with 0 fees'; }
+      }
+      return;
     }
+    if (btn) { btn._creating = false; btn.style.opacity = ''; btn.textContent = 'Buy USDT with 0 fees'; }
     showToast('No ad loaded');
   }
 
@@ -1568,7 +1609,19 @@
   async function doRelease() {
     if (!currentOrder || !currentOrder.id) return;
     var btn = document.getElementById('chatReleaseBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Releasing...'; }
+    if (btn && btn._releasing) return;
+    if (btn) {
+      btn._releasing = true;
+      btn.disabled = true;
+      btn.style.transform = 'scale(0.95)';
+      btn.style.transition = 'transform 0.12s ease';
+      btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:13px;height:13px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:_spin 0.7s linear infinite;display:inline-block;"></span>Releasing...</span>';
+      setTimeout(function() { btn.style.transform = ''; }, 150);
+    }
+    // Optimistic: hide release bar immediately
+    var sellerReleaseBar = document.getElementById('chatSellerReleaseBar');
+    if (sellerReleaseBar) sellerReleaseBar.style.display = 'none';
+    showToast('Releasing funds...');
     try {
       var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/status', {
         method: 'POST',
@@ -1579,25 +1632,25 @@
       var data = await res.json();
       if (res.ok) {
         currentOrder = data.order || currentOrder;
+        try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {}
         showToast('Funds released successfully!');
-        var sellerReleaseBar = document.getElementById('chatSellerReleaseBar');
-        if (sellerReleaseBar) sellerReleaseBar.style.display = 'none';
         pollNewMessages();
-        // Navigate to completed screen after short delay
         setTimeout(function() {
           showScreen('screen-canceled');
           var h1 = document.querySelector('#screen-canceled .page-heading h1');
           var sub = document.querySelector('#screen-canceled .page-heading div');
           if (h1) h1.textContent = 'Order Completed';
           if (sub) sub.textContent = 'You have released the funds successfully.';
-        }, 1500);
+        }, 800);
       } else {
         showToast(data.message || 'Release failed');
-        if (btn) { btn.disabled = false; btn.textContent = 'Release'; }
+        if (sellerReleaseBar) sellerReleaseBar.style.display = 'flex';
+        if (btn) { btn._releasing = false; btn.disabled = false; btn.textContent = 'Release'; }
       }
     } catch(e) {
-      showToast('Network error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Release'; }
+      showToast('Network error. Try again.');
+      if (sellerReleaseBar) sellerReleaseBar.style.display = 'flex';
+      if (btn) { btn._releasing = false; btn.disabled = false; btn.textContent = 'Release'; }
     }
   }
 
@@ -1706,8 +1759,8 @@
 
     var el = document.createElement('div');
     if (isSystem) {
-      el.className = 'system-msg';
-      el.innerHTML = '<span class="sys-icon">🔔</span><span class="sys-text">' + escHtml(msg.text || '') + '</span>';
+      el.style.cssText = 'text-align:center;padding:5px 12px;margin:4px 0;';
+      el.innerHTML = '<span style="display:inline-block;background:rgba(255,255,255,0.09);border-radius:20px;padding:5px 16px;font-size:12px;font-weight:700;color:#fff;letter-spacing:0.02em;">🔔 ' + escHtml(msg.text || '') + '</span>';
     } else if (isMe) {
       el.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:12px;flex-direction:column;align-items:flex-end;';
       if (hasImage) {
@@ -1849,26 +1902,36 @@
 
   async function confirmPaid() {
     if (!selectedPaidOption) return;
-    closePaidModal();
-    if (selectedPaidOption === 2) return; // not paid yet
-    if (currentOrder && currentOrder.id) {
-      try {
-        var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/mark-paid', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({})
-        });
-        var data = await res.json();
-        if (res.ok) currentOrder = data.order || currentOrder;
-      } catch (e) {}
+    if (selectedPaidOption === 2) { closePaidModal(); return; }
+    var btn = document.getElementById('paid-confirm-btn');
+    if (btn) {
+      btn.style.transform = 'scale(0.95)';
+      btn.style.transition = 'transform 0.12s ease';
+      setTimeout(function() { btn.style.transform = ''; }, 150);
     }
+    // Optimistic: close modal and navigate immediately
+    closePaidModal();
+    // Optimistic: update local status
+    if (currentOrder) { currentOrder.status = 'PAID'; try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {} }
     openChat('screen-transfer');
-    setTimeout(function() {
-      setupChatForRole('PAYMENT_SENT');
-      pollNewMessages();
-    }, 300);
+    setupChatForRole('PAYMENT_SENT');
     showToast('Payment marked. Waiting for seller to release.');
+    // API call in background
+    if (currentOrder && currentOrder.id) {
+      fetch('/api/p2p/orders/' + currentOrder.id + '/mark-paid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({})
+      }).then(function(res) { return res.ok ? res.json() : null; })
+        .then(function(data) {
+          if (data && (data.order || data.id)) {
+            currentOrder = data.order || data;
+            try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {}
+          }
+          pollNewMessages();
+        }).catch(function(e) { console.warn('[confirmPaid] API error:', e); });
+    }
   }
 
   // ============================================================
