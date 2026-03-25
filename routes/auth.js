@@ -7,21 +7,18 @@ function normalizeIp(req) {
 function createIpRateLimiter({ windowMs, maxAttempts }) {
   const state = new Map();
 
-  return function rateLimitMiddleware(req, res, next) {
+  function middleware(req, res, next) {
     const ip = normalizeIp(req);
     const now = Date.now();
     const existing = state.get(ip);
 
     if (!existing || now > existing.resetAt) {
-      state.set(ip, {
-        count: 1,
-        resetAt: now + windowMs
-      });
-      return next();
+      state.set(ip, { count: 0, resetAt: now + windowMs });
     }
 
-    if (existing.count >= maxAttempts) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
+    const entry = state.get(ip);
+    if (entry.count >= maxAttempts) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
       res.setHeader('Retry-After', String(retryAfterSeconds));
       return res.status(429).json({
         message: 'Too many attempts. Please try again later.',
@@ -29,10 +26,17 @@ function createIpRateLimiter({ windowMs, maxAttempts }) {
       });
     }
 
-    existing.count += 1;
-    state.set(ip, existing);
+    // attach helper so routes can increment only on failure
+    req._ipRateLimitEntry = entry;
+    req._recordFailedAttempt = function () {
+      entry.count += 1;
+      state.set(ip, entry);
+    };
+
     return next();
-  };
+  }
+
+  return middleware;
 }
 
 function createEmailFromInput(raw) {
@@ -77,7 +81,7 @@ function registerAuthRoutes(app, deps) {
 
   const loginLimiter = createIpRateLimiter({
     windowMs: 10 * 60 * 1000,
-    maxAttempts: 5
+    maxAttempts: 30
   });
 
   const registerLimiter = createIpRateLimiter({
@@ -325,6 +329,7 @@ function registerAuthRoutes(app, deps) {
     const userAgent = String(req.headers['user-agent'] || '').trim().slice(0, 1024);
 
     if (!isValidEmail(email)) {
+      req._recordFailedAttempt?.();
       await safeAuditLog({
         userId: '',
         action: 'login_failed',
@@ -334,6 +339,7 @@ function registerAuthRoutes(app, deps) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
     }
     if (!isValidPassword(password)) {
+      req._recordFailedAttempt?.();
       await safeAuditLog({
         userId: '',
         action: 'login_failed',
@@ -346,6 +352,7 @@ function registerAuthRoutes(app, deps) {
     try {
       const credential = await repos.getP2PCredential(email);
       if (!credential || !repos.verifyPassword(password, credential.passwordHash)) {
+        req._recordFailedAttempt?.();
         await safeAuditLog({
           userId: '',
           action: 'login_failed',
@@ -363,39 +370,32 @@ function registerAuthRoutes(app, deps) {
       const isNewDeviceLogin =
         hasLoginHistory && (previousLoginIp !== ipAddress || previousUserAgent !== userAgent);
 
-      await walletService.ensureWallet(user.id, { username: user.username });
-      const tokenPair = await createAndReturnTokens(res, user);
+      // Run token creation and legacy session in parallel (both needed for cookies)
+      const [tokenPair, legacySession] = await Promise.all([
+        createAndReturnTokens(res, user),
+        typeof createLegacyP2PUserSession === 'function'
+          ? createLegacyP2PUserSession(email, role)
+          : Promise.resolve(null)
+      ]);
 
-      if (typeof createLegacyP2PUserSession === 'function') {
-        const legacySession = await createLegacyP2PUserSession(email, role);
+      if (legacySession) {
         setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
       }
 
-      await repos.touchP2PCredentialLogin(email, {
-        ipAddress,
-        userAgent,
-        deviceLabel: userAgent
-      });
-
-      if (isNewDeviceLogin && authEmailService && typeof authEmailService.sendNewDeviceLoginAlert === 'function') {
-        try {
-          await authEmailService.sendNewDeviceLoginAlert(email, {
-            loginTimeUtc: new Date().toISOString().replace('T', ' ').replace('Z', ' (UTC)'),
-            ipAddress,
-            userAgent,
-            location: 'Unknown'
-          });
-        } catch (error) {
-          // New-device email alert should not block login.
-        }
-      }
-
-      await safeAuditLog({
-        userId: user.id,
-        action: 'login_success',
-        ipAddress,
-        metadata: { email, role: user.role }
-      });
+      // Fire-and-forget background tasks — don't block the response
+      Promise.all([
+        walletService.ensureWallet(user.id, { username: user.username }),
+        repos.touchP2PCredentialLogin(email, { ipAddress, userAgent, deviceLabel: userAgent }),
+        safeAuditLog({ userId: user.id, action: 'login_success', ipAddress, metadata: { email, role: user.role } }),
+        isNewDeviceLogin && authEmailService && typeof authEmailService.sendNewDeviceLoginAlert === 'function'
+          ? authEmailService.sendNewDeviceLoginAlert(email, {
+              loginTimeUtc: new Date().toISOString().replace('T', ' ').replace('Z', ' (UTC)'),
+              ipAddress,
+              userAgent,
+              location: 'Unknown'
+            }).catch(() => {})
+          : Promise.resolve()
+      ]).catch(() => {});
 
       return res.json({
         message: 'Login successful.',
@@ -409,6 +409,7 @@ function registerAuthRoutes(app, deps) {
         refreshToken: tokenPair.refreshToken
       });
     } catch (error) {
+      req._recordFailedAttempt?.();
       await safeAuditLog({
         userId: '',
         action: 'login_failed',
