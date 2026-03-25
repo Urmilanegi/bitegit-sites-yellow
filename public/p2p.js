@@ -1975,6 +1975,7 @@ function closeOrderModal() {
 }
 
 async function loadCurrentUser() {
+  let _networkErr = false; // true only on real network/parse failure
   try {
     const response = await fetch('/api/p2p/me', { credentials: 'include' });
     const data = await response.json();
@@ -1984,12 +1985,13 @@ async function loadCurrentUser() {
     }
   } catch (error) {
     currentUser = null;
+    _networkErr = true; // fetch failed or JSON parse error — worth retrying
   }
   updateUserUi();
 
-  // If not logged in, retry silently after 2.5s — handles Render cold-start race where
-  // the server accepts the connection before authMiddleware/DB is ready.
-  if (!currentUser) {
+  // Only retry when there was a genuine network/server error (not when server explicitly
+  // said loggedIn:false). This prevents the logged-out→logged-in visual flicker on refresh.
+  if (!currentUser && _networkErr) {
     setTimeout(async function() {
       try {
         const r = await fetch('/api/p2p/me', { credentials: 'include' });
@@ -3447,9 +3449,10 @@ function loadBybitorOrders() {
       if (r1._timedOut) { showRetry('Server is starting up… tap Retry'); return; }
       return (r1.ok ? r1.json().catch(function() { return { orders: [] }; }) : Promise.resolve({ orders: [] }))
         .then(function(d1) {
-          // Render active orders immediately — don't wait for history
-          renderAll(d1.orders || [], false);
+          // Reset lock FIRST — so any render exception never leaves it stuck true
           _ordFetching = false;
+          // Render active orders immediately — don't wait for history
+          try { renderAll(d1.orders || [], false); } catch(e) {}
           // Then fetch history in the background and merge
           fetchOrFail('/api/p2p/orders/history?limit=50&offset=0', { credentials: 'include' })
             .then(function(r2) {
@@ -3459,12 +3462,13 @@ function loadBybitorOrders() {
             .then(function(d2) {
               if (!d2) return;
               var merged = (d2.orders || []).concat(_ordAllOrders);
-              renderAll(merged, false);
+              try { renderAll(merged, false); } catch(e) {}
             })
             .catch(function() {});
         });
     })
     .catch(function() {
+      _ordFetching = false; // belt-and-suspenders: ensure lock is freed on any unexpected error
       showRetry('Could not load orders');
     });
 }
