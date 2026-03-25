@@ -862,11 +862,14 @@ body.p2p-kyc-open { overflow: hidden; }
   font-weight: 700;
   cursor: pointer;
   font-family: 'Manrope', sans-serif;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
-.offer-action-btn:hover { opacity: 0.85; }
-.offer-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.offer-action-btn:hover  { opacity: 0.88; }
+.offer-action-btn:active { transform: scale(0.93); opacity: 0.75; }
+.offer-action-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 .buy-offer-btn {
   background: var(--p2p-green);
@@ -912,9 +915,10 @@ body.p2p-kyc-open { overflow: hidden; }
 .gt-val { color: #d0d5e0; font-weight: 500; }
 .gt-pays { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.3rem; }
 .gt-pay { font-size: 0.73rem; color: #c8cdd8; padding-left: 5px; border-left: 1.5px solid rgba(37,99,235,0.7); line-height: 1.4; }
-.gt-btn { min-width: 64px; height: 33px; border: none; border-radius: 999px; background: linear-gradient(96deg,#00c2b2,#0099a8); color: #fff; font-size: 0.8rem; font-weight: 800; cursor: pointer; -webkit-tap-highlight-color: transparent; padding: 0 1rem; font-family: 'Manrope', sans-serif; box-shadow: 0 2px 10px rgba(0,194,178,0.3); }
+.gt-btn { min-width: 64px; height: 33px; border: none; border-radius: 999px; background: linear-gradient(96deg,#00c2b2,#0099a8); color: #fff; font-size: 0.8rem; font-weight: 800; cursor: pointer; -webkit-tap-highlight-color: transparent; padding: 0 1rem; font-family: 'Manrope', sans-serif; box-shadow: 0 2px 10px rgba(0,194,178,0.3); transition: transform 0.1s ease, opacity 0.12s; user-select: none; }
 .gt-btn-sell { background: linear-gradient(96deg,#f6465d,#ff6b81); color: #fff; box-shadow: 0 2px 10px rgba(246,70,93,0.25); }
-.gt-btn:disabled { opacity: 0.4; cursor: default; }
+.gt-btn:active  { transform: scale(0.93); opacity: 0.78; }
+.gt-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
 
 .p2p-offer-card,
 .p2p-live-order-card {
@@ -1445,13 +1449,33 @@ body.p2p-kyc-open { overflow: hidden; }
   padding: 0 0.7rem;
   cursor: pointer;
   font-family: 'Manrope', sans-serif;
+  transition: transform 0.1s ease, opacity 0.12s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
+
+#markPaidBtn:active,
+#cancelOrderBtn:active,
+#joinByRefBtn:active { transform: scale(0.96); opacity: 0.8; }
+#markPaidBtn:disabled,
+#cancelOrderBtn:disabled { opacity: 0.4; cursor: default; transform: none; }
+
+/* Release mode — seller releasing crypto: gold/green highlight like Bybit */
+#markPaidBtn.release-mode {
+  background: linear-gradient(96deg, #f0b90b, #d4a017);
+  color: #000;
+  border-color: transparent;
+  font-weight: 700;
+  box-shadow: 0 2px 12px rgba(240,185,11,0.35);
+}
+#markPaidBtn.release-mode:active { transform: scale(0.95); }
 
 #cancelOrderBtn, .danger-btn {
   background: rgba(255, 95, 130, 0.12);
   border-color: rgba(255, 95, 130, 0.35);
   color: #ff9ba8;
 }
+#cancelOrderBtn:not(:disabled):active { transform: scale(0.96); }
 
 .badge {
   min-width: 18px;
@@ -2786,7 +2810,8 @@ body.mob-screen-open .p2p-secondary-nav {
   margin-top: 0.5rem;
 }
 
-.mob-kyc-fp-btn:active { transform: scale(0.98); }
+.mob-kyc-fp-btn { transition: transform 0.1s ease, box-shadow 0.12s; }
+.mob-kyc-fp-btn:active { transform: scale(0.95); box-shadow: 0 2px 8px rgba(240,185,11,0.15); }
 .mob-kyc-fp-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
 
 .mob-kyc-fp-hint {

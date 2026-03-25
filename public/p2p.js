@@ -159,6 +159,11 @@ let currentUser = null;
 let activeDealOffer = null;
 let dealSyncLock = false;
 
+// ── Global per-action locks — prevent duplicate API calls ──────────────────
+var _loginInFlight     = false; // login button
+var _orderActionLock   = false; // release / mark_paid / cancel / dispute
+var _dealSubmitLock    = false; // deal confirm (create order)
+
 let activeOrderId = null;
 let pollingIntervalId = null;
 let countdownIntervalId = null;
@@ -2040,24 +2045,37 @@ async function loadCurrentUser() {
 }
 
 async function loginUser() {
+  // Hard guard — prevents double-tap / multiple rapid clicks sending duplicate requests
+  if (_loginInFlight) { console.log('[loginUser] blocked — already in flight'); return; }
+
   const email = String(emailInput?.value || '').trim();
   const password = String(passwordInput?.value || '').trim();
   if (!email || !password) { setUserStatus('Enter email and password', 'user-error'); return; }
 
-  // Show loading state on button
-  const origText = loginBtn ? loginBtn.textContent : '';
-  if (loginBtn) { loginBtn.disabled = true; loginBtn.textContent = 'Logging in...'; }
+  _loginInFlight = true;
+  const origHtml = loginBtn ? loginBtn.innerHTML : '';
+  if (loginBtn) {
+    loginBtn.disabled = true;
+    loginBtn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;">' +
+      '<span style="width:14px;height:14px;border:2px solid rgba(0,0,0,0.3);border-top-color:#000;border-radius:50%;animation:ord-spin 0.7s linear infinite;display:inline-block;"></span>' +
+      'Logging in…</span>';
+  }
+  console.log('[loginUser] POST /api/p2p/login email=' + email);
 
   try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
     const response = await fetch('/api/p2p/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      signal: ctrl.signal,
       body: JSON.stringify({ email, password })
     });
+    clearTimeout(timer);
+    console.log('[loginUser] response', response.status);
     const data = await response.json();
 
-    if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = origText; }
     if (!response.ok) {
       throw new Error(data.message || 'Login failed.');
     }
@@ -2086,8 +2104,12 @@ async function loginUser() {
       return;
     }
   } catch (error) {
-    if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = origText; }
-    setUserStatus(error.message, 'user-error');
+    console.warn('[loginUser] error:', error.message);
+    setUserStatus(error.name === 'AbortError' ? 'Request timed out. Try again.' : (error.message || 'Login failed.'), 'user-error');
+  } finally {
+    // Always restore button — no matter what path was taken
+    _loginInFlight = false;
+    if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = origHtml; }
   }
 }
 
@@ -2452,40 +2474,37 @@ function openDealForOffer(offerId) {
 }
 
 async function submitDealOrder() {
-  if (!currentUser) {
-    requireLoginNotice();
-    return;
-  }
+  if (!currentUser) { requireLoginNotice(); return; }
+  if (!activeDealOffer || !dealConfirmBtn || !dealPayAmount || !dealPaymentSelect) return;
+  if (!refreshDealValidation()) return;
 
-  if (!activeDealOffer || !dealConfirmBtn || !dealPayAmount || !dealPaymentSelect) {
-    return;
-  }
-
-  if (!refreshDealValidation()) {
-    return;
-  }
+  // Hard lock prevents double-submit (double-tap on mobile)
+  if (_dealSubmitLock) { console.log('[submitDealOrder] blocked — already in flight'); return; }
+  _dealSubmitLock = true;
 
   const amountInr = Number(dealPayAmount.value || 0);
   const paymentMethod = String(dealPaymentSelect.value || '').trim();
 
+  const prevHtml = dealConfirmBtn.innerHTML;
   dealConfirmBtn.disabled = true;
-  const previousLabel = dealConfirmBtn.textContent;
-  dealConfirmBtn.textContent = 'Processing...';
+  dealConfirmBtn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;">' +
+    '<span style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:ord-spin 0.7s linear infinite;display:inline-block;"></span>' +
+    'Processing…</span>';
 
+  console.log('[submitDealOrder] creating order offerId=' + activeDealOffer.id);
   try {
     const data = await createOrder(activeDealOffer.id, { amountInr, paymentMethod, openAfterCreate: false });
-    if (!data?.order) {
-      throw new Error('Unable to create order.');
-    }
-
+    if (!data?.order) throw new Error('Unable to create order.');
     setDealHint(`${data.message} Ref: ${data.order.reference}`, 'success');
     closeDealModal();
     openOrder(data.order);
   } catch (error) {
+    console.warn('[submitDealOrder] error:', error.message);
     setDealHint(error.message || 'Unable to create order.', 'error');
   } finally {
+    _dealSubmitLock = false;
     dealConfirmBtn.disabled = false;
-    dealConfirmBtn.textContent = previousLabel;
+    dealConfirmBtn.innerHTML = prevHtml;
   }
 }
 
@@ -2711,10 +2730,31 @@ function updateOrderUi(order) {
   }
 
   if (cancelOrderBtn) {
-    cancelOrderBtn.disabled = !isCreated;
+    // Allow cancel when: order created (either side) OR buyer already paid but wants to cancel
+    const canCancel = isCreated || (isPaid && activeOrderRole === 'buyer');
+    cancelOrderBtn.disabled = !canCancel;
+    cancelOrderBtn.style.opacity = canCancel ? '1' : '0.4';
   }
   if (paidConfirmBtn) {
     paidConfirmBtn.disabled = !(activeOrderRole === 'buyer' && isCreated);
+  }
+
+  // Update timer label to reflect current state contextually
+  var timerLabel = document.getElementById('orderTimerLabel');
+  if (timerLabel) {
+    if (normalizedStatus === 'CREATED' && activeOrderRole === 'buyer') {
+      timerLabel.textContent = 'Pay before timer expires';
+    } else if (normalizedStatus === 'CREATED' && activeOrderRole === 'seller') {
+      timerLabel.textContent = 'Waiting for buyer payment';
+    } else if (normalizedStatus === 'PAID' && activeOrderRole === 'seller') {
+      timerLabel.textContent = 'Release payment to buyer';
+      timerLabel.style.color = '#f0b90b';
+    } else if (normalizedStatus === 'PAID' && activeOrderRole === 'buyer') {
+      timerLabel.textContent = 'Waiting for seller to release';
+      timerLabel.style.color = '#00d4d4';
+    } else {
+      timerLabel.textContent = '';
+    }
   }
   if (chatInput) {
     chatInput.disabled = isClosed;
@@ -3058,16 +3098,37 @@ async function sendOrderMessage(text) {
 }
 
 async function updateOrderStatus(action, options = {}) {
-  if (!activeOrderId) {
-    return;
-  }
+  if (!activeOrderId) return;
+
+  // Global lock — prevents double-tap sending two API calls for same action
+  if (_orderActionLock) { console.log('[updateOrderStatus] blocked — action in flight'); return; }
+  _orderActionLock = true;
+  console.log('[updateOrderStatus] action=' + action + ' orderId=' + activeOrderId);
+
+  // Visually lock the triggering button
+  var _lockedBtn = null;
+  var _lockedBtnOrigHtml = '';
+  var _spinHtml = '<span style="display:inline-flex;align-items:center;gap:6px;">' +
+    '<span style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:ord-spin 0.7s linear infinite;display:inline-block;"></span>' +
+    'Processing…</span>';
+  if (action === 'release' && markPaidBtn)       { _lockedBtn = markPaidBtn; }
+  else if (action === 'mark_paid' && paidConfirmBtn) { _lockedBtn = paidConfirmBtn; }
+  else if (action === 'cancel' && cancelConfirmBtn)  { _lockedBtn = cancelConfirmBtn; }
+  else if (action === 'dispute' && disputeBtn)       { _lockedBtn = disputeBtn; }
+  if (_lockedBtn) { _lockedBtnOrigHtml = _lockedBtn.innerHTML; _lockedBtn.disabled = true; _lockedBtn.innerHTML = _spinHtml; }
 
   try {
+    const ctrl = new AbortController();
+    const tmr  = setTimeout(() => ctrl.abort(), 15000);
     const response = await fetch(`/api/p2p/orders/${activeOrderId}/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      signal: ctrl.signal,
       body: JSON.stringify({ action })
     });
+    clearTimeout(tmr);
+    console.log('[updateOrderStatus]', action, 'response', response.status);
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.message || 'Unable to update order.');
@@ -3084,21 +3145,29 @@ async function updateOrderStatus(action, options = {}) {
     await loadLiveOrders();
     await loadProfilePanel({ refreshWallet: true });
   } catch (error) {
-    chatState.textContent = error.message;
+    console.warn('[updateOrderStatus] error:', error.message);
+    if (chatState) chatState.textContent = error.name === 'AbortError' ? 'Request timed out. Try again.' : error.message;
+    // Restore button on failure so user can retry
+    if (_lockedBtn) { _lockedBtn.disabled = false; _lockedBtn.innerHTML = _lockedBtnOrigHtml; }
     throw error;
+  } finally {
+    _orderActionLock = false;
+    // updateOrderUi() will set correct button state on success — only restore on error (handled above)
   }
 }
 
 function bindOfferActionDelegation(container) {
-  if (!container) {
-    return;
-  }
+  if (!container) return;
 
   container.addEventListener('click', (event) => {
     const actionBtn = event.target.closest('.offer-action-btn, .gt-btn[data-offer-id]');
-    if (!actionBtn) {
-      return;
-    }
+    if (!actionBtn || actionBtn.disabled) return;
+
+    // Visual click feedback — scale down briefly like Bitget/Bybit
+    actionBtn.style.transform = 'scale(0.93)';
+    actionBtn.style.transition = 'transform 0.1s ease';
+    setTimeout(function() { actionBtn.style.transform = ''; }, 160);
+
     openDealForOffer(actionBtn.dataset.offerId);
   });
 }
