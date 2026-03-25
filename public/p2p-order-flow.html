@@ -1013,7 +1013,6 @@
         var cachedOrder = JSON.parse(cached);
         applyOrderAndShow(cachedOrder, forceOpenChat);
         hideLoading();
-        startSseStream();
         // Verify & refresh from API in background (silent)
         fetch('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' })
           .then(function(r){ return r.ok ? r.json() : null; })
@@ -1041,7 +1040,6 @@
       try { localStorage.setItem('p2p_order_' + orderId, JSON.stringify(order)); } catch(e) {}
       applyOrderAndShow(order, forceOpenChat);
       hideLoading();
-      startSseStream();
     } catch(e) { hideLoading(); showToast('Error loading order'); showScreen('screen-buy'); loadAd(); }
   }
 
@@ -1368,7 +1366,6 @@
           startTimerFromOrder(currentOrder);
           renderOrderDetails();
           showScreen('screen-order-generated');
-          startSseStream();
           return;
         }
         showToast(data.message || 'Order failed');
@@ -1501,6 +1498,7 @@
 
   function goBackFromChat() {
     stopChatPoll();
+    if (_orderSSE) { _orderSSE.close(); _orderSSE = null; }
     var chatEl = document.getElementById('screen-chat');
     if (chatEl) chatEl.style.display = 'none';
     // Return to previous screen
@@ -1606,8 +1604,9 @@
   function loadChatMessages() {
     if (!currentOrder || !currentOrder.id) return;
     fetch('/api/p2p/orders/' + currentOrder.id + '/messages', { credentials: 'include' })
-      .then(function(res) { return res.json(); })
+      .then(function(res) { return res.ok ? res.json() : null; })
       .then(function(data) {
+        if (!data) return;
         var msgs = data.messages || data;
         if (Array.isArray(msgs)) {
           var container = document.getElementById('chatMessages');
@@ -1678,6 +1677,7 @@
 
   function stopChatPoll() {
     if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
+    resetPollingLock();
   }
 
   function appendChatMessage(msg) {
@@ -1798,6 +1798,7 @@
   }
 
   var _polling = false;
+  function resetPollingLock() { _polling = false; }
   function pollNewMessages() {
     if (!currentOrder || !currentOrder.id || _polling) return;
     _polling = true;
