@@ -1815,7 +1815,7 @@ function initTheme() {
 }
 
 function setAuthModalOpen(open) {
-  if (open) { window.location.href = '/auth.html'; return; }
+  if (open) { window.location.href = '/auth'; return; }
   if (!authModal) {
     return;
   }
@@ -1975,17 +1975,35 @@ function closeOrderModal() {
 }
 
 async function loadCurrentUser() {
+  // ── Optimistic hint: if user was logged in previously, show logged-in state
+  //    instantly while the real fetch is in-flight — eliminates refresh flicker ──
+  try {
+    const hint = localStorage.getItem('_p2p_hint');
+    if (hint) {
+      const hintUser = JSON.parse(hint);
+      if (hintUser && hintUser.id) {
+        currentUser = hintUser;
+        updateUserUi(); // show logged-in UI immediately, no waiting
+      }
+    }
+  } catch(_) {}
+
   let _networkErr = false; // true only on real network/parse failure
   try {
     const response = await fetch('/api/p2p/me', { credentials: 'include' });
     const data = await response.json();
-    currentUser = data.loggedIn ? data.user : null;
-    if (currentUser) {
+    if (data.loggedIn && data.user) {
+      currentUser = data.user;
       updateCurrentUserKyc(currentUser.kyc || {});
+      // Refresh hint with latest server data
+      try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: currentUser.id, username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
+    } else {
+      currentUser = null;
+      try { localStorage.removeItem('_p2p_hint'); } catch(_) {} // session expired — clear hint
     }
   } catch (error) {
-    currentUser = null;
-    _networkErr = true; // fetch failed or JSON parse error — worth retrying
+    // Network/parse error — keep optimistic hint state, schedule retry
+    _networkErr = true;
   }
   updateUserUi();
 
@@ -2038,6 +2056,8 @@ async function loginUser() {
 
     currentUser = data.user;
     updateCurrentUserKyc(currentUser?.kyc || {});
+    // Persist a session hint so refresh shows logged-in UI instantly (no flicker)
+    try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: currentUser.id, username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
     updateUserUi();
     setAuthModalOpen(false);
     setP2PNavOpen(false);
@@ -2068,6 +2088,7 @@ async function logoutUser() {
     await fetch('/api/p2p/logout', { method: 'POST' });
   } finally {
     currentUser = null;
+    try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
     mobileOrdersCache.clear();
     updateUserUi();
     await loadOffers();
@@ -3656,10 +3677,10 @@ if (logoutBtn) {
   logoutBtn.addEventListener('click', logoutUser);
 }
 if (openAuthBtn) {
-  openAuthBtn.addEventListener('click', () => { window.location.href = '/auth.html'; });
+  openAuthBtn.addEventListener('click', () => { window.location.href = '/auth'; });
 }
 if (openAuthBtnDrawer) {
-  openAuthBtnDrawer.addEventListener('click', () => { window.location.href = '/auth.html'; });
+  openAuthBtnDrawer.addEventListener('click', () => { window.location.href = '/auth'; });
 }
 if (closeAuthBtn) {
   closeAuthBtn.addEventListener('click', () => setAuthModalOpen(false));

@@ -211,6 +211,29 @@ app.use('/downloads', (req, res, next) => {
   res.set('Expires', '0');
   next();
 });
+
+// ── Clean-URL redirects: must be BEFORE express.static so .html requests are
+//    caught here first instead of being served as raw files. ──
+(function registerHtmlRedirects() {
+  const HTML_REDIRECTS = {
+    '/auth.html'    : '/auth',
+    '/login.html'   : '/auth',   // alias — p2p-order-flow.html links here
+    '/markets.html' : '/markets',
+    '/chart.html'   : '/chart',
+    '/p2p.html'     : '/p2p',
+    '/p2p-buy.html' : '/p2p-buy',
+    '/kyc.html'     : '/kyc',
+    '/trade.html'   : '/trade',
+  };
+  Object.entries(HTML_REDIRECTS).forEach(([from, to]) => {
+    app.get(from, (req, res) => {
+      // preserve query string (e.g. /auth.html?mode=signup → /auth?mode=signup)
+      const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      res.redirect(301, to + qs);
+    });
+  });
+})();
+
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
   maxAge: 0,
@@ -3174,6 +3197,11 @@ app.get('/chart', (req, res) => {
 });
 app.get('/auth', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'auth.html'));
+});
+app.get('/login', (req, res) => {
+  // /login is a canonical alias for /auth — preserves query string
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, '/auth' + qs);
 });
 app.get('/p2p', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'p2p.html'));

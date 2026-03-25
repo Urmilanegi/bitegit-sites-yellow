@@ -6,8 +6,8 @@
 (function(){
   const CACHE = {};
   const PRELOAD = [
-    '/', '/markets.html', '/chart.html?symbol=BTCUSDT',
-    '/assets', '/p2p', '/auth.html'
+    '/', '/markets', '/chart?symbol=BTCUSDT',
+    '/assets', '/p2p', '/auth'
   ];
 
   // ── Inject transition styles once ──
