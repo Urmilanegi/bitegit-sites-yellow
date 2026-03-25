@@ -7,7 +7,23 @@
     <link rel="stylesheet" href="/mobile-nav.css" />
     <link rel="stylesheet" href="/p2p.css?v=20260324a" />
   </head>
-  <body class="p2p-page p2p-theme-dark has-mobile-nav" data-mobile-tab="p2p">
+  <body class="p2p-page p2p-theme-dark has-mobile-nav" data-mobile-tab="p2p" style="visibility:hidden;">
+
+    <!-- App mount guard: hide raw HTML until JS initializes -->
+    <div id="appInitLoader" style="position:fixed;inset:0;background:#0b0e11;z-index:99999;display:flex;align-items:center;justify-content:center;">
+      <div style="width:28px;height:28px;border:2px solid #222;border-top-color:#f0b90b;border-radius:50%;animation:_apl_spin 0.7s linear infinite;"></div>
+    </div>
+    <style>@keyframes _apl_spin{to{transform:rotate(360deg)}} body{visibility:hidden!important;} body.app-ready{visibility:visible!important;}</style>
+    <script>
+      // Show body immediately to avoid blank screen during CSS parse
+      (function() {
+        document.addEventListener('DOMContentLoaded', function() {
+          document.body.classList.add('app-ready');
+          var l = document.getElementById('appInitLoader');
+          if (l) { l.style.transition = 'opacity 0.15s'; l.style.opacity = '0'; setTimeout(function() { if (l.parentNode) l.parentNode.removeChild(l); }, 160); }
+        });
+      })();
+    </script>
 
     <!-- ── Main Header ── -->
     <header class="p2p-header" id="p2pHeader">

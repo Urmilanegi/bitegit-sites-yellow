@@ -5737,19 +5737,31 @@ window.deleteMobAd = async function(offerId) {
 
 // ── Navigate to standalone order flow on Buy ──────────────────────
 (function() {
+  var _navLockTs = 0;
+  function _navSafe(url) {
+    var now = Date.now();
+    if (now - _navLockTs < 800) { console.log('[navSafe] blocked duplicate nav'); return; }
+    _navLockTs = now;
+    // Hide body to prevent raw HTML flash during navigation
+    document.body.style.visibility = 'hidden';
+    window.location.href = url;
+  }
   window.fillDealModal = function(offer) {
     if (offer && offer.id) {
-      window.location.href = '/p2p-order-flow.html?adId=' + encodeURIComponent(offer.id);
+      _navSafe('/p2p-order-flow.html?adId=' + encodeURIComponent(offer.id));
     }
   };
+  window._p2pNavSafe = _navSafe; // expose for openOrder override below
 })();
 
 // ── Redirect all order opens to new order flow page ──────────────
 (function() {
+  var _navSafe = window._p2pNavSafe || function(url) { window.location.href = url; };
+
   var _origOpenOrder = openOrder;
   openOrder = function(order) {
     if (order && order.id) {
-      window.location.href = '/p2p-order-flow.html?orderId=' + encodeURIComponent(order.id);
+      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(order.id));
       return;
     }
     _origOpenOrder.call(this, order);
@@ -5758,7 +5770,7 @@ window.deleteMobAd = async function(offerId) {
   var _origOpenOrderById = openOrderById;
   openOrderById = async function(orderId) {
     if (orderId) {
-      window.location.href = '/p2p-order-flow.html?orderId=' + encodeURIComponent(orderId);
+      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(orderId));
       return;
     }
     return _origOpenOrderById.call(this, orderId);

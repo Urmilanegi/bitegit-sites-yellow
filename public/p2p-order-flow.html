@@ -17,6 +17,7 @@
       overflow: hidden;
       display: flex;
       justify-content: center;
+      visibility: hidden;
     }
 
     .app {
@@ -929,6 +930,48 @@
   var chatPollTimer = null;
   var chatRenderedIds = {};
 
+  // ── Global click/navigation guards ─────────────────────────────
+  var isProcessing = false;
+  var _lastNavMs   = 0;
+
+  // Safe navigate: debounces rapid clicks, hides body to avoid flash
+  function navTo(url) {
+    var now = Date.now();
+    if (now - _lastNavMs < 800) return;
+    _lastNavMs = now;
+    window.location.href = url;
+  }
+
+  // Lock wrapper: prevents duplicate async calls
+  function withLock(fn) {
+    return function() {
+      if (isProcessing) return;
+      isProcessing = true;
+      var args = arguments;
+      var ctx = this;
+      var result;
+      try { result = fn.apply(ctx, args); } catch(e) { isProcessing = false; throw e; }
+      if (result && typeof result.then === 'function') {
+        result.then(function() { isProcessing = false; }, function() { isProcessing = false; });
+      } else {
+        // sync fn — reset on next tick so same-click can't re-enter but next tap can
+        setTimeout(function() { isProcessing = false; }, 350);
+      }
+      return result;
+    };
+  }
+
+  // 300ms debounce for touchend/click pairs
+  function mkDebounce(fn) {
+    var _last = 0;
+    return function() {
+      var now = Date.now();
+      if (now - _last < 300) return;
+      _last = now;
+      return fn.apply(this, arguments);
+    };
+  }
+
   var CANCEL_REASONS = [
     "I don't want to proceed with this order.",
     "I don't meet the seller's requirements.",
@@ -952,6 +995,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', function() {
+    document.body.style.visibility = 'visible';
     buildReasonList();
     wireEvents();
     checkAuth().then(function() {
@@ -1107,26 +1151,23 @@
         calcEquiv();
       }
     });
-    document.getElementById('buyBtn').addEventListener('click', doCreateOrder);
-    document.getElementById('buyBtn').addEventListener('touchend', function(e) { e.preventDefault(); doCreateOrder(); });
+    var _doBuy = mkDebounce(withLock(doCreateOrder));
+    document.getElementById('buyBtn').addEventListener('click', _doBuy);
+    document.getElementById('buyBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doBuy(); });
 
     // Screen 2: Order Generated
     document.getElementById('ogBackBtn').addEventListener('click', function() { showScreen('screen-buy'); });
     document.getElementById('ogChatBtn').addEventListener('click', function() { openChat('screen-order-generated'); });
     document.getElementById('ogChatBtn').addEventListener('touchend', function(e) { e.preventDefault(); openChat('screen-order-generated'); });
-    document.getElementById('ogNextBtn').addEventListener('click', function() {
-      if (this.disabled) return;
-      // If already paid, go to chat instead of transfer
+    var _doNext = mkDebounce(function() {
+      var el = document.getElementById('ogNextBtn');
+      if (el && el.disabled) return;
       var st = currentOrder ? String(currentOrder.status || '').toUpperCase() : '';
       if (st === 'PAID' || st === 'PAYMENT_SENT') { openChat('screen-order-generated'); setupChatForRole(st); return; }
       showScreen('screen-transfer');
     });
-    document.getElementById('ogNextBtn').addEventListener('touchend', function(e) {
-      e.preventDefault(); if (this.disabled) return;
-      var st = currentOrder ? String(currentOrder.status || '').toUpperCase() : '';
-      if (st === 'PAID' || st === 'PAYMENT_SENT') { openChat('screen-order-generated'); setupChatForRole(st); return; }
-      showScreen('screen-transfer');
-    });
+    document.getElementById('ogNextBtn').addEventListener('click', _doNext);
+    document.getElementById('ogNextBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doNext(); });
     document.getElementById('ogCancelBtn').addEventListener('click', function() { cancelSource = 'order'; showScreen('screen-before-cancel'); });
     document.getElementById('ogCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); cancelSource = 'order'; showScreen('screen-before-cancel'); });
 
@@ -1134,17 +1175,13 @@
     document.getElementById('tfBackBtn').addEventListener('click', function() { showScreen('screen-order-generated'); });
     document.getElementById('tfChatBtn').addEventListener('click', function() { openChat('screen-transfer'); });
     document.getElementById('tfChatBtn').addEventListener('touchend', function(e) { e.preventDefault(); openChat('screen-transfer'); });
-    document.getElementById('tfPaidBtn').addEventListener('click', function() {
-      var b = this; b.style.transform = 'scale(0.95)'; b.style.transition = 'transform 0.12s ease';
-      setTimeout(function() { b.style.transform = ''; }, 150);
+    var _doShowPaid = mkDebounce(function() {
+      var b = document.getElementById('tfPaidBtn');
+      if (b) { b.style.transform = 'scale(0.95)'; b.style.transition = 'transform 0.12s ease'; setTimeout(function() { b.style.transform = ''; }, 150); }
       showPaidModal();
     });
-    document.getElementById('tfPaidBtn').addEventListener('touchend', function(e) {
-      e.preventDefault();
-      var b = this; b.style.transform = 'scale(0.95)'; b.style.transition = 'transform 0.12s ease';
-      setTimeout(function() { b.style.transform = ''; }, 150);
-      showPaidModal();
-    });
+    document.getElementById('tfPaidBtn').addEventListener('click', _doShowPaid);
+    document.getElementById('tfPaidBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doShowPaid(); });
     document.getElementById('tfCancelBtn').addEventListener('click', function() { cancelSource = 'transfer'; showScreen('screen-before-cancel'); });
     document.getElementById('tfCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); cancelSource = 'transfer'; showScreen('screen-before-cancel'); });
 
@@ -1152,8 +1189,9 @@
     document.getElementById('chatBackBtn').addEventListener('click', goBackFromChat);
     document.getElementById('chatPayBtn').addEventListener('click', function() { showScreen('screen-transfer'); });
     document.getElementById('chatPayBtn').addEventListener('touchend', function(e) { e.preventDefault(); showScreen('screen-transfer'); });
-    document.getElementById('chatReleaseBtn').addEventListener('click', doRelease);
-    document.getElementById('chatReleaseBtn').addEventListener('touchend', function(e) { e.preventDefault(); doRelease(); });
+    var _doReleaseLocked = mkDebounce(withLock(doRelease));
+    document.getElementById('chatReleaseBtn').addEventListener('click', _doReleaseLocked);
+    document.getElementById('chatReleaseBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doReleaseLocked(); });
     document.getElementById('chatSendBtn').addEventListener('click', sendMsg);
     document.getElementById('chatSendBtn').addEventListener('touchend', function(e) { e.preventDefault(); sendMsg(); });
     document.getElementById('chatInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') sendMsg(); });
@@ -1178,15 +1216,17 @@
       if (cancelSource === 'transfer') showScreen('screen-transfer'); else showScreen('screen-order-generated');
     });
     document.getElementById('chatWithSellerBtn').addEventListener('click', function() { openChat('screen-before-cancel'); });
-    document.getElementById('proceedCancelBtn').addEventListener('click', function() { showScreen('screen-cancel-reason'); });
-    document.getElementById('proceedCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); showScreen('screen-cancel-reason'); });
+    var _doProceedCancel = mkDebounce(function() { showScreen('screen-cancel-reason'); });
+    document.getElementById('proceedCancelBtn').addEventListener('click', _doProceedCancel);
+    document.getElementById('proceedCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doProceedCancel(); });
 
     // Screen 6: Cancel Reason
     document.getElementById('crBackBtn').addEventListener('click', function() { showScreen('screen-before-cancel'); });
     document.getElementById('cancel-checkbox').addEventListener('click', toggleCheckbox);
     document.getElementById('cancel-checkbox').addEventListener('touchend', function(e) { e.preventDefault(); toggleCheckbox(); });
-    document.getElementById('confirmCancelBtn').addEventListener('click', confirmCancel);
-    document.getElementById('confirmCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); confirmCancel(); });
+    var _doConfirmCancel = mkDebounce(withLock(confirmCancel));
+    document.getElementById('confirmCancelBtn').addEventListener('click', _doConfirmCancel);
+    document.getElementById('confirmCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doConfirmCancel(); });
 
     // Screen 7: Canceled
     document.getElementById('canceledBackBtn').addEventListener('click', function() { window.history.back(); });
@@ -1202,8 +1242,9 @@
     document.getElementById('paid-opt-1').addEventListener('touchend', function(e) { e.preventDefault(); selectPaidOption(1); });
     document.getElementById('paid-opt-2').addEventListener('click', function() { selectPaidOption(2); });
     document.getElementById('paid-opt-2').addEventListener('touchend', function(e) { e.preventDefault(); selectPaidOption(2); });
-    document.getElementById('paid-confirm-btn').addEventListener('click', confirmPaid);
-    document.getElementById('paid-confirm-btn').addEventListener('touchend', function(e) { e.preventDefault(); confirmPaid(); });
+    var _doConfirmPaid = mkDebounce(withLock(confirmPaid));
+    document.getElementById('paid-confirm-btn').addEventListener('click', _doConfirmPaid);
+    document.getElementById('paid-confirm-btn').addEventListener('touchend', function(e) { e.preventDefault(); _doConfirmPaid(); });
     document.getElementById('paid-overlay').addEventListener('click', function(e) {
       if (e.target === this) closePaidModal();
     });
@@ -1217,7 +1258,7 @@
     });
 
     // Login
-    document.getElementById('doLoginBtn').addEventListener('click', doLogin);
+    document.getElementById('doLoginBtn').addEventListener('click', mkDebounce(withLock(doLogin)));
     document.getElementById('login-password').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
 
     // Copy icons
@@ -1574,7 +1615,7 @@
 
   function goBack() {
     if (window.history.length > 1) window.history.back();
-    else window.location.href = '/p2p.html';
+    else navTo('/p2p');
   }
 
   function goBackFromChat() {
