@@ -3065,7 +3065,7 @@ function openOrder(order) {
           _saveOrdCache(_ordAllOrders);
         }
       }
-    } catch(e) {}
+    } catch(e) { console.error('[orderStream] order_update error:', e); _ordFetching = false; }
   });
   orderStream.addEventListener('message_update', (event) => {
     try {
@@ -3074,7 +3074,7 @@ function openOrder(order) {
         renderMessages(payload.messages, { smoothScroll: true });
         chatState.textContent = `Messages: ${payload.messages.length}`;
       }
-    } catch(e) {}
+    } catch(e) { console.error('[orderStream] message_update error:', e); _ordFetching = false; }
   });
   orderStream.onerror = function() {
     // SSE failed — polling fallback continues, no action needed
@@ -3520,6 +3520,7 @@ var _ordFetching = false; // in-flight lock — prevents stacked parallel calls
 function loadBybitorOrders() {
   function renderAll(allOrders, fromCache) {
     _ordLoaded = true;
+    _ordFetching = false; // Fix 5: always stop spinner/loading state on render
     // dedupe by id, sort newest first
     var map = {};
     allOrders.forEach(function(o) { if (o && o.id) map[o.id] = o; });
@@ -3630,8 +3631,8 @@ function loadBybitorOrders() {
         .then(function(d1) {
           // Reset lock FIRST — so any render exception never leaves it stuck true
           _ordFetching = false;
-          // Normalize response: handle { orders: [] }, direct array, or { data: [] }
-          var activeOrders = Array.isArray(d1) ? d1 : (Array.isArray(d1.orders) ? d1.orders : []);
+          // Fix 2: Normalize response — handle array, { orders: [] }, or { data: [] }
+          var activeOrders = Array.isArray(d1) ? d1 : (d1.orders || d1.data || []);
           console.log('[loadBybitorOrders] my-active parsed orders=' + activeOrders.length + ' keys=' + Object.keys(d1||{}).join(','));
           if (activeOrders.length) {
             console.log('[loadBybitorOrders] first order:', JSON.stringify(activeOrders[0]).slice(0, 200));
@@ -3639,9 +3640,11 @@ function loadBybitorOrders() {
           // Render active orders immediately — don't wait for history
           try {
             renderAll(activeOrders, false);
+            // Fix 3: Always ensure orders section is visible after render
+            if (ordersSection) ordersSection.style.display = 'block';
           } catch(e) {
             console.error('[loadBybitorOrders] renderAll(active) threw:', e);
-            // Ensure spinner is replaced by error state
+            _ordFetching = false; // Fix 5: reset on error
             var fallbackEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
             if (fallbackEl) { fallbackEl.style.display = 'block'; fallbackEl.innerHTML = _ordEmpty('No orders'); }
           }
@@ -3654,17 +3657,23 @@ function loadBybitorOrders() {
             })
             .then(function(d2) {
               if (!d2) return;
-              var histOrders = Array.isArray(d2) ? d2 : (Array.isArray(d2.orders) ? d2.orders : []);
+              // Fix 2: Normalize history response
+              var histOrders = Array.isArray(d2) ? d2 : (d2.orders || d2.data || []);
               console.log('[loadBybitorOrders] history parsed orders=' + histOrders.length);
+              // Fix 4: Do NOT overwrite active orders if history is empty
+              if (!histOrders.length) return;
               // merge history with already-fetched active orders (dedup handled in renderAll)
               var merged = histOrders.concat(_ordAllOrders);
               try {
                 renderAll(merged, false);
+                // Fix 3: keep section visible after merge render
+                if (ordersSection) ordersSection.style.display = 'block';
               } catch(e) {
                 console.error('[loadBybitorOrders] renderAll(merged) threw:', e);
+                _ordFetching = false; // Fix 5: reset on error
               }
             })
-            .catch(function(e) { console.warn('[loadBybitorOrders] history fetch error:', e); });
+            .catch(function(e) { console.warn('[loadBybitorOrders] history fetch error:', e); _ordFetching = false; });
         });
     })
     .catch(function(e) {
