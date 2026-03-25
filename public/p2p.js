@@ -3337,19 +3337,20 @@ function loadBybitorOrders() {
 
   // fetch active + history in parallel
   Promise.all([
-    fetch('/api/p2p/orders/my-active', { credentials: 'include' }),
-    fetch('/api/p2p/orders/history?limit=100&offset=0', { credentials: 'include' })
+    fetch('/api/p2p/orders/my-active', { credentials: 'include' }).catch(function() { return { ok: false, status: 0 }; }),
+    fetch('/api/p2p/orders/history?limit=100&offset=0', { credentials: 'include' }).catch(function() { return { ok: false, status: 0 }; })
   ]).then(function(responses) {
     var r1 = responses[0], r2 = responses[1];
     if (r1.status === 401) { showLoginPrompt(); return; }
     return Promise.all([
-      r1.ok ? r1.json() : { orders: [] },
-      r2.ok ? r2.json() : { orders: [] }
+      r1.ok ? r1.json().catch(function() { return { orders: [] }; }) : Promise.resolve({ orders: [] }),
+      r2.ok ? r2.json().catch(function() { return { orders: [] }; }) : Promise.resolve({ orders: [] })
     ]).then(function(results) {
       var all = (results[0].orders || []).concat(results[1].orders || []);
       renderAll(all, false);
     });
   }).catch(function(e) {
+    _ordLoaded = true;
     var el = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
     if (el) { el.style.display = 'block'; el.innerHTML = _ordEmpty('No orders'); }
   });
