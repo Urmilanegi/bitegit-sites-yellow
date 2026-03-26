@@ -2015,19 +2015,16 @@ async function loadCurrentUser() {
     const response = await fetch('/api/p2p/me', { credentials: 'include' });
     const data = await response.json();
     if (data.loggedIn && data.user) {
-      // If a DIFFERENT user was confirmed by server, wipe all stale state immediately
       var _prevId = currentUser && currentUser.id;
       if (_prevId !== data.user.id) {
-        // Different user (or first load) — wipe cache + in-memory orders completely
-        _clearOrdersCache(); // clears localStorage cache + _ordAllOrders + _ordLoaded
+        _clearOrdersCache(); // different user → wipe all stale state immediately
       }
       currentUser = data.user;
       updateCurrentUserKyc(currentUser.kyc || {});
       try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: currentUser.id, username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
-      // Trigger orders load — shows cache instantly (if same user) or skeleton (new user)
-      _ordFetching = false;
-      loadBybitorOrders();
-      startBgOrdPolling(); // background 15s poll to keep orders fresh at all times
+      // Single call — fetchOrdersSafe shows cache instantly then fetches fresh
+      fetchOrdersSafe();
+      _startFallbackPoll(); // 15s fallback poll in case SSE is down
     } else {
       currentUser = null;
       try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
@@ -2053,8 +2050,7 @@ async function loadCurrentUser() {
           // Re-run user-specific loads now that we have a valid session
           loadMyAds();
           loadProfilePanel({ refreshWallet: true });
-          _ordFetching = false;
-          loadBybitorOrders();
+          fetchOrdersSafe();
           // Re-render offers so "Buy" buttons appear (not "Login")
           loadOffers();
         }
@@ -2099,9 +2095,8 @@ async function loginUser() {
       throw new Error(data.message || 'Login failed.');
     }
 
-    // Always wipe cache on login — ensures no stale orders from any previous session
-    // (same-user re-login is fast anyway since server returns fresh data within 3s)
-    _clearOrdersCache(); // clears localStorage cache + _ordAllOrders + _ordLoaded
+    // Always wipe all order state on login — guarantees zero cross-user contamination
+    _clearOrdersCache();
 
     currentUser = data.user;
     updateCurrentUserKyc(currentUser?.kyc || {});
@@ -2112,10 +2107,9 @@ async function loginUser() {
     setP2PNavOpen(false);
     // run all post-login loads in parallel — much faster
     Promise.all([loadOffers(), loadLiveOrders(), loadMyAds(), loadProfilePanel({ refreshWallet: true })]);
-    // Start polling immediately after login — fetches orders right away + every 3s
-    _ordFetching = false;
-    startOrdPolling();
-    startBgOrdPolling(); // also start 15s background poll for when screen is closed
+    // Single entry point — shows cache or skeleton, then fetches fresh
+    fetchOrdersSafe();
+    _startFallbackPoll(); // 15s fallback (SSE handles real-time; this is backup only)
 
     const redirectPath = getPostLoginRedirectPath();
     if (redirectPath) {
@@ -2133,8 +2127,16 @@ async function loginUser() {
 }
 
 function _clearOrdersCache() {
-  try { localStorage.removeItem('p2p_orders_cache'); } catch(_) {}
-  // Also wipe any individual order cache keys
+  // Cancel any in-flight request immediately
+  if (typeof _ordAbort !== 'undefined' && _ordAbort) {
+    try { _ordAbort.abort(); } catch(_) {}
+    _ordAbort = null;
+  }
+  if (typeof _ordPollTimer !== 'undefined' && _ordPollTimer) {
+    clearInterval(_ordPollTimer); _ordPollTimer = null;
+  }
+  // Wipe localStorage
+  try { localStorage.removeItem(_ORD_CACHE_KEY || 'p2p_orders_cache'); } catch(_) {}
   try {
     var toRemove = [];
     for (var i = 0; i < localStorage.length; i++) {
@@ -2143,9 +2145,12 @@ function _clearOrdersCache() {
     }
     toRemove.forEach(function(k) { localStorage.removeItem(k); });
   } catch(_) {}
+  // Reset all order state
   _ordAllOrders = [];
-  _ordLoaded = false;
-  _ordFetching = false;
+  _ordLoaded    = false;
+  _ordFetching  = false;
+  if (typeof _ordFailing  !== 'undefined') _ordFailing  = 0;
+  if (typeof _ordReqId    !== 'undefined') _ordReqId    = (_ordReqId || 0) + 1; // invalidate pending requests
 }
 
 async function logoutUser() {
@@ -2154,9 +2159,8 @@ async function logoutUser() {
   } finally {
     currentUser = null;
     try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
-    _clearOrdersCache();
-    stopOrdPolling();
-    stopBgOrdPolling();
+    _clearOrdersCache(); // cancels any in-flight request, wipes state + cache
+    _stopFallbackPoll();
     mobileOrdersCache.clear();
     updateUserUi();
     Promise.all([loadOffers(), loadLiveOrders()]);
@@ -2503,10 +2507,8 @@ async function createOrder(offerId, options = {}) {
       _showOrdList(_ordSubTab);
     }
 
-    // Force fresh fetch from server (bypasses cache) so new order is confirmed from DB
-    console.log('[createOrder] success — forcing fresh loadBybitorOrders');
-    _ordFetching = false;
-    loadBybitorOrders();
+    // Force fresh fetch after creating order — SSE will also trigger this
+    fetchOrdersSafe();
 
     await loadLiveOrders();
     return data;
@@ -2559,9 +2561,8 @@ async function submitDealOrder() {
     setDealHint('Order created! Ref: ' + data.order.reference, 'success');
     closeDealModal();
     openOrder(data.order);
-    // Ensure orders screen shows fresh data immediately
+    // Ensure orders screen shows fresh data immediately (SSE will also trigger this)
     _ordLoaded = false;
-    _ordFetching = false;
   } catch (error) {
     console.warn('[submitDealOrder] FAILED:', error.message, 'code=' + (error.code || 'none'));
     setDealHint(error.message || 'Unable to create order.', 'error');
@@ -3579,235 +3580,210 @@ function switchOrdSub(sub) {
   _showOrdList(sub);
 }
 
-var _ORD_CACHE_KEY = 'p2p_orders_cache';
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDERS ENGINE v2 — clean architecture
+//  • fetchOrdersSafe()  single entry point, AbortController race protection
+//  • SSE-first updates  (fallback 15s poll only when SSE is down)
+//  • visibilitychange   refresh on tab focus
+//  • loadBybitorOrders  alias kept for any legacy call sites
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── state ──────────────────────────────────────────────────────────────────
+var _ordReqId     = 0;      // incremented each call; stale responses are discarded
+var _ordAbort     = null;   // AbortController for the in-flight request
+var _ordFailing   = 0;      // consecutive failure count (reset on success / user change)
+var _ordPollTimer = null;   // single fallback-poll timer (only when SSE is down)
+var _ordFetching  = false;  // legacy compat flag — mirrors !!_ordAbort
+
+// ── cache ──────────────────────────────────────────────────────────────────
+var _ORD_CACHE_KEY    = 'p2p_orders_cache';
 var _ORD_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 function _saveOrdCache(orders) {
-  if (!currentUser || !currentUser.id) return; // never save without knowing who logged in
+  if (!currentUser || !currentUser.id) return;
   try {
-    localStorage.setItem(_ORD_CACHE_KEY, JSON.stringify({ ts: Date.now(), userId: currentUser.id, orders: orders }));
-  } catch(e){}
+    localStorage.setItem(_ORD_CACHE_KEY, JSON.stringify({
+      ts: Date.now(), userId: currentUser.id, orders: orders
+    }));
+  } catch(_) {}
 }
 function _loadOrdCache() {
   try {
     var raw = JSON.parse(localStorage.getItem(_ORD_CACHE_KEY) || 'null');
     if (!raw) return [];
-    // HARD guard: reject cache if it was saved for a different user
     if (!currentUser || !currentUser.id || raw.userId !== currentUser.id) {
-      localStorage.removeItem(_ORD_CACHE_KEY); // wipe wrong-user cache immediately
+      localStorage.removeItem(_ORD_CACHE_KEY);
       return [];
     }
-    // Discard if stale
     if (!raw.ts || (Date.now() - raw.ts) > _ORD_CACHE_TTL_MS) {
       localStorage.removeItem(_ORD_CACHE_KEY);
       return [];
     }
     return Array.isArray(raw.orders) ? raw.orders : [];
-  } catch(e) { return []; }
+  } catch(_) { return []; }
 }
 
-var _ordFetching = false; // in-flight lock — prevents stacked parallel calls
-
-function loadBybitorOrders() {
-  function renderAll(allOrders, fromCache) {
-    _ordLoaded = true;
-    _ordFetching = false; // Fix 5: always stop spinner/loading state on render
-    // dedupe by id, sort newest first
-    var map = {};
-    allOrders.forEach(function(o) { if (o && o.id) map[o.id] = o; });
-    _ordAllOrders = Object.keys(map).map(function(k) { return map[k]; })
-      .sort(function(a,b){ return (b.createdAt||0) > (a.createdAt||0) ? 1 : -1; });
-    if (!fromCache) _saveOrdCache(_ordAllOrders);
-
-    Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
-      var el = document.getElementById(_ORD_LIST_IDS[sub]);
-      if (!el) return;
-      var statuses = _ORD_STATUS_MAP[sub] || [];
-      var filtered = _ordAllOrders.filter(function(o) {
-        return statuses.indexOf((o.status || '').toUpperCase()) !== -1;
-      });
-      try {
-        el.innerHTML = filtered.length ? filtered.map(_ordCard).join('') : _ordEmpty('No orders');
-      } catch(e) {
-        console.error('[renderAll] _ordCard error sub=' + sub + ':', e);
-        el.innerHTML = _ordEmpty('No orders');
-      }
-      el.style.display = sub === _ordSubTab ? 'block' : 'none';
-    });
-    // Belt-and-suspenders: ensure the active sub-tab is always visible
-    var activeEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-    if (activeEl) activeEl.style.display = 'block';
-  }
-
-  function showRetry(msg) {
-    _ordLoaded = true;
-    _ordFetching = false;
-    var el = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+// ── UI helpers ─────────────────────────────────────────────────────────────
+function _ordRenderAll(allOrders, fromCache) {
+  var map = {};
+  allOrders.forEach(function(o) { if (o && o.id) map[o.id] = o; });
+  _ordAllOrders = Object.keys(map).map(function(k) { return map[k]; })
+    .sort(function(a, b) { return (b.createdAt || 0) > (a.createdAt || 0) ? 1 : -1; });
+  if (!fromCache) _saveOrdCache(_ordAllOrders);
+  _ordLoaded  = true;
+  _ordFetching = false;
+  _ordFailing  = 0;
+  Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
+    var el = document.getElementById(_ORD_LIST_IDS[sub]);
     if (!el) return;
-    el.style.display = 'block';
-    el.innerHTML =
-      '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:14px;">' +
-      '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
-      '<p style="color:rgba(255,255,255,0.45);font-size:14px;margin:0;text-align:center;">' + (msg || 'Could not load orders') + '</p>' +
-      '<button onclick="_ordFetching=false;loadBybitorOrders();" style="background:#00d4d4;color:#000;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:700;cursor:pointer;min-width:120px;">Retry</button>' +
-      '</div>';
-  }
-
-  function showLoginPrompt() {
-    _ordLoaded = true;
-    _ordFetching = false;
-    Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
-      var el = document.getElementById(_ORD_LIST_IDS[sub]);
-      if (el) el.style.display = 'none';
+    var filtered = _ordAllOrders.filter(function(o) {
+      return (_ORD_STATUS_MAP[sub] || []).indexOf((o.status || '').toUpperCase()) !== -1;
     });
-    var el = document.getElementById('ordListInprogress');
-    if (el) {
-      el.style.display = 'block';
-      el.innerHTML =
-        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:16px;">' +
-        '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>' +
-        '<p style="color:rgba(255,255,255,0.45);font-size:14px;margin:0;text-align:center;">Login to view your orders</p>' +
-        '<button onclick="requireLoginNotice()" style="background:#f0b90b;color:#000;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:700;cursor:pointer;min-width:120px;">Login</button>' +
-        '</div>';
-    }
-  }
+    try {
+      el.innerHTML = filtered.length ? filtered.map(_ordCard).join('') : _ordEmpty('No orders');
+    } catch(e) { el.innerHTML = _ordEmpty('No orders'); }
+    el.style.display = sub === _ordSubTab ? 'block' : 'none';
+  });
+  var activeEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+  if (activeEl) activeEl.style.display = 'block';
+}
+function _ordShowSkeleton() {
+  Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
+    var el = document.getElementById(_ORD_LIST_IDS[sub]);
+    if (el) el.style.display = 'none';
+  });
+  var el = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+  if (el) { el.style.display = 'block'; el.innerHTML = _ordLoadingHtml(); }
+}
+function _ordShowRetry(msg) {
+  _ordLoaded   = true;
+  _ordFetching = false;
+  var el = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:14px;">' +
+    '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+    '<p style="color:rgba(255,255,255,0.45);font-size:14px;margin:0;text-align:center;">' + (msg || 'Could not load orders') + '</p>' +
+    '<button onclick="fetchOrdersSafe()" style="background:#00d4d4;color:#000;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:700;cursor:pointer;min-width:120px;">Retry</button>' +
+    '</div>';
+}
+function _ordShowLogin() {
+  _ordLoaded   = true;
+  _ordFetching = false;
+  Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
+    var el = document.getElementById(_ORD_LIST_IDS[sub]);
+    if (el) el.style.display = 'none';
+  });
+  var el = document.getElementById('ordListInprogress');
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:16px;">' +
+    '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>' +
+    '<p style="color:rgba(255,255,255,0.45);font-size:14px;margin:0;text-align:center;">Login to view your orders</p>' +
+    '<button onclick="requireLoginNotice()" style="background:#f0b90b;color:#000;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:700;cursor:pointer;min-width:120px;">Login</button>' +
+    '</div>';
+}
 
-  // helper: fetch with 8s timeout — server is kept warm by keepalive ping
-  function fetchOrFail(url, opts) {
-    return new Promise(function(resolve) {
-      var done = false;
-      var timer = setTimeout(function() {
-        if (!done) { done = true; resolve({ ok: false, status: 0, _timedOut: true }); }
-      }, 8000);
-      fetch(url, opts).then(function(r) {
-        if (!done) { done = true; clearTimeout(timer); resolve(r); }
-      }).catch(function() {
-        if (!done) { done = true; clearTimeout(timer); resolve({ ok: false, status: 0 }); }
-      });
-    });
-  }
+// ── SINGLE ENTRY POINT ─────────────────────────────────────────────────────
+// fetchOrdersSafe() — race-protected, abort-controller guarded, retry-capped
+function fetchOrdersSafe() {
+  if (!currentUser || !currentUser.id) { _ordShowLogin(); return; }
 
-  // Show cached data for THIS user instantly — wrong-user cache is auto-rejected by _loadOrdCache
+  // Show cache instantly (zero delay UX) before any network call
   var cached = _loadOrdCache();
-  var _hadCachedData = cached.length > 0;
   if (cached.length) {
-    renderAll(cached, true); // instant render from cache
-  } else if (currentUser && currentUser.id) {
-    // Logged-in but no cache — show skeleton
-    Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
-      var el = document.getElementById(_ORD_LIST_IDS[sub]);
-      if (el) el.style.display = 'none';
-    });
-    var spinEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-    if (spinEl) { spinEl.style.display = 'block'; spinEl.innerHTML = _ordLoadingHtml(); }
+    _ordRenderAll(cached, true);
   } else {
-    // Not logged in — show login prompt, don't fetch
-    showLoginPrompt();
-    return;
+    _ordShowSkeleton();
   }
 
-  // skip if a fetch is already in flight
-  if (_ordFetching) return;
+  // Abort any in-flight request — prevents stale responses from overwriting fresh data
+  if (_ordAbort) { try { _ordAbort.abort(); } catch(_) {} }
+  var ctrl = window.AbortController ? new AbortController() : null;
+  _ordAbort    = ctrl;
   _ordFetching = true;
+  var myReqId  = ++_ordReqId;
 
-  if (typeof loadBybitorOrders._retryCount === 'undefined') loadBybitorOrders._retryCount = 0;
-  if (typeof loadBybitorOrders._errCount === 'undefined') loadBybitorOrders._errCount = 0;
+  var fetchOpts = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
+  if (ctrl) fetchOpts.signal = ctrl.signal;
 
-  var _hdr = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
+  // 8-second timeout wrapper
+  var timeoutId;
+  var timeoutP = new Promise(function(_, reject) {
+    timeoutId = setTimeout(function() { reject(new Error('timeout')); }, 8000);
+  });
 
-  fetchOrFail('/api/p2p/orders?limit=50', _hdr).then(function(r) {
-
-    // ── 401 Unauthenticated ───────────────────────────────────────────────
-    if (r.status === 401) { _ordFetching = false; showLoginPrompt(); return; }
-
-    // ── 503 / Timeout — server still starting ────────────────────────────
-    var isWaiting = r.status === 503 || r._timedOut || r.status === 0;
-    if (isWaiting) {
-      _ordFetching = false;
-      loadBybitorOrders._retryCount = (loadBybitorOrders._retryCount || 0) + 1;
-      var retryN = loadBybitorOrders._retryCount;
-      // Show cached data while waiting — never show skeleton during retries if cache exists
-      if (_hadCachedData) {
-        // Keep showing cached orders, add subtle refresh indicator on 1st retry only
-        if (retryN === 1) {
-          var spinEl2 = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-          if (spinEl2 && !spinEl2.querySelector('[data-waking]')) {
-            var wHint = document.createElement('div');
-            wHint.setAttribute('data-waking', '1');
-            wHint.style.cssText = 'text-align:center;padding:6px 16px 0;font-size:11px;color:rgba(255,255,255,0.25);';
-            wHint.textContent = 'Refreshing…';
-            spinEl2.insertBefore(wHint, spinEl2.firstChild);
-          }
-        }
-        // Cap at 5 retries then show "tap to refresh" — never loop forever
-        if (retryN <= 5) {
-          setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, Math.min(retryN * 2000, 8000));
-        } else {
-          loadBybitorOrders._retryCount = 0;
-          var refreshHint = document.getElementById('_ordRefreshHint');
-          if (!refreshHint) {
-            refreshHint = document.createElement('div');
-            refreshHint.id = '_ordRefreshHint';
-            refreshHint.style.cssText = 'text-align:center;padding:8px;font-size:12px;color:rgba(255,255,255,0.35);';
-            refreshHint.innerHTML = 'Could not refresh. <button onclick="document.getElementById(\'_ordRefreshHint\').remove();_ordFetching=false;loadBybitorOrders();" style="background:transparent;border:none;color:#00d4d4;font-size:12px;cursor:pointer;">Retry</button>';
-            var aList = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-            if (aList) aList.insertBefore(refreshHint, aList.firstChild);
-          }
-        }
-      } else {
-        // No cache — retry quickly, then show retry button (never infinite loop)
-        if (retryN <= 4) {
-          setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, Math.min(retryN * 1500, 5000));
-        } else {
-          loadBybitorOrders._retryCount = 0;
-          showRetry('Server starting up — tap to retry');
-        }
-      }
-      return;
-    }
-
-    loadBybitorOrders._retryCount = 0;
-    loadBybitorOrders._errCount = 0;
-
-    if (r.status === 404) {
-      _ordFetching = false;
-      if (!_hadCachedData) showRetry('Orders unavailable — contact support');
-      return;
-    }
-
-    // ── 5xx / Network error ───────────────────────────────────────────────
-    if (!r.ok) {
-      _ordFetching = false;
-      loadBybitorOrders._errCount = (loadBybitorOrders._errCount || 0) + 1;
-      // Cap at 3 error retries — then show retry button and stop looping
-      if (loadBybitorOrders._errCount <= 3) {
-        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 5000);
-      } else {
-        loadBybitorOrders._errCount = 0;
-        if (!_hadCachedData) showRetry('Server error — tap to retry');
-      }
-      return;
-    }
-
-    // ── Success ──────────────────────────────────────────────────────────
-    r.json().catch(function() { return { orders: [] }; }).then(function(data) {
-      _ordFetching = false;
-      var orders = Array.isArray(data) ? data : (data.orders || data.data || []);
-      try {
-        renderAll(orders, false);
-      } catch(e) {
-        console.error('[loadBybitorOrders] renderAll threw:', e);
-        _ordFetching = false;
-        var fallbackEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-        if (fallbackEl) { fallbackEl.style.display = 'block'; fallbackEl.innerHTML = _ordEmpty('No orders'); }
-      }
-    });
-
-  }).catch(function(e) {
+  Promise.race([
+    fetch('/api/p2p/orders?limit=50', fetchOpts),
+    timeoutP
+  ])
+  .then(function(r) {
+    clearTimeout(timeoutId);
+    if (myReqId !== _ordReqId) return null; // stale — newer request already running
+    _ordAbort    = null;
     _ordFetching = false;
-    console.error('[loadBybitorOrders] fetch error:', e.message);
-    showRetry('Could not load orders — tap to retry');
+
+    if (r.status === 401) { _ordShowLogin(); return null; }
+    if (!r.ok) {
+      _ordFailing++;
+      if (_ordFailing <= 3) {
+        setTimeout(fetchOrdersSafe, _ordFailing * 2000); // 2s, 4s, 6s backoff
+      } else {
+        _ordShowRetry('Could not load orders — tap to retry');
+      }
+      return null;
+    }
+    _ordFailing = 0;
+    return r.json().catch(function() { return null; });
+  })
+  .then(function(data) {
+    if (!data) return;
+    if (myReqId !== _ordReqId) return; // race check after json parse
+    var orders = Array.isArray(data) ? data : (data.orders || data.data || []);
+    _ordRenderAll(orders, false);
+  })
+  .catch(function(e) {
+    clearTimeout(timeoutId);
+    if (e && e.name === 'AbortError') return; // intentionally cancelled — ignore
+    if (myReqId !== _ordReqId) return;
+    _ordAbort    = null;
+    _ordFetching = false;
+    _ordFailing++;
+    if (_ordFailing <= 3) {
+      setTimeout(fetchOrdersSafe, _ordFailing * 2000);
+    } else {
+      _ordShowRetry('Connection error — tap to retry');
+    }
   });
 }
+
+// backward-compat alias — all legacy call sites still work
+var loadBybitorOrders = fetchOrdersSafe;
+
+// ── FALLBACK POLL — only used when SSE is disconnected ─────────────────────
+function _startFallbackPoll() {
+  if (_ordPollTimer) return; // already running
+  _ordPollTimer = setInterval(function() {
+    if (currentUser && !_ordAbort) fetchOrdersSafe();
+  }, 15000);
+}
+function _stopFallbackPoll() {
+  if (_ordPollTimer) { clearInterval(_ordPollTimer); _ordPollTimer = null; }
+}
+
+// ── KEPT for call-site compatibility (showMobScreen calls startOrdPolling) ─
+function startOrdPolling()   { fetchOrdersSafe(); }
+function stopOrdPolling()    { /* no-op — SSE handles real-time */ }
+function startBgOrdPolling() { _startFallbackPoll(); }
+function stopBgOrdPolling()  { _stopFallbackPoll(); }
+
+// ── VISIBILITY — refresh when tab/app comes back into focus ────────────────
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden && currentUser) fetchOrdersSafe();
+});
+
 // Wire orders screen tab buttons (click + touchend for iOS)
 (function() {
   function wireOrdBtn(id, fn) {
@@ -3834,31 +3810,6 @@ function loadBybitorOrders() {
   wireOrdBtn('ordSubCanceled',   function() { switchOrdSub('canceled'); });
 })();
 
-// Order polling — fast (3s) when orders screen is open, slow (15s) always in background
-var _ordPollTimer = null;
-var _ordBgPollTimer = null; // background poll — always running when logged in
-function startOrdPolling() {
-  stopOrdPolling();
-  loadBybitorOrders(); // immediate fetch
-  _ordPollTimer = setInterval(function() {
-    loadBybitorOrders();
-  }, 3000); // 3s fast poll when orders screen is open
-}
-function stopOrdPolling() {
-  if (_ordPollTimer) { clearInterval(_ordPollTimer); _ordPollTimer = null; }
-}
-function startBgOrdPolling() {
-  if (_ordBgPollTimer) return; // already running
-  _ordBgPollTimer = setInterval(function() {
-    if (!_ordPollTimer && currentUser) { // only if fast poll not already running
-      loadBybitorOrders();
-    }
-  }, 15000); // 15s background poll — keeps orders fresh even when screen is closed
-}
-function stopBgOrdPolling() {
-  if (_ordBgPollTimer) { clearInterval(_ordBgPollTimer); _ordBgPollTimer = null; }
-}
-// ===== END BYBIT-STYLE ORDERS SCREEN =====
 
 if (sideTabs) {
   sideTabs.addEventListener('click', (event) => {
@@ -5878,60 +5829,56 @@ window.deleteMobAd = async function(offerId) {
     if (_userStream) { _userStream.close(); _userStream = null; }
     _userStream = new EventSource('/api/p2p/me/stream', { withCredentials: true });
     _userStream.addEventListener('connected', function() {
-      // SSE (re)connected — server just woke up, refresh orders right away
-      _ordFetching = false;
-      _ordLoaded = false;
-      loadBybitorOrders();
+      // SSE reconnected (server woke up) — fetch fresh orders immediately
+      // SSE is back, so we can stop the fallback poll
+      _stopFallbackPoll();
+      fetchOrdersSafe();
     });
     _userStream.addEventListener('new_order', function(e) {
-      // New order arrived — force fresh fetch immediately
-      loadLiveOrders();
-      _ordLoaded = false;
-      _ordFetching = false; // clear lock so fetch isn't skipped
-      loadBybitorOrders();
-      // Switch orders screen to pending tab if it's open
+      loadLiveOrders(); // refresh the marketplace listings too
+      fetchOrdersSafe();
+      // Auto-switch orders screen to pending tab if it's open
       var ordScreen = document.getElementById('mobOrdersScreen');
-      if (ordScreen && ordScreen.style.display !== 'none') {
-        switchOrdMain('pending');
-      }
+      if (ordScreen && ordScreen.style.display !== 'none') switchOrdMain('pending');
     });
     _userStream.addEventListener('order_updated', function(e) {
-      // Order status changed (paid, released, cancelled, expired) — force fresh fetch
+      // Instantly update the per-order localStorage entry with new status
       try {
         var payload = JSON.parse(e.data || '{}');
-        // If we have orderId+status in the payload, update cache immediately
         if (payload.orderId && payload.status) {
-          var lsKey = 'p2p_order_' + payload.orderId;
           try {
-            var cached = localStorage.getItem(lsKey);
-            if (cached) {
-              var cachedObj = JSON.parse(cached);
-              cachedObj.status = payload.status;
-              localStorage.setItem(lsKey, JSON.stringify(cachedObj));
+            var lsKey = 'p2p_order_' + payload.orderId;
+            var raw = localStorage.getItem(lsKey);
+            if (raw) {
+              var obj = JSON.parse(raw);
+              obj.status = payload.status;
+              localStorage.setItem(lsKey, JSON.stringify(obj));
             }
           } catch(_) {}
         }
       } catch(_) {}
-      _ordLoaded = false;
-      _ordFetching = false; // clear lock so fetch isn't skipped
-      loadBybitorOrders();
+      fetchOrdersSafe(); // re-render orders list with fresh server data
     });
     _userStream.onerror = function() {
-      // Reconnect after 1s on error (fast reconnect after server wake)
+      // SSE dropped — start fallback poll so orders still refresh
       if (_userStream) { _userStream.close(); _userStream = null; }
-      setTimeout(function() { if (currentUser) connectUserStream(); }, 1000);
+      _startFallbackPoll();
+      setTimeout(function() { if (currentUser) connectUserStream(); }, 3000);
     };
   }
 
-  // Start stream when user logs in, stop on logout
+  // Hook into loadCurrentUser — start SSE after session confirmed, stop on logout
   var _origLoadCurrentUser = loadCurrentUser;
   loadCurrentUser = async function() {
     await _origLoadCurrentUser.apply(this, arguments);
-    if (currentUser) connectUserStream();
-    else if (_userStream) { _userStream.close(); _userStream = null; }
+    if (currentUser) {
+      connectUserStream();
+    } else {
+      if (_userStream) { _userStream.close(); _userStream = null; }
+      _stopFallbackPoll();
+    }
   };
 
-  // Also connect right after login
   document.addEventListener('p2p:login', function() { if (currentUser) connectUserStream(); });
 })();
 
