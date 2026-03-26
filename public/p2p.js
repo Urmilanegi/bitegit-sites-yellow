@@ -3622,13 +3622,13 @@ function loadBybitorOrders() {
     }
   }
 
-  // helper: fetch with 15-second timeout (cold starts on Render can take 10-15s)
+  // helper: fetch with 30s timeout (Render.com cold start takes up to 60s)
   function fetchOrFail(url, opts) {
     return new Promise(function(resolve) {
       var done = false;
       var timer = setTimeout(function() {
         if (!done) { done = true; resolve({ ok: false, status: 0, _timedOut: true }); }
-      }, 15000);
+      }, 30000);
       fetch(url, opts).then(function(r) {
         if (!done) { done = true; clearTimeout(timer); resolve(r); }
       }).catch(function() {
@@ -3643,7 +3643,7 @@ function loadBybitorOrders() {
   if (cached.length) {
     renderAll(cached, true);
   } else {
-    // no cache — show skeleton shimmer in current sub-tab only
+    // no cache — show skeleton shimmer
     Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
       var el = document.getElementById(_ORD_LIST_IDS[sub]);
       if (el) el.style.display = 'none';
@@ -3652,74 +3652,60 @@ function loadBybitorOrders() {
     if (spinEl) { spinEl.style.display = 'block'; spinEl.innerHTML = _ordLoadingHtml(); }
   }
 
-  // skip if a fetch is already in flight (prevents stacked requests)
+  // skip if a fetch is already in flight
   if (_ordFetching) return;
   _ordFetching = true;
 
-  // auto-retry counter — silently retry up to 2 times before showing error
+  // retry counter — show status after 1st retry so user knows server is waking up
   if (typeof loadBybitorOrders._retryCount === 'undefined') loadBybitorOrders._retryCount = 0;
 
+  // update skeleton with "waking up" hint after 1st retry
+  function _showWakingHint() {
+    var spinEl2 = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+    if (spinEl2 && !spinEl2.querySelector('[data-waking]')) {
+      var hint = document.createElement('div');
+      hint.setAttribute('data-waking', '1');
+      hint.style.cssText = 'text-align:center;padding:10px 16px 0;font-size:12px;color:rgba(255,255,255,0.3);';
+      hint.textContent = 'Server is waking up, please wait…';
+      spinEl2.appendChild(hint);
+    }
+  }
+
   var _hdr = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
-  Promise.all([
-    fetchOrFail('/api/p2p/orders/my-active', _hdr),
-    fetchOrFail('/api/p2p/orders/history?limit=50&offset=0', _hdr)
-  ]).then(function(results) {
-    var r1 = results[0], r2 = results[1];
 
-    // ── 401 Unauthenticated ──────────────────────────────────────────────
-    if (r1.status === 401) { showLoginPrompt(); return; }
+  // SINGLE endpoint: /api/p2p/orders returns all orders (active + history) in one call
+  fetchOrFail('/api/p2p/orders?limit=50', _hdr).then(function(r) {
 
-    // ── 503 Server starting up — auto-retry silently ─────────────────────
-    if (r1.status === 503) {
+    // ── 401 Unauthenticated ───────────────────────────────────────────────
+    if (r.status === 401) { showLoginPrompt(); return; }
+
+    // ── 503 / Timeout — server still starting, silent retry ──────────────
+    var isWaiting = r.status === 503 || r._timedOut;
+    if (isWaiting) {
       _ordFetching = false;
       loadBybitorOrders._retryCount = (loadBybitorOrders._retryCount || 0) + 1;
-      console.log('[loadBybitorOrders] 503 server starting, retry #' + loadBybitorOrders._retryCount);
-      if (loadBybitorOrders._retryCount <= 4) {
-        // keep skeleton visible and retry after 4s
-        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 4000);
+      var retryN = loadBybitorOrders._retryCount;
+      console.log('[loadBybitorOrders] server not ready (' + (r._timedOut ? 'timeout' : '503') + '), retry #' + retryN);
+      if (retryN === 1) _showWakingHint(); // show "waking up" after 1st attempt
+      if (retryN <= 5) {
+        // keep skeleton and retry with growing delay
+        var delay = Math.min(retryN * 4000, 20000);
+        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, delay);
       } else {
         loadBybitorOrders._retryCount = 0;
-        showRetry('Server is starting up — tap Retry');
-      }
-      return;
-    }
-
-    // ── 404 Route missing ────────────────────────────────────────────────
-    if (r1.status === 404) {
-      console.error('[loadBybitorOrders] 404 — /api/p2p/orders/my-active missing on server');
-      _ordFetching = false;
-      if (!_hadCachedData) showRetry('API route missing — contact support');
-      return;
-    }
-
-    // ── Timeout — auto-retry twice silently before showing error ─────────
-    if (r1._timedOut) {
-      _ordFetching = false;
-      loadBybitorOrders._retryCount = (loadBybitorOrders._retryCount || 0) + 1;
-      console.log('[loadBybitorOrders] timeout, retry #' + loadBybitorOrders._retryCount);
-      if (loadBybitorOrders._retryCount <= 2) {
-        // keep skeleton / cached data and retry silently
-        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 3000);
-        return;
-      }
-      loadBybitorOrders._retryCount = 0;
-      if (_hadCachedData) {
-        var _retryHint = document.getElementById('_ordRefreshHint');
-        if (!_retryHint) {
-          _retryHint = document.createElement('div');
-          _retryHint.id = '_ordRefreshHint';
-          _retryHint.style.cssText = 'text-align:center;padding:8px 16px;font-size:12px;color:rgba(255,255,255,0.35);border-bottom:1px solid rgba(255,255,255,0.04);';
-          _retryHint.innerHTML = 'Refreshing orders… <button onclick="document.getElementById(\'_ordRefreshHint\').remove();_ordFetching=false;loadBybitorOrders();" style="background:transparent;border:none;color:#00d4d4;font-size:12px;cursor:pointer;padding:0;">Retry now</button>';
-          var activeList = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-          if (activeList) activeList.insertBefore(_retryHint, activeList.firstChild);
-        }
-        setTimeout(function() {
+        if (_hadCachedData) {
           var hint = document.getElementById('_ordRefreshHint');
-          if (hint) hint.remove();
-          if (!_ordFetching) loadBybitorOrders();
-        }, 5000);
-      } else {
-        showRetry('Connection slow — tap Retry');
+          if (!hint) {
+            hint = document.createElement('div');
+            hint.id = '_ordRefreshHint';
+            hint.style.cssText = 'text-align:center;padding:8px 16px;font-size:12px;color:rgba(255,255,255,0.35);border-bottom:1px solid rgba(255,255,255,0.04);';
+            hint.innerHTML = 'Could not refresh. <button onclick="document.getElementById(\'_ordRefreshHint\').remove();_ordFetching=false;loadBybitorOrders();" style="background:transparent;border:none;color:#00d4d4;font-size:12px;cursor:pointer;padding:0;">Retry now</button>';
+            var activeList = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+            if (activeList) activeList.insertBefore(hint, activeList.firstChild);
+          }
+        } else {
+          showRetry('Server is starting up — tap Retry');
+        }
       }
       return;
     }
@@ -3727,42 +3713,33 @@ function loadBybitorOrders() {
     // reset retry counter on any real response
     loadBybitorOrders._retryCount = 0;
 
-    // ── 5xx Server error — auto-retry once ───────────────────────────────
-    if (!r1.ok) {
+    // ── 404 Route missing ────────────────────────────────────────────────
+    if (r.status === 404) {
       _ordFetching = false;
-      console.warn('[loadBybitorOrders] server error', r1.status);
+      console.error('[loadBybitorOrders] 404 — /api/p2p/orders missing on server');
+      if (!_hadCachedData) showRetry('API route missing — contact support');
+      return;
+    }
+
+    // ── 5xx Server error ─────────────────────────────────────────────────
+    if (!r.ok) {
+      _ordFetching = false;
+      console.warn('[loadBybitorOrders] server error', r.status);
       if (_hadCachedData) {
-        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 5000);
+        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 8000);
       } else {
-        showRetry('Server error (' + r1.status + ') — tap to retry');
+        showRetry('Server error (' + r.status + ') — tap to retry');
       }
       return;
     }
 
-    var p1 = r1.json().catch(function() { return { orders: [] }; });
-    var p2 = (r2.ok && !r2._timedOut) ? r2.json().catch(function() { return { orders: [] }; }) : Promise.resolve({ orders: [] });
-
-    return Promise.all([p1, p2]).then(function(data) {
+    // ── Success ──────────────────────────────────────────────────────────
+    r.json().catch(function() { return { orders: [] }; }).then(function(data) {
       _ordFetching = false;
-      var d1 = data[0], d2 = data[1];
-      // Normalise: accept plain array OR { orders:[] } OR { data:[] }
-      var activeOrders = Array.isArray(d1) ? d1 : (d1.orders || d1.data || []);
-      var histOrders   = Array.isArray(d2) ? d2 : (d2.orders || d2.data || []);
-
-      // Debug: log actual API responses so we can spot shape mismatches
-      console.log('ORDERS API RESPONSE:', {
-        activeCount: activeOrders.length,
-        historyCount: histOrders.length,
-        activeSample: activeOrders[0] || null,
-        historySample: histOrders[0] || null
-      });
-
-      // Merge: active takes precedence for dedup (more up-to-date status)
-      var merged = histOrders.concat(activeOrders);
-      if (!merged.length) merged = activeOrders;
+      var orders = Array.isArray(data) ? data : (data.orders || data.data || []);
+      console.log('ORDERS API RESPONSE:', { count: orders.length, sample: orders[0] || null });
       try {
-        renderAll(merged, false);
-        if (ordersSection) ordersSection.style.display = 'block';
+        renderAll(orders, false);
       } catch(e) {
         console.error('[loadBybitorOrders] renderAll threw:', e);
         _ordFetching = false;
@@ -3770,6 +3747,7 @@ function loadBybitorOrders() {
         if (fallbackEl) { fallbackEl.style.display = 'block'; fallbackEl.innerHTML = _ordEmpty('No orders'); }
       }
     });
+
   }).catch(function(e) {
     _ordFetching = false;
     console.error('[loadBybitorOrders] fetch error:', e.message);

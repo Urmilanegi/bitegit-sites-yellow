@@ -2822,6 +2822,11 @@ app.post('/api/merchant/activate', requiresP2PUser, async (req, res) => {
   }
 });
 
+// ── GET /api/p2p/ping — no auth, no DB, instant server health check ────────
+app.get('/api/p2p/ping', (req, res) => {
+  res.json({ ok: true, dbReady: !!repos, ts: Date.now() });
+});
+
 // ── GET /api/p2p/orders ────────────────────────────────────────────────────
 // Combined endpoint: returns active + history in { orders:[] } shape.
 // Prevents ROUTE_NOT_FOUND (404) when any client calls the bare /orders path.
