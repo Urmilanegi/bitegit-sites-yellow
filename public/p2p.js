@@ -3708,6 +3708,36 @@ function _ordFetchWithTimeout(url, fetchOpts, timeoutMs) {
   );
 }
 
+function _ordExtractOrders(data) {
+  return Array.isArray(data) ? data : (data && (data.orders || data.data) || []);
+}
+
+function _ordFilterActiveOrders(orders) {
+  return (Array.isArray(orders) ? orders : []).filter(function(order) {
+    return isOngoingOrderStatus(order && order.status);
+  });
+}
+
+function _ordFetchActiveOrdersFallback(fetchOpts, parentReqId) {
+  return _ordFetchWithTimeout('/api/p2p/orders/history?limit=50&offset=0', fetchOpts, 20000)
+    .then(function(response) {
+      if (parentReqId !== _ordReqId) return null;
+      if (!response || !response.ok) return null;
+      return response.json().catch(function() { return null; });
+    })
+    .then(function(data) {
+      if (!data || parentReqId !== _ordReqId) return null;
+      return {
+        degraded: true,
+        orders: _ordFilterActiveOrders(_ordExtractOrders(data))
+      };
+    })
+    .catch(function(error) {
+      if (error && error.name === 'AbortError') return null;
+      return null;
+    });
+}
+
 function _fetchOrderHistoryInBackground(parentReqId) {
   if (!currentUser || !currentUser.id) return;
   if (_ordHistoryAbort) { try { _ordHistoryAbort.abort(); } catch(_) {} }
@@ -3809,13 +3839,19 @@ function fetchOrdersSafe() {
 
     if (r.status === 401) { _ordShowLogin(); return null; }
     if (!r.ok) {
-      _ordFailing++;
-      if (_ordFailing <= 3) {
-        setTimeout(fetchOrdersSafe, _ordFailing * 2000); // 2s, 4s, 6s backoff
-      } else {
-        _ordShowRetry('Could not load orders — tap to retry');
-      }
-      return null;
+      return _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
+        if (fallbackData) {
+          _ordFailing = 0;
+          return fallbackData;
+        }
+        _ordFailing++;
+        if (_ordFailing <= 3) {
+          setTimeout(fetchOrdersSafe, _ordFailing * 2000); // 2s, 4s, 6s backoff
+        } else {
+          _ordShowRetry('Could not load orders — tap to retry');
+        }
+        return null;
+      });
     }
     _ordFailing = 0;
     return r.json().catch(function() { return null; });
@@ -3823,7 +3859,7 @@ function fetchOrdersSafe() {
   .then(function(data) {
     if (!data) return;
     if (myReqId !== _ordReqId) return; // race check after json parse
-    var activeOrders = Array.isArray(data) ? data : (data.orders || data.data || []);
+    var activeOrders = data.degraded ? (data.orders || []) : _ordExtractOrders(data);
     var endedFromCache = _ordEndedOrders(_ordAllOrders);
     _ordRenderAll(_ordMergeById(activeOrders, endedFromCache), false);
     _fetchOrderHistoryInBackground(myReqId);
@@ -3833,12 +3869,20 @@ function fetchOrdersSafe() {
     if (myReqId !== _ordReqId) return;
     _ordAbort    = null;
     _ordFetching = false;
-    _ordFailing++;
-    if (_ordFailing <= 3) {
-      setTimeout(fetchOrdersSafe, _ordFailing * 2000);
-    } else {
-      _ordShowRetry('Connection error — tap to retry');
-    }
+    _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
+      if (fallbackData && myReqId === _ordReqId) {
+        var endedFromCache = _ordEndedOrders(_ordAllOrders);
+        _ordRenderAll(_ordMergeById(fallbackData.orders || [], endedFromCache), false);
+        _fetchOrderHistoryInBackground(myReqId);
+        return;
+      }
+      _ordFailing++;
+      if (_ordFailing <= 3) {
+        setTimeout(fetchOrdersSafe, _ordFailing * 2000);
+      } else {
+        _ordShowRetry('Connection error — tap to retry');
+      }
+    });
   });
 }
 
