@@ -935,6 +935,9 @@
   var currentTab = 'fiat';
   var chatPollTimer = null;
   var chatRenderedIds = {};
+  var _openedFromOrderRoute = false;
+  var _paidActionPending = false;
+  var _paidCountdownTargets = [];
 
   // ── Global click/navigation guards ─────────────────────────────
   var isProcessing = false;
@@ -1008,6 +1011,7 @@
       var params = new URLSearchParams(window.location.search);
       var orderId = params.get('orderId');
       var openChat = params.get('openChat') === '1';
+      _openedFromOrderRoute = !!orderId;
       if (orderId) {
         loadExistingOrder(orderId, openChat);
       } else {
@@ -1020,16 +1024,118 @@
 
   // Countdown timer interval for "paid/waiting for release" state
   var _paidTimerInterval = null;
-  function _startPaidCountdown(btnEl) {
-    if (_paidTimerInterval) clearInterval(_paidTimerInterval);
+  function getCurrentOrderStatus(status) {
+    return String(status || (currentOrder && currentOrder.status) || '').toUpperCase();
+  }
+
+  function isBuyerWaitingReleaseStatus(status) {
+    var s = getCurrentOrderStatus(status);
+    return ['PAID', 'PAYMENT_SENT'].indexOf(s) !== -1;
+  }
+
+  function hasBuyerMarkedPaid(status) {
+    var s = getCurrentOrderStatus(status);
+    return isBuyerWaitingReleaseStatus(s) || ['DISPUTED', 'RELEASED', 'COMPLETED'].indexOf(s) !== -1;
+  }
+
+  function shouldReturnToOrdersOnBack(status) {
+    if (!currentOrder || !currentOrder.id) return false;
+    return !!(_openedFromOrderRoute || (!isSeller && hasBuyerMarkedPaid(status)));
+  }
+
+  function returnToOrdersScreen() {
+    navTo('/p2p#orders');
+  }
+
+  function cacheCurrentOrder() {
+    if (!currentOrder || !currentOrder.id) return;
+    try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch (_) {}
+  }
+
+  function _stopPaidCountdown() {
+    if (_paidTimerInterval) {
+      clearInterval(_paidTimerInterval);
+      _paidTimerInterval = null;
+    }
+    _paidCountdownTargets = [];
+  }
+
+  function _applyPaidLockButton(btnEl) {
+    if (!btnEl) return;
+    btnEl.style.background = 'rgba(0,212,212,0.12)';
+    btnEl.style.color = '#00d4d4';
+    btnEl.style.border = '1px solid rgba(0,212,212,0.3)';
+    btnEl.style.cursor = 'default';
+    btnEl.style.pointerEvents = 'none';
+    btnEl.disabled = true;
+    btnEl.dataset.paidLocked = '1';
+  }
+
+  function _resetPaidLockButton(btnEl, label) {
+    if (!btnEl) return;
+    btnEl.textContent = label;
+    btnEl.style.background = '';
+    btnEl.style.color = '';
+    btnEl.style.border = '';
+    btnEl.style.cursor = '';
+    btnEl.style.pointerEvents = '';
+    btnEl.disabled = false;
+    btnEl.dataset.paidLocked = '0';
+  }
+
+  function resetTransferScreenPaidState() {
+    var tfBtn = document.getElementById('tfPaidBtn');
+    var tfCancelBtn = document.getElementById('tfCancelBtn');
+    _resetPaidLockButton(tfBtn, 'Paid');
+    if (tfCancelBtn) tfCancelBtn.style.display = '';
+  }
+
+  function resetOrderScreenState() {
+    var heading = document.querySelector('#screen-order-generated .page-heading h1');
+    var timerRow = document.querySelector('#screen-order-generated .page-heading .timer-row');
+    var nextBtn = document.getElementById('ogNextBtn');
+    var cancelBtn = document.getElementById('ogCancelBtn');
+    if (heading) heading.innerHTML = 'The order has been generated.<br>Proceed to payment.';
+    if (timerRow) timerRow.innerHTML = 'Please pay within <span id="timer1">15:00</span> .';
+    _resetPaidLockButton(nextBtn, 'Next →');
+    if (cancelBtn) {
+      cancelBtn.style.display = '';
+      cancelBtn.textContent = 'Cancel';
+    }
+  }
+
+  function syncBuyerPaidUi(status) {
+    if (isSeller) return;
+    if (!isBuyerWaitingReleaseStatus(status)) {
+      _stopPaidCountdown();
+      resetOrderScreenState();
+      resetTransferScreenPaidState();
+      return;
+    }
+    updateOrderScreenForStatus(status);
+    updateTransferScreenForPaid();
+    _startPaidCountdown([
+      document.getElementById('ogNextBtn'),
+      document.getElementById('tfPaidBtn')
+    ]);
+  }
+
+  function _startPaidCountdown(targetEls) {
+    _stopPaidCountdown();
+    var targets = Array.isArray(targetEls) ? targetEls : [targetEls];
+    _paidCountdownTargets = targets.filter(Boolean);
+    if (!_paidCountdownTargets.length) return;
     function _tick() {
       var rawExp = currentOrder && currentOrder.expiresAt;
       var exp = rawExp ? (typeof rawExp === 'number' ? rawExp : new Date(rawExp).getTime()) : 0;
       var rem = exp > Date.now() ? Math.floor((exp - Date.now()) / 1000) : 0;
       var mm = String(Math.floor(rem / 60)).padStart(2, '0');
       var ss = String(rem % 60).padStart(2, '0');
-      if (btnEl) btnEl.textContent = '⏱ Waiting for release (' + mm + ':' + ss + ')';
-      if (rem <= 0 && _paidTimerInterval) { clearInterval(_paidTimerInterval); _paidTimerInterval = null; }
+      var label = '⏱ Waiting for release (' + mm + ':' + ss + ')';
+      _paidCountdownTargets.forEach(function(btnEl) {
+        if (btnEl) btnEl.textContent = label;
+      });
+      if (rem <= 0) _stopPaidCountdown();
     }
     _tick();
     _paidTimerInterval = setInterval(_tick, 1000);
@@ -1039,14 +1145,7 @@
   function updateTransferScreenForPaid() {
     var tfBtn = document.getElementById('tfPaidBtn');
     var tfCancelBtn = document.getElementById('tfCancelBtn');
-    if (tfBtn) {
-      tfBtn.style.background = 'rgba(0,212,212,0.12)';
-      tfBtn.style.color = '#00d4d4';
-      tfBtn.style.border = '1px solid rgba(0,212,212,0.3)';
-      tfBtn.style.cursor = 'default';
-      tfBtn.disabled = true;
-      _startPaidCountdown(tfBtn);
-    }
+    _applyPaidLockButton(tfBtn);
     if (tfCancelBtn) { tfCancelBtn.style.display = ''; }
   }
 
@@ -1064,14 +1163,7 @@
         '<div style="width:8px;height:8px;border-radius:50%;background:#00d4d4;flex-shrink:0;animation:_ordPulse 1.2s ease-in-out infinite;"></div>' +
         '<span style="color:#fff;font-size:14px;font-weight:600;">Waiting for seller\'s confirmation</span></div>' +
         '<style>@keyframes _ordPulse{0%,100%{opacity:.5}50%{opacity:1}}</style>';
-      if (nextBtn) {
-        nextBtn.style.background = 'rgba(0,212,212,0.12)';
-        nextBtn.style.color = '#00d4d4';
-        nextBtn.style.border = '1px solid rgba(0,212,212,0.3)';
-        nextBtn.style.cursor = 'default';
-        nextBtn.disabled = true;
-        _startPaidCountdown(nextBtn);
-      }
+      _applyPaidLockButton(nextBtn);
       // Keep cancel button visible
       if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.textContent = 'Cancel Order'; }
     }
@@ -1085,8 +1177,8 @@
     startTimerFromOrder(order);
     var status = String(order.status || '').toUpperCase();
     var isActive = ['CREATED','PENDING','PAID','PAYMENT_SENT','DISPUTED'].indexOf(status) !== -1;
+    syncBuyerPaidUi(status);
     if (forceOpenChat && isActive) {
-      if (status === 'PAID' || status === 'PAYMENT_SENT') updateOrderScreenForStatus(status);
       openChat('screen-order-generated');
       setTimeout(function() { setupChatForRole(status); }, 200);
     } else if (status === 'CANCELLED' || status === 'EXPIRED') {
@@ -1113,9 +1205,12 @@
         showScreen('screen-canceled');
       }
     } else if (status === 'PAID' || status === 'PAYMENT_SENT' || status === 'DISPUTED') {
-      updateOrderScreenForStatus(status);
-      openChat('screen-order-generated');
-      setTimeout(function() { setupChatForRole(status); }, 200);
+      if (isSeller) {
+        openChat('screen-order-generated');
+        setTimeout(function() { setupChatForRole(status); }, 200);
+      } else {
+        showScreen('screen-order-generated');
+      }
     } else {
       if (isSeller) {
         openChat('screen-order-generated');
@@ -1205,7 +1300,10 @@
     document.getElementById('buyBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doBuy(); });
 
     // Screen 2: Order Generated
-    document.getElementById('ogBackBtn').addEventListener('click', function() { showScreen('screen-buy'); });
+    document.getElementById('ogBackBtn').addEventListener('click', function() {
+      if (shouldReturnToOrdersOnBack()) { returnToOrdersScreen(); return; }
+      showScreen('screen-buy');
+    });
     document.getElementById('ogChatBtn').addEventListener('click', function() { openChat('screen-order-generated'); });
     document.getElementById('ogChatBtn').addEventListener('touchend', function(e) { e.preventDefault(); openChat('screen-order-generated'); });
     var _doNext = mkDebounce(function() {
@@ -1221,11 +1319,15 @@
     document.getElementById('ogCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); cancelSource = 'order'; showScreen('screen-before-cancel'); });
 
     // Screen 3: Transfer
-    document.getElementById('tfBackBtn').addEventListener('click', function() { showScreen('screen-order-generated'); });
+    document.getElementById('tfBackBtn').addEventListener('click', function() {
+      showScreen('screen-order-generated');
+    });
     document.getElementById('tfChatBtn').addEventListener('click', function() { openChat('screen-transfer'); });
     document.getElementById('tfChatBtn').addEventListener('touchend', function(e) { e.preventDefault(); openChat('screen-transfer'); });
     var _doShowPaid = mkDebounce(function() {
       var b = document.getElementById('tfPaidBtn');
+      if (_paidActionPending || hasBuyerMarkedPaid()) return;
+      if (!b || b.disabled || b.dataset.paidLocked === '1') return;
       if (b) { b.style.transform = 'scale(0.95)'; b.style.transition = 'transform 0.12s ease'; setTimeout(function() { b.style.transform = ''; }, 150); }
       showPaidModal();
     });
@@ -2137,11 +2239,23 @@
   // ============================================================
   // MARK PAID
   // ============================================================
+  function resetPaidConfirmButton() {
+    var btn = document.getElementById('paid-confirm-btn');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = 'Confirm';
+    btn.style.transform = '';
+    btn.style.opacity = '';
+    btn.style.cursor = selectedPaidOption ? 'pointer' : 'not-allowed';
+  }
+
   function showPaidModal() {
+    if (_paidActionPending || hasBuyerMarkedPaid()) return;
     selectedPaidOption = 0;
     document.getElementById('paid-opt-1').classList.remove('selected');
     document.getElementById('paid-opt-2').classList.remove('selected');
     document.getElementById('paid-confirm-btn').classList.remove('active');
+    resetPaidConfirmButton();
     document.getElementById('paid-overlay').classList.add('active');
   }
 
@@ -2161,35 +2275,69 @@
   async function confirmPaid() {
     if (!selectedPaidOption) return;
     if (selectedPaidOption === 2) { closePaidModal(); return; }
+    if (!currentOrder || !currentOrder.id || _paidActionPending || hasBuyerMarkedPaid()) {
+      closePaidModal();
+      return;
+    }
     var btn = document.getElementById('paid-confirm-btn');
     if (btn) {
+      btn.disabled = true;
+      btn.style.opacity = '0.9';
       btn.style.transform = 'scale(0.95)';
       btn.style.transition = 'transform 0.12s ease';
+      btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:13px;height:13px;border:2px solid rgba(0,0,0,0.18);border-top-color:#000;border-radius:50%;animation:_spin 0.7s linear infinite;display:inline-block;"></span>Confirming...</span>';
       setTimeout(function() { btn.style.transform = ''; }, 150);
     }
+    _paidActionPending = true;
+    var previousOrder = currentOrder ? JSON.parse(JSON.stringify(currentOrder)) : null;
     // Optimistic: close modal and update local status immediately
     closePaidModal();
-    if (currentOrder) { currentOrder.status = 'PAID'; try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {} }
-    // Lock screen-order-generated into PAID state so back button shows correct screen
-    updateOrderScreenForStatus('PAID');
-    // Update transfer screen button to show countdown timer + keep cancel
-    updateTransferScreenForPaid();
+    currentOrder = Object.assign({}, currentOrder, {
+      status: 'PAYMENT_SENT',
+      paymentSentAt: currentOrder.paymentSentAt || new Date().toISOString()
+    });
+    cacheCurrentOrder();
+    renderOrderDetails();
+    syncBuyerPaidUi('PAYMENT_SENT');
+    showScreen('screen-order-generated');
     showToast('Payment marked. Waiting for seller to release.');
-    // API call in background
-    if (currentOrder && currentOrder.id) {
-      fetch('/api/p2p/orders/' + currentOrder.id + '/mark-paid', {
+    try {
+      var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/mark-paid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({})
-      }).then(function(res) { return res.ok ? res.json() : null; })
-        .then(function(data) {
-          if (data && (data.order || data.id)) {
-            currentOrder = data.order || data;
-            try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {}
-          }
-          pollNewMessages();
-        }).catch(function(e) { console.warn('[confirmPaid] API error:', e); });
+      });
+      var data = await res.json().catch(function() { return {}; });
+      if (!res.ok) {
+        throw new Error((data && data.message) || 'Unable to mark payment. Please try again.');
+      }
+      if (data && (data.order || data.id)) {
+        currentOrder = data.order || data;
+        cacheCurrentOrder();
+      }
+      renderOrderDetails();
+      syncBuyerPaidUi(currentOrder && currentOrder.status);
+      pollNewMessages();
+    } catch (e) {
+      console.warn('[confirmPaid] API error:', e);
+      if (previousOrder) {
+        currentOrder = previousOrder;
+        cacheCurrentOrder();
+        renderOrderDetails();
+        startTimerFromOrder(currentOrder);
+        syncBuyerPaidUi(currentOrder.status);
+        showScreen('screen-transfer');
+      } else {
+        _stopPaidCountdown();
+        resetOrderScreenState();
+        resetTransferScreenPaidState();
+      }
+      showToast(e.message || 'Unable to mark payment. Please try again.');
+      throw e;
+    } finally {
+      _paidActionPending = false;
+      resetPaidConfirmButton();
     }
   }
 
