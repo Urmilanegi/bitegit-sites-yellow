@@ -771,7 +771,7 @@
 
     <div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;background:#000;">
       <div class="checkbox-row">
-        <div class="checkbox-box checked" id="cancel-checkbox">
+        <div class="checkbox-box" id="cancel-checkbox">
           <span class="check-mark">✓</span>
         </div>
         <div class="checkbox-label">I have not paid the seller / I have received the seller's refund</div>
@@ -924,7 +924,7 @@
   var sseSource = null;
   var selectedPaidOption = 0;
   var selectedReason = -1;
-  var checkboxChecked = true;
+  var checkboxChecked = false;
   var cancelSource = 'order'; // 'order' or 'transfer'
   var currentTab = 'fiat';
   var chatPollTimer = null;
@@ -1017,8 +1017,9 @@
   function _startPaidCountdown(btnEl) {
     if (_paidTimerInterval) clearInterval(_paidTimerInterval);
     function _tick() {
-      var exp = currentOrder && Number(currentOrder.expiresAt);
-      var rem = exp ? Math.max(0, Math.floor((exp - Date.now()) / 1000)) : 0;
+      var rawExp = currentOrder && currentOrder.expiresAt;
+      var exp = rawExp ? (typeof rawExp === 'number' ? rawExp : new Date(rawExp).getTime()) : 0;
+      var rem = exp > Date.now() ? Math.floor((exp - Date.now()) / 1000) : 0;
       var mm = String(Math.floor(rem / 60)).padStart(2, '0');
       var ss = String(rem % 60).padStart(2, '0');
       if (btnEl) btnEl.textContent = '⏱ Waiting for release (' + mm + ':' + ss + ')';
@@ -1247,7 +1248,13 @@
       if (cancelSource === 'transfer') showScreen('screen-transfer'); else showScreen('screen-order-generated');
     });
     document.getElementById('chatWithSellerBtn').addEventListener('click', function() { openChat('screen-before-cancel'); });
-    var _doProceedCancel = mkDebounce(function() { buildReasonList(); showScreen('screen-cancel-reason'); });
+    var _doProceedCancel = mkDebounce(function() {
+      buildReasonList();
+      checkboxChecked = false;
+      var box = document.getElementById('cancel-checkbox');
+      if (box) { box.classList.remove('checked'); box.innerHTML = ''; }
+      showScreen('screen-cancel-reason');
+    });
     document.getElementById('proceedCancelBtn').addEventListener('click', _doProceedCancel);
     document.getElementById('proceedCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doProceedCancel(); });
 

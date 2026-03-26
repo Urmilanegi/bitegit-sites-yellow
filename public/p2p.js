@@ -2101,6 +2101,7 @@ async function loginUser() {
     // Pre-fetch orders immediately after login so Orders screen opens instantly
     _ordFetching = false;
     loadBybitorOrders();
+    startOrdPolling(); // start background polling right after login
     // Also refresh orders if orders screen is already open
     var ordScreen = document.getElementById('mobOrdersScreen');
     if (ordScreen && ordScreen.style.display !== 'none') {
@@ -3409,19 +3410,23 @@ function _ordCard(order) {
   var chatUrl  = '/p2p-order-flow.html?orderId=' + ordId + '&openChat=1';
   var status = String(order.status || '').toUpperCase();
   var isEnded = ['RELEASED','COMPLETED','CANCELLED','CANCELED','EXPIRED'].indexOf(status) !== -1;
-  // Bottom-right action: "Download receipt" for ended orders, "Chat" button for active
-  var actionHtml = isEnded
-    ? '<a href="'+orderUrl+'" onclick="event.stopPropagation()" style="font-size:12px;color:rgba(255,255,255,0.55);text-decoration:underline;text-underline-offset:2px;">Download receipt</a>'
-    : '<a href="'+chatUrl+'" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
-        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'+
-        'Chat'+
-      '</a>';
-  // Counterparty: for ended orders show chat bubble icon next to name (like Binance)
-  var counterpartyHtml = isEnded
-    ? '<span style="display:flex;align-items:center;gap:5px;font-size:13px;color:rgba(255,255,255,0.65);">'+counterparty+
-        ' <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'+
-      '</span>'
-    : '<span style="font-size:13px;color:rgba(255,255,255,0.65);">'+counterparty+'</span>';
+  var chatBtn = '<a href="'+chatUrl+'" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</a>';
+  // Amount + chat row:
+  // Active: left=info cols, right=amount. Below: left=counterparty, right=Chat
+  // Ended: left=info cols, right= Chat (above) + amount (below). No counterparty.
+  var amountAndActionHtml = isEnded
+    ? '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">'+
+        chatBtn+
+        '<div style="font-size:18px;font-weight:700;color:#fff;">₹'+fmt(order.amountInr||0)+'</div>'+
+      '</div>'
+    : '<div style="font-size:18px;font-weight:700;color:#fff;">₹'+fmt(order.amountInr||0)+'</div>';
+  var bottomRowHtml = isEnded
+    ? '' // no bottom row for ended orders (no username, no download receipt)
+    : '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">'+
+        '<span style="font-size:13px;color:rgba(255,255,255,0.65);">'+counterparty+'</span>'+
+        chatBtn+
+      '</div>';
   return '<a href="'+orderUrl+'" style="display:block;text-decoration:none;color:inherit;padding:16px;border-bottom:1px solid rgba(255,255,255,0.06);-webkit-tap-highlight-color:rgba(255,255,255,0.04);">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">'+
       '<span style="font-size:15px;font-weight:700;"><span style="color:'+sideColor+';">'+side+'</span> '+(order.asset||'USDT')+'</span>'+
@@ -3434,12 +3439,9 @@ function _ordCard(order) {
         '<span style="font-size:12px;color:rgba(255,255,255,0.5);">Quantity <span style="color:rgba(255,255,255,0.85);">'+qtyStr+'</span></span>'+
         '<span style="font-size:12px;color:rgba(255,255,255,0.5);">Fee <span style="color:rgba(255,255,255,0.85);">0 USDT</span></span>'+
       '</div>'+
-      '<div style="font-size:18px;font-weight:700;color:#fff;">₹'+fmt(order.amountInr||0)+'</div>'+
+      amountAndActionHtml+
     '</div>'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">'+
-      counterpartyHtml+
-      actionHtml+
-    '</div>'+
+    bottomRowHtml+
   '</a>';
 }
 
@@ -3798,13 +3800,8 @@ function startOrdPolling() {
   stopOrdPolling();
   loadBybitorOrders(); // immediate fetch
   _ordPollTimer = setInterval(function() {
-    var screen = document.getElementById('mobOrdersScreen');
-    if (screen && screen.style.display !== 'none') {
-      loadBybitorOrders();
-    } else {
-      stopOrdPolling();
-    }
-  }, 15000); // 15s — SSE handles real-time; polling is a safety-net only
+    loadBybitorOrders(); // always poll — orders refresh whether screen is open or not
+  }, 5000); // 5s — fast polling so new orders appear quickly
 }
 function stopOrdPolling() {
   if (_ordPollTimer) { clearInterval(_ordPollTimer); _ordPollTimer = null; }
