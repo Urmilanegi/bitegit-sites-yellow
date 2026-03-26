@@ -1344,14 +1344,43 @@ function buildP2PUserAliases(userOrId) {
   };
 }
 
+function toOrderTimestamp(value, fallbackMs) {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : fallbackMs;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallbackMs;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallbackMs;
+}
+
 function normalizeOrderState(order) {
   if (!order) {
     return null;
   }
 
+  const now = Date.now();
+  const createdAtMs = toOrderTimestamp(order.createdAt, now);
+  const updatedAtMs = toOrderTimestamp(order.updatedAt, createdAtMs);
+  const expiresFallbackMs = P2P_ORDER_ACTIVE_STATUSES.includes(order.status)
+    ? Math.max(updatedAtMs, createdAtMs)
+    : updatedAtMs;
+  const expiresAtMs = toOrderTimestamp(order.expiresAt, expiresFallbackMs);
+
   const remainingSeconds =
-    P2P_ORDER_ACTIVE_STATUSES.includes(order.status) && Number(order.expiresAt) > Date.now()
-      ? Math.max(0, Math.floor((Number(order.expiresAt) - Date.now()) / 1000))
+    P2P_ORDER_ACTIVE_STATUSES.includes(order.status) && expiresAtMs > now
+      ? Math.max(0, Math.floor((expiresAtMs - now) / 1000))
       : 0;
 
   return {
@@ -1376,9 +1405,9 @@ function normalizeOrderState(order) {
     assetAmount: order.assetAmount || order.cryptoAmount,
     escrowAmount: order.escrowAmount,
     isParticipant: true,
-    createdAt: new Date(order.createdAt).toISOString(),
-    expiresAt: new Date(order.expiresAt).toISOString(),
-    updatedAt: new Date(order.updatedAt).toISOString(),
+    createdAt: new Date(createdAtMs).toISOString(),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    updatedAt: new Date(updatedAtMs).toISOString(),
     remainingSeconds
   };
 }
