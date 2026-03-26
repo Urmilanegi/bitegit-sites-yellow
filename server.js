@@ -3010,6 +3010,29 @@ app.post('/api/p2p/orders/:orderId/mark-paid', requiresP2PUser, async (req, res)
   }
 });
 
+// Convenience: expire order when payment window lapses on client
+app.post('/api/p2p/orders/:orderId/expire', requiresP2PUser, async (req, res) => {
+  try {
+    const updatedOrder = await walletService.cancelOrder(req.params.orderId, req.p2pUser, 'EXPIRED');
+    const normalizedOrder = safeNormalizeOrderState(updatedOrder, {
+      route: 'expire-convenience',
+      userId: req.p2pUser.id
+    });
+    if (!normalizedOrder) {
+      return res.status(500).json({ message: 'Order data is invalid.' });
+    }
+    const normalizedMessages = toClientMessages(updatedOrder.messages || []);
+    broadcastOrderEvent(updatedOrder.id, 'order_update', { order: normalizedOrder });
+    broadcastOrderEvent(updatedOrder.id, 'message_update', { messages: normalizedMessages });
+    const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+    broadcastOrderParticipantEvent(updatedOrder, 'order_updated', pushPayload);
+    return res.json({ success: true, order: normalizedOrder, messages: normalizedMessages });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode || error?.status || 500);
+    return res.status(statusCode).json({ message: error.message || 'Server error.' });
+  }
+});
+
 // Convenience: cancel order
 app.post('/api/p2p/orders/:orderId/cancel', requiresP2PUser, async (req, res) => {
   try {
@@ -3336,6 +3359,8 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
     let updatedOrder = null;
     if (action === 'cancel') {
       updatedOrder = await walletService.cancelOrder(req.params.orderId, req.p2pUser, 'CANCELLED');
+    } else if (action === 'expire') {
+      updatedOrder = await walletService.cancelOrder(req.params.orderId, req.p2pUser, 'EXPIRED');
     } else if (action === 'mark_paid') {
       updatedOrder = await walletService.markOrderPaid(req.params.orderId, req.p2pUser);
     } else if (action === 'release') {
@@ -3379,7 +3404,7 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
             // Seller released — notify buyer (USDT received) and seller (confirmation)
             if (buyerEmail) await p2pEmailService.sendOrderReleased(buyerEmail, updatedOrder);
             if (sellerEmail && sellerEmail !== buyerEmail) await p2pEmailService.sendOrderReleased(sellerEmail, updatedOrder);
-          } else if (action === 'cancel') {
+          } else if (action === 'cancel' || action === 'expire') {
             if (sellerEmail) await p2pEmailService.sendOrderCancelled(sellerEmail, updatedOrder);
             if (buyerEmail && buyerEmail !== sellerEmail) await p2pEmailService.sendOrderCancelled(buyerEmail, updatedOrder);
           } else if (action === 'dispute') {

@@ -935,7 +935,7 @@
   var currentTab = 'fiat';
   var chatPollTimer = null;
   var chatRenderedIds = {};
-  var _openedFromOrderRoute = false;
+  var _entrySource = 'ad';
   var _paidActionPending = false;
   var _paidCountdownTargets = [];
 
@@ -1011,7 +1011,7 @@
       var params = new URLSearchParams(window.location.search);
       var orderId = params.get('orderId');
       var openChat = params.get('openChat') === '1';
-      _openedFromOrderRoute = !!orderId;
+      _entrySource = String(params.get('source') || (orderId ? 'orders' : 'ad')).trim().toLowerCase() || 'ad';
       if (orderId) {
         loadExistingOrder(orderId, openChat);
       } else {
@@ -1040,16 +1040,29 @@
 
   function shouldReturnToOrdersOnBack(status) {
     if (!currentOrder || !currentOrder.id) return false;
-    return !!(_openedFromOrderRoute || (!isSeller && hasBuyerMarkedPaid(status)));
+    return true;
   }
 
   function returnToOrdersScreen() {
-    navTo('/p2p#orders');
+    navTo(_entrySource === 'orders' ? '/p2p#orders' : '/p2p');
   }
 
   function cacheCurrentOrder() {
     if (!currentOrder || !currentOrder.id) return;
     try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch (_) {}
+  }
+
+  function syncOrderUrl() {
+    if (!currentOrder || !currentOrder.id) return;
+    var params = new URLSearchParams();
+    params.set('orderId', currentOrder.id);
+    params.set('source', _entrySource === 'orders' ? 'orders' : 'ad');
+    if (document.getElementById('screen-chat') && document.getElementById('screen-chat').style.display !== 'none') {
+      params.set('openChat', '1');
+    }
+    if (window.history && typeof window.history.replaceState === 'function') {
+      window.history.replaceState(null, '', '/p2p-order-flow.html?' + params.toString());
+    }
   }
 
   function _stopPaidCountdown() {
@@ -1171,6 +1184,7 @@
 
   function applyOrderAndShow(order, forceOpenChat) {
     currentOrder = order;
+    syncOrderUrl();
     isSeller = !!(currentUser && order.sellerUserId &&
       (currentUser.id === order.sellerUserId || currentUser.username === order.sellerUsername));
     renderOrderDetails();
@@ -1231,7 +1245,7 @@
         applyOrderAndShow(cachedOrder, forceOpenChat);
         hideLoading();
         // Verify & refresh from API in background (silent)
-        fetch('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' })
+      fetch('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' })
           .then(function(r){ return r.ok ? r.json() : null; })
           .then(function(data){
             if (!data) return;
@@ -1242,6 +1256,7 @@
               applyOrderAndShow(fresh, false);
             } else {
               currentOrder = fresh;
+              syncOrderUrl();
               startTimerFromOrder(fresh);
             }
           }).catch(function(){});
@@ -1637,7 +1652,8 @@
         if (res.ok) {
           currentOrder = data.order || data;
           // Cache order immediately for instant navigation
-          try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {}
+          cacheCurrentOrder();
+          syncOrderUrl();
           startTimerFromOrder(currentOrder);
           renderOrderDetails();
           showScreen('screen-order-generated');
@@ -1747,7 +1763,23 @@
     }, 1000);
   }
 
-  function _handleOrderExpired() {
+  function _showExpiredOrderState() {
+    if (currentOrder) {
+      currentOrder.status = 'EXPIRED';
+      cacheCurrentOrder();
+      syncOrderUrl();
+    }
+    showToast('Order expired');
+    showScreen('screen-canceled');
+    var h1 = document.querySelector('#screen-canceled .page-heading h1');
+    var sub = document.querySelector('#screen-canceled .page-heading div');
+    if (h1) h1.textContent = 'Order Expired';
+    if (sub) sub.textContent = 'Payment was not completed in time. The order has been cancelled.';
+    var pnoBtn = document.getElementById('placeNewOrderBtn');
+    if (pnoBtn) pnoBtn.style.display = '';
+  }
+
+  async function _handleOrderExpired() {
     if (_autoExpiredFired) return;
     var orderStatus = currentOrder ? String(currentOrder.status || '').toUpperCase() : '';
     // Only act on orders that are still in CREATED/PENDING state (not yet paid)
@@ -1759,27 +1791,32 @@
       id: 'auto_expired_' + Date.now(),
       sender: 'System',
       messageType: 'system',
-      text: 'Order expired. You did not complete the payment in time.',
+      text: 'Order cancelled automatically because the payment time expired.',
       createdAt: Date.now()
     };
     appendChatMessage(expireMsg);
-
-    // Update local order state
-    if (currentOrder) currentOrder.status = 'EXPIRED';
-    try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {}
-
-    showToast('Order expired');
-
-    // Navigate to cancelled/expired screen after 1.5s
-    setTimeout(function() {
-      showScreen('screen-canceled');
-      var h1 = document.querySelector('#screen-canceled .page-heading h1');
-      var sub = document.querySelector('#screen-canceled .page-heading div');
-      if (h1) h1.textContent = 'Order Expired';
-      if (sub) sub.textContent = 'Payment was not completed in time. The order has been cancelled.';
-      var pnoBtn = document.getElementById('placeNewOrderBtn');
-      if (pnoBtn) pnoBtn.style.display = '';
-    }, 1500);
+    try {
+      var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/expire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({})
+      });
+      var data = await res.json().catch(function() { return {}; });
+      if (res.ok && data && (data.order || data.id)) {
+        currentOrder = data.order || data;
+        cacheCurrentOrder();
+        syncOrderUrl();
+        if (Array.isArray(data.messages)) {
+          data.messages.forEach(function(msg) { appendChatMessage(msg); });
+        } else {
+          pollNewMessages();
+        }
+      }
+    } catch (error) {
+      console.warn('[order-expired] server sync failed:', error && error.message);
+    }
+    _showExpiredOrderState();
   }
 
   function formatTime(s) {

@@ -137,8 +137,8 @@ a {
   border-bottom: none;
   backdrop-filter: blur(16px) saturate(180%);
   -webkit-backdrop-filter: blur(16px) saturate(180%);
-  background: rgba(11, 15, 20, 0.82);
-  box-shadow: 0 1px 0 rgba(0,255,214,0.08), 0 4px 24px rgba(0,0,0,0.4);
+  background: rgba(0, 0, 0, 0.94);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06), 0 10px 34px rgba(0,0,0,0.52);
 }
 
 .cf-header-inner {
@@ -155,6 +155,15 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 0.7rem;
+}
+
+.cf-brand-logo {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  flex: 0 0 auto;
+  box-shadow: 0 0 16px rgba(0, 255, 214, 0.28), 0 10px 24px rgba(0, 0, 0, 0.34);
 }
 
 .cf-brand-mark {
@@ -1997,6 +2006,133 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   gap: 1rem;
 }
 
+.cf-trading-exp-head {
+  display: grid;
+  gap: 0.6rem;
+  max-width: 760px;
+}
+
+.cf-trading-exp-head p {
+  margin: 0;
+  color: #97a5bb;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.cf-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.1rem;
+  perspective: 1400px;
+}
+
+.cf-guide-card {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at top, rgba(0, 255, 214, 0.14), transparent 44%),
+    linear-gradient(180deg, rgba(12, 14, 20, 0.98), rgba(6, 8, 13, 1));
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transform-style: preserve-3d;
+  transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+  overflow: hidden;
+}
+
+.cf-guide-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.08), transparent 42%, transparent 68%, rgba(0,212,255,0.12));
+  pointer-events: none;
+}
+
+.cf-guide-card:hover {
+  transform: translateY(-6px) rotateX(5deg) rotateY(-4deg);
+  border-color: rgba(0, 255, 214, 0.26);
+  box-shadow:
+    0 24px 50px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(0, 255, 214, 0.12);
+}
+
+.cf-guide-card-visual,
+.cf-guide-card-copy {
+  position: relative;
+  z-index: 1;
+}
+
+.cf-guide-card-visual {
+  border-radius: 22px;
+  overflow: hidden;
+  background: #090b10;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.cf-guide-card-visual img {
+  width: 100%;
+  display: block;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+}
+
+.cf-guide-card-copy {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.cf-guide-step {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 1.9rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  background: rgba(0, 255, 214, 0.14);
+  color: var(--cf-brand);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cf-guide-card h3 {
+  margin: 0;
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
+  line-height: 1.15;
+}
+
+.cf-guide-card p {
+  margin: 0;
+  color: #a4b0c2;
+  line-height: 1.65;
+  min-height: 5.2rem;
+}
+
+.cf-guide-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 3rem;
+  padding: 0 1.2rem;
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 800;
+  color: #05080d;
+  background: linear-gradient(135deg, #d8ff44, #73ffd2);
+  box-shadow: 0 16px 30px rgba(126, 255, 194, 0.18);
+}
+
+.cf-guide-cta:hover {
+  transform: translateY(-1px);
+}
+
 .cf-mode-switch {
   display: inline-flex;
   width: max-content;
@@ -2848,6 +2984,12 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
     border-radius: 16px;
   }
 
+  .cf-brand-logo {
+    width: 1.52rem;
+    height: 1.52rem;
+    border-radius: 0.45rem;
+  }
+
   .bnx-market-row,
   .cf-pair-row {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2871,6 +3013,15 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   .cf-pair-change {
     grid-area: change;
     justify-self: end;
+  }
+
+  .cf-guide-card {
+    padding: 0.82rem;
+    border-radius: 20px;
+  }
+
+  .cf-guide-card p {
+    min-height: auto;
   }
 
   .cf-market-tabs {
@@ -3261,6 +3412,11 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   .cf-footer {
     border: 0 !important;
     box-shadow: none !important;
+  }
+
+  .cf-guide-grid {
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
   }
 
   .cf-footer-mobile {
