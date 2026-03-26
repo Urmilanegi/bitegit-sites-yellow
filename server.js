@@ -67,7 +67,7 @@ const P2P_USER_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const P2P_ACCESS_COOKIE_NAME = 'p2p_access_token';
 const P2P_REFRESH_COOKIE_NAME = 'p2p_refresh_token';
 const P2P_ORDER_TTL_MS = 1000 * 60 * 15;
-const P2P_EXPIRY_SWEEP_INTERVAL_MS = 30 * 1000;
+const P2P_EXPIRY_SWEEP_INTERVAL_MS = 10 * 1000;
 const MERCHANT_ACTIVATION_DEPOSIT = 200;
 const SIGNUP_OTP_TTL_MS = Math.max(
   60 * 1000,
@@ -3858,6 +3858,16 @@ async function boot() {
         const result = await p2pOrderExpiryService.runExpirySweep();
         if (result.cancelledCount > 0) {
           console.log(`Auto-cancelled expired P2P orders: ${result.cancelledCount}`);
+          // Broadcast real-time update to affected buyers and sellers
+          if (Array.isArray(result.orders)) {
+            for (const o of result.orders) {
+              const payload = { orderId: o.id, status: 'EXPIRED' };
+              const sellId = o.sellerUserId;
+              const buyId = o.buyerUserId;
+              if (sellId) broadcastUserEvent(sellId, 'order_updated', payload);
+              if (buyId && buyId !== sellId) broadcastUserEvent(buyId, 'order_updated', payload);
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to run P2P expiry sweep:', error.message);

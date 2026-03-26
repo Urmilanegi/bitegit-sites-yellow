@@ -3802,7 +3802,7 @@ function startOrdPolling() {
   loadBybitorOrders(); // immediate fetch
   _ordPollTimer = setInterval(function() {
     loadBybitorOrders(); // always poll — orders refresh whether screen is open or not
-  }, 5000); // 5s — fast polling so new orders appear quickly
+  }, 3000); // 3s — fast polling so new orders + expiry appear quickly
 }
 function stopOrdPolling() {
   if (_ordPollTimer) { clearInterval(_ordPollTimer); _ordPollTimer = null; }
@@ -5848,15 +5848,30 @@ window.deleteMobAd = async function(offerId) {
       }
     });
     _userStream.addEventListener('order_updated', function(e) {
-      // Order status changed (paid, released, cancelled) — force fresh fetch
+      // Order status changed (paid, released, cancelled, expired) — force fresh fetch
+      try {
+        var payload = JSON.parse(e.data || '{}');
+        // If we have orderId+status in the payload, update cache immediately
+        if (payload.orderId && payload.status) {
+          var lsKey = 'p2p_order_' + payload.orderId;
+          try {
+            var cached = localStorage.getItem(lsKey);
+            if (cached) {
+              var cachedObj = JSON.parse(cached);
+              cachedObj.status = payload.status;
+              localStorage.setItem(lsKey, JSON.stringify(cachedObj));
+            }
+          } catch(_) {}
+        }
+      } catch(_) {}
       _ordLoaded = false;
       _ordFetching = false; // clear lock so fetch isn't skipped
       loadBybitorOrders();
     });
     _userStream.onerror = function() {
-      // Reconnect after 3s on error
+      // Reconnect after 1s on error (fast reconnect after server wake)
       if (_userStream) { _userStream.close(); _userStream = null; }
-      setTimeout(function() { if (currentUser) connectUserStream(); }, 3000);
+      setTimeout(function() { if (currentUser) connectUserStream(); }, 1000);
     };
   }
 

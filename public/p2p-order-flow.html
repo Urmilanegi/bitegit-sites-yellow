@@ -1627,8 +1627,10 @@
     startTimerTick();
   }
 
+  var _autoExpiredFired = false;
   function startTimerTick() {
     if (timerInterval) clearInterval(timerInterval);
+    _autoExpiredFired = false;
     timerInterval = setInterval(function() {
       timerSeconds = timerExpiresAt
         ? Math.max(0, Math.floor((timerExpiresAt - Date.now()) / 1000))
@@ -1637,8 +1639,47 @@
       setTextSafe('timer1', t);
       setTextSafe('timer2', t);
       setTextSafe('chatTimer', t);
-      if (timerSeconds === 0) clearInterval(timerInterval);
+      if (timerSeconds === 0) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        _handleOrderExpired();
+      }
     }, 1000);
+  }
+
+  function _handleOrderExpired() {
+    if (_autoExpiredFired) return;
+    var orderStatus = currentOrder ? String(currentOrder.status || '').toUpperCase() : '';
+    // Only act on orders that are still in CREATED/PENDING state (not yet paid)
+    if (!['CREATED', 'PENDING', ''].includes(orderStatus)) return;
+    _autoExpiredFired = true;
+
+    // Inject expiry auto-message into chat
+    var expireMsg = {
+      id: 'auto_expired_' + Date.now(),
+      sender: 'System',
+      messageType: 'system',
+      text: 'Order expired. You did not complete the payment in time.',
+      createdAt: Date.now()
+    };
+    appendChatMessage(expireMsg);
+
+    // Update local order state
+    if (currentOrder) currentOrder.status = 'EXPIRED';
+    try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch(_) {}
+
+    showToast('Order expired');
+
+    // Navigate to cancelled/expired screen after 1.5s
+    setTimeout(function() {
+      showScreen('screen-canceled');
+      var h1 = document.querySelector('#screen-canceled .page-heading h1');
+      var sub = document.querySelector('#screen-canceled .page-heading div');
+      if (h1) h1.textContent = 'Order Expired';
+      if (sub) sub.textContent = 'Payment was not completed in time. The order has been cancelled.';
+      var pnoBtn = document.getElementById('placeNewOrderBtn');
+      if (pnoBtn) pnoBtn.style.display = '';
+    }, 1500);
   }
 
   function formatTime(s) {
