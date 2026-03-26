@@ -2393,6 +2393,64 @@ function getDummyOffers(side) {
 var _offersOffset = 0;
 var _offersHasMore = false;
 var _offersFetching = false; // in-flight lock — prevents stacked parallel calls
+var _offersResponseCache = new Map();
+var _OFFERS_CACHE_TTL_MS = 25 * 1000;
+var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
+var _orderFlowWarmPromise = null;
+
+function _buildOffersCacheKey(params) {
+  return params ? params.toString() : '';
+}
+
+function _readOffersCache(cacheKey) {
+  if (!cacheKey || !_offersResponseCache.has(cacheKey)) {
+    return null;
+  }
+  var entry = _offersResponseCache.get(cacheKey);
+  if (!entry || !entry.ts || (Date.now() - entry.ts) > _OFFERS_CACHE_TTL_MS) {
+    _offersResponseCache.delete(cacheKey);
+    return null;
+  }
+  return entry.data || null;
+}
+
+function _writeOffersCache(cacheKey, data) {
+  if (!cacheKey || !data || !Array.isArray(data.offers)) {
+    return;
+  }
+  _offersResponseCache.set(cacheKey, {
+    ts: Date.now(),
+    data: {
+      ...data,
+      offers: data.offers.map(function(offer) { return { ...offer }; })
+    }
+  });
+}
+
+function cacheSelectedOffer(offer) {
+  if (!offer || !offer.id) {
+    return;
+  }
+  try {
+    localStorage.setItem(_P2P_SELECTED_AD_CACHE_KEY, JSON.stringify({
+      ts: Date.now(),
+      offer: offer
+    }));
+  } catch (_) {}
+}
+
+function prefetchOrderFlowAssets() {
+  if (_orderFlowWarmPromise) {
+    return _orderFlowWarmPromise;
+  }
+  _orderFlowWarmPromise = Promise.allSettled([
+    fetch('/p2p-order-flow.html', { credentials: 'include', cache: 'force-cache' }),
+    fetch('/p2p-order-flow.html?warm=1', { credentials: 'include', cache: 'force-cache' })
+  ]).catch(function() {
+    return null;
+  });
+  return _orderFlowWarmPromise;
+}
 
 async function loadOffers(append) {
   // Prevent parallel non-append calls (append = "load more" button, always allow)
@@ -2413,8 +2471,23 @@ async function loadOffers(append) {
   if (paymentFilter?.value) params.set('payment', paymentFilter.value);
   if (amountFilter?.value) params.set('amount', amountFilter.value);
   if (advertiserFilter?.value.trim()) params.set('advertiser', advertiserFilter.value.trim());
+  const cacheKey = append ? '' : _buildOffersCacheKey(params);
+  const cachedResponse = !append ? _readOffersCache(cacheKey) : null;
 
-  if (!append && metaEl) metaEl.textContent = 'Loading offers...';
+  if (!append && cachedResponse) {
+    renderOffers(cachedResponse, false);
+    _offersOffset = Array.isArray(cachedResponse.offers) ? cachedResponse.offers.length : 0;
+    _offersHasMore = Boolean(cachedResponse.hasMore);
+    if (loadMoreBtn) {
+      loadMoreBtn.style.display = _offersHasMore ? 'inline-block' : 'none';
+      loadMoreBtn.textContent = 'Load More Ads';
+    }
+    if (metaEl) {
+      metaEl.textContent = `${cachedResponse.side.toUpperCase()} ${cachedResponse.asset} offers: ${cachedResponse.total} | Updated ${new Date(cachedResponse.updatedAt).toLocaleTimeString()}`;
+    }
+  }
+
+  if (!append && metaEl && !cachedResponse) metaEl.textContent = 'Loading offers...';
   if (loadMoreBtn) loadMoreBtn.textContent = 'Loading...';
   if (!append) _offersFetching = true;
 
@@ -2444,6 +2517,7 @@ async function loadOffers(append) {
     }
 
     if (!append) _offersFetching = false;
+    if (!append) _writeOffersCache(cacheKey, data);
     console.log('[loadOffers] rendered', data.offers ? data.offers.length : 0, 'offers');
     renderOffers(data, append);
     _offersOffset += data.offers.length;
@@ -3284,6 +3358,20 @@ async function updateOrderStatus(action, options = {}) {
 function bindOfferActionDelegation(container) {
   if (!container) return;
 
+  function primeOfferNavigation(event) {
+    const actionBtn = event.target.closest('.offer-action-btn, .gt-btn[data-offer-id]');
+    if (!actionBtn) return;
+    const offer = offersMap.get(String(actionBtn.dataset.offerId || '').trim());
+    if (offer) {
+      cacheSelectedOffer(offer);
+    }
+    prefetchOrderFlowAssets();
+  }
+
+  container.addEventListener('mouseenter', primeOfferNavigation, true);
+  container.addEventListener('touchstart', primeOfferNavigation, { passive: true });
+  container.addEventListener('pointerdown', primeOfferNavigation);
+
   container.addEventListener('click', (event) => {
     const actionBtn = event.target.closest('.offer-action-btn, .gt-btn[data-offer-id]');
     if (!actionBtn || actionBtn.disabled) return;
@@ -3292,6 +3380,11 @@ function bindOfferActionDelegation(container) {
     actionBtn.style.transform = 'scale(0.93)';
     actionBtn.style.transition = 'transform 0.1s ease';
     setTimeout(function() { actionBtn.style.transform = ''; }, 160);
+
+    const offer = offersMap.get(String(actionBtn.dataset.offerId || '').trim());
+    if (offer) {
+      cacheSelectedOffer(offer);
+    }
 
     openDealForOffer(actionBtn.dataset.offerId);
   });
@@ -6087,17 +6180,47 @@ window.deleteMobAd = async function(offerId) {
 // ── Navigate to standalone order flow on Buy ──────────────────────
 (function() {
   var _navLockTs = 0;
-  function _navSafe(url) {
+  var _navOverlay = null;
+
+  function ensureNavOverlay() {
+    if (_navOverlay && document.body.contains(_navOverlay)) {
+      return _navOverlay;
+    }
+    var overlay = document.createElement('div');
+    overlay.id = 'p2pNavOverlayFast';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.16s ease;';
+    overlay.innerHTML =
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:12px;color:#fff;font-family:Manrope,sans-serif;">' +
+      '<div style="width:28px;height:28px;border:2px solid rgba(255,255,255,0.18);border-top-color:#8bf300;border-radius:50%;animation:ord-spin 0.7s linear infinite;"></div>' +
+      '<div data-nav-label style="font-size:14px;font-weight:700;color:rgba(255,255,255,0.88);">Opening order...</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    _navOverlay = overlay;
+    return overlay;
+  }
+
+  function _navSafe(url, label) {
     var now = Date.now();
     if (now - _navLockTs < 800) { console.log('[navSafe] blocked duplicate nav'); return; }
     _navLockTs = now;
-    // Hide body to prevent raw HTML flash during navigation
-    document.body.style.visibility = 'hidden';
-    window.location.href = url;
+    var overlay = ensureNavOverlay();
+    if (overlay) {
+      var labelEl = overlay.querySelector('[data-nav-label]');
+      if (labelEl) {
+        labelEl.textContent = label || 'Opening order...';
+      }
+      overlay.style.opacity = '1';
+      overlay.style.pointerEvents = 'auto';
+    }
+    prefetchOrderFlowAssets();
+    setTimeout(function() {
+      window.location.href = url;
+    }, 18);
   }
   window.fillDealModal = function(offer) {
     if (offer && offer.id) {
-      _navSafe('/p2p-order-flow.html?adId=' + encodeURIComponent(offer.id) + '&source=ad');
+      cacheSelectedOffer(offer);
+      _navSafe('/p2p-order-flow.html?adId=' + encodeURIComponent(offer.id) + '&source=ad', 'Opening buy flow...');
     }
   };
   window._p2pNavSafe = _navSafe; // expose for openOrder override below
@@ -6110,7 +6233,7 @@ window.deleteMobAd = async function(offerId) {
   var _origOpenOrder = openOrder;
   openOrder = function(order) {
     if (order && order.id) {
-      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(order.id) + '&source=orders');
+      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(order.id) + '&source=orders', 'Opening order...');
       return;
     }
     _origOpenOrder.call(this, order);
@@ -6119,7 +6242,7 @@ window.deleteMobAd = async function(offerId) {
   var _origOpenOrderById = openOrderById;
   openOrderById = async function(orderId) {
     if (orderId) {
-      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(orderId) + '&source=orders');
+      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(orderId) + '&source=orders', 'Opening order...');
       return;
     }
     return _origOpenOrderById.call(this, orderId);
