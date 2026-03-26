@@ -3518,8 +3518,20 @@ function registerShutdownHandlers() {
 async function boot() {
   try {
     if (!httpServer) {
-      httpServer = app.listen(PORT, '0.0.0.0', () => {
-        console.log(`Server running on port ${PORT}`);
+      await new Promise((resolve, reject) => {
+        httpServer = app.listen(PORT, '0.0.0.0', () => {
+          console.log(`[boot] Server started — PID ${process.pid} listening on port ${PORT}`);
+          resolve();
+        });
+        httpServer.once('error', (err) => {
+          httpServer = null; // reset so retry guard doesn't block future attempts
+          if (err.code === 'EADDRINUSE') {
+            console.error(`[boot] FATAL: Port ${PORT} is already in use by another process.`);
+            console.error(`[boot] Fix: kill the existing process with:  lsof -ti:${PORT} | xargs kill -9`);
+            process.exit(1); // hard exit — do NOT retry, another instance is already up
+          }
+          reject(err);
+        });
       });
       registerShutdownHandlers();
     }
@@ -3902,4 +3914,16 @@ async function boot() {
   }
 }
 
-boot();
+// ── Entry-point guard ──────────────────────────────────────────────────────
+// boot() must run ONLY when this file is the direct entry point (node server.js).
+// If server.js is require()'d by another file (e.g. index.js), boot() must NOT
+// run again — that would cause two app.listen() calls → EADDRINUSE on port 10000.
+if (require.main === module) {
+  boot().catch((err) => {
+    console.error('[boot] Unhandled startup error:', err?.message || err);
+    process.exit(1);
+  });
+} else {
+  // Exported for programmatic use (e.g. tests, index.js wrapper)
+  module.exports = { app, boot };
+}
