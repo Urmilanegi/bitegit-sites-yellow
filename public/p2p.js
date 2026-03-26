@@ -3622,13 +3622,13 @@ function loadBybitorOrders() {
     }
   }
 
-  // helper: fetch with 5-second timeout — fail fast, show retry instead of 12s skeleton
+  // helper: fetch with 15-second timeout (cold starts on Render can take 10-15s)
   function fetchOrFail(url, opts) {
     return new Promise(function(resolve) {
       var done = false;
       var timer = setTimeout(function() {
         if (!done) { done = true; resolve({ ok: false, status: 0, _timedOut: true }); }
-      }, 5000);
+      }, 15000);
       fetch(url, opts).then(function(r) {
         if (!done) { done = true; clearTimeout(timer); resolve(r); }
       }).catch(function() {
@@ -3656,6 +3656,9 @@ function loadBybitorOrders() {
   if (_ordFetching) return;
   _ordFetching = true;
 
+  // auto-retry counter — silently retry up to 2 times before showing error
+  if (typeof loadBybitorOrders._retryCount === 'undefined') loadBybitorOrders._retryCount = 0;
+
   var _hdr = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
   Promise.all([
     fetchOrFail('/api/p2p/orders/my-active', _hdr),
@@ -3666,17 +3669,40 @@ function loadBybitorOrders() {
     // ── 401 Unauthenticated ──────────────────────────────────────────────
     if (r1.status === 401) { showLoginPrompt(); return; }
 
-    // ── 404 Route missing — API route is not registered on server ────────
+    // ── 503 Server starting up — auto-retry silently ─────────────────────
+    if (r1.status === 503) {
+      _ordFetching = false;
+      loadBybitorOrders._retryCount = (loadBybitorOrders._retryCount || 0) + 1;
+      console.log('[loadBybitorOrders] 503 server starting, retry #' + loadBybitorOrders._retryCount);
+      if (loadBybitorOrders._retryCount <= 4) {
+        // keep skeleton visible and retry after 4s
+        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 4000);
+      } else {
+        loadBybitorOrders._retryCount = 0;
+        showRetry('Server is starting up — tap Retry');
+      }
+      return;
+    }
+
+    // ── 404 Route missing ────────────────────────────────────────────────
     if (r1.status === 404) {
-      console.error('[loadBybitorOrders] 404 ROUTE_NOT_FOUND — /api/p2p/orders/my-active missing on server');
+      console.error('[loadBybitorOrders] 404 — /api/p2p/orders/my-active missing on server');
       _ordFetching = false;
       if (!_hadCachedData) showRetry('API route missing — contact support');
       return;
     }
 
-    // ── Timeout ──────────────────────────────────────────────────────────
+    // ── Timeout — auto-retry twice silently before showing error ─────────
     if (r1._timedOut) {
       _ordFetching = false;
+      loadBybitorOrders._retryCount = (loadBybitorOrders._retryCount || 0) + 1;
+      console.log('[loadBybitorOrders] timeout, retry #' + loadBybitorOrders._retryCount);
+      if (loadBybitorOrders._retryCount <= 2) {
+        // keep skeleton / cached data and retry silently
+        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 3000);
+        return;
+      }
+      loadBybitorOrders._retryCount = 0;
       if (_hadCachedData) {
         var _retryHint = document.getElementById('_ordRefreshHint');
         if (!_retryHint) {
@@ -3691,14 +3717,17 @@ function loadBybitorOrders() {
           var hint = document.getElementById('_ordRefreshHint');
           if (hint) hint.remove();
           if (!_ordFetching) loadBybitorOrders();
-        }, 4000);
+        }, 5000);
       } else {
         showRetry('Connection slow — tap Retry');
       }
       return;
     }
 
-    // ── 5xx Server error ─────────────────────────────────────────────────
+    // reset retry counter on any real response
+    loadBybitorOrders._retryCount = 0;
+
+    // ── 5xx Server error — auto-retry once ───────────────────────────────
     if (!r1.ok) {
       _ordFetching = false;
       console.warn('[loadBybitorOrders] server error', r1.status);

@@ -2849,6 +2849,9 @@ app.get('/api/p2p/orders', requiresP2PUser, async (req, res) => {
 
 // Returns only the current user's own active orders (for mobile Active tab)
 app.get('/api/p2p/orders/my-active', requiresP2PUser, async (req, res) => {
+  if (!repos) {
+    return res.status(503).json({ message: 'Server is starting up — please retry in a moment.', code: 'SERVICE_UNAVAILABLE', orders: [] });
+  }
   try {
     const userId = req.p2pUser.id;
     const username = req.p2pUser.username;
@@ -2901,7 +2904,10 @@ app.get('/api/p2p/orders/live', requiresP2PUser, async (req, res) => {
 });
 
 app.get('/api/p2p/orders/history', requiresP2PUser, async (req, res) => {
-  const limit = Math.min(Math.max(Number(req.query.limit || 10), 1), 50);
+  if (!repos) {
+    return res.status(503).json({ message: 'Server is starting up — please retry in a moment.', code: 'SERVICE_UNAVAILABLE', orders: [] });
+  }
+  const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 50);
   const offset = Math.max(Number(req.query.offset || 0), 0);
   try {
     const result = await repos.listP2POrderHistory(req.p2pUser.id, { limit, offset });
