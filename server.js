@@ -2822,6 +2822,31 @@ app.post('/api/merchant/activate', requiresP2PUser, async (req, res) => {
   }
 });
 
+// ── GET /api/p2p/orders ────────────────────────────────────────────────────
+// Combined endpoint: returns active + history in { orders:[] } shape.
+// Prevents ROUTE_NOT_FOUND (404) when any client calls the bare /orders path.
+// Also acts as a readiness probe: returns 503 + { orders:[] } before DB is ready.
+app.get('/api/p2p/orders', requiresP2PUser, async (req, res) => {
+  if (!repos) {
+    return res.status(503).json({
+      message: 'Server is starting up — please retry in a moment.',
+      code: 'SERVICE_UNAVAILABLE',
+      orders: []
+    });
+  }
+  try {
+    const userId = req.p2pUser.id;
+    const limit  = Math.min(Math.max(Number(req.query.limit  || 50), 1), 50);
+    const offset = Math.max(Number(req.query.offset || 0), 0);
+    const result = await repos.listP2POrderHistory(userId, { limit, offset });
+    const orders = result.orders.map((o) => normalizeOrderState(o));
+    return res.json({ orders, total: result.total, hasMore: result.hasMore });
+  } catch (error) {
+    console.error('[GET /api/p2p/orders] error:', error.message);
+    return res.status(500).json({ message: 'Server error fetching orders.', orders: [] });
+  }
+});
+
 // Returns only the current user's own active orders (for mobile Active tab)
 app.get('/api/p2p/orders/my-active', requiresP2PUser, async (req, res) => {
   try {

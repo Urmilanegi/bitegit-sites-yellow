@@ -3274,9 +3274,11 @@ async function loadMobileActiveOrdersDirect() {
   // Directly fetches current user's active orders (bypasses the 20-order live feed limit)
   if (!currentUser) return;
   try {
-    var resp = await fetch('/api/p2p/orders/my-active');
+    var resp = await fetch('/api/p2p/orders/my-active', { credentials: 'include', headers: { 'Cache-Control': 'no-store' } });
+    if (!resp.ok) return;
     var data = await resp.json();
-    var orders = data.orders || [];
+    var orders = Array.isArray(data) ? data : (data.orders || []);
+    console.log('ORDERS API RESPONSE (active-direct):', { count: orders.length });
     orders.forEach(function(o) { storeOrderForMobile(o); });
     renderMobileActiveOrders();
   } catch(e) { /* silent — fallback to cached orders */ }
@@ -3288,9 +3290,18 @@ async function loadMobileOrderHistory() {
   if (!currentUser) { list.innerHTML = '<p style="text-align:center;padding:2rem;color:rgba(255,255,255,0.4);">Login to view history</p>'; return; }
   list.innerHTML = '<p style="text-align:center;padding:2rem;color:rgba(255,255,255,0.4);">Loading...</p>';
   try {
-    var resp = await fetch('/api/p2p/orders/history?limit=20&offset=0');
+    var resp = await fetch('/api/p2p/orders/history?limit=20&offset=0', { credentials: 'include', headers: { 'Cache-Control': 'no-store' } });
+    if (!resp.ok) {
+      var errData = await resp.json().catch(function(){ return {}; });
+      console.warn('ORDERS API RESPONSE (history):', resp.status, errData.code || errData.message);
+      list.innerHTML = '<div style="text-align:center;padding:2rem;color:rgba(255,255,255,0.4);">' +
+        (resp.status === 404 ? 'API route missing' : 'Could not load history') +
+        ' <button onclick="loadMobileOrderHistory()" style="background:#00d4d4;color:#000;border:none;border-radius:6px;padding:6px 16px;font-size:13px;cursor:pointer;margin-left:8px;">Retry</button></div>';
+      return;
+    }
     var data = await resp.json();
-    var orders = data.orders || [];
+    var orders = Array.isArray(data) ? data : (data.orders || []);
+    console.log('ORDERS API RESPONSE (history):', { count: orders.length });
     if (!orders.length) {
       list.innerHTML = '<div style="text-align:center;padding:2.5rem 1rem;"><div style="font-size:2rem;margin-bottom:0.5rem;">📜</div><p style="color:rgba(255,255,255,0.4);font-size:0.9rem;">No completed orders yet</p></div>';
       return;
@@ -3651,11 +3662,22 @@ function loadBybitorOrders() {
     fetchOrFail('/api/p2p/orders/history?limit=50&offset=0', _hdr)
   ]).then(function(results) {
     var r1 = results[0], r2 = results[1];
+
+    // ── 401 Unauthenticated ──────────────────────────────────────────────
     if (r1.status === 401) { showLoginPrompt(); return; }
+
+    // ── 404 Route missing — API route is not registered on server ────────
+    if (r1.status === 404) {
+      console.error('[loadBybitorOrders] 404 ROUTE_NOT_FOUND — /api/p2p/orders/my-active missing on server');
+      _ordFetching = false;
+      if (!_hadCachedData) showRetry('API route missing — contact support');
+      return;
+    }
+
+    // ── Timeout ──────────────────────────────────────────────────────────
     if (r1._timedOut) {
       _ordFetching = false;
       if (_hadCachedData) {
-        // Cache already rendered — don't wipe it. Show tiny hint and auto-retry in 4s.
         var _retryHint = document.getElementById('_ordRefreshHint');
         if (!_retryHint) {
           _retryHint = document.createElement('div');
@@ -3675,12 +3697,15 @@ function loadBybitorOrders() {
       }
       return;
     }
+
+    // ── 5xx Server error ─────────────────────────────────────────────────
     if (!r1.ok) {
       _ordFetching = false;
+      console.warn('[loadBybitorOrders] server error', r1.status);
       if (_hadCachedData) {
         setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 5000);
       } else {
-        showRetry('Could not load orders (server error ' + r1.status + ')');
+        showRetry('Server error (' + r1.status + ') — tap to retry');
       }
       return;
     }
@@ -3691,9 +3716,19 @@ function loadBybitorOrders() {
     return Promise.all([p1, p2]).then(function(data) {
       _ordFetching = false;
       var d1 = data[0], d2 = data[1];
+      // Normalise: accept plain array OR { orders:[] } OR { data:[] }
       var activeOrders = Array.isArray(d1) ? d1 : (d1.orders || d1.data || []);
       var histOrders   = Array.isArray(d2) ? d2 : (d2.orders || d2.data || []);
-      // Merge: active takes precedence for dedup; history fills in rest
+
+      // Debug: log actual API responses so we can spot shape mismatches
+      console.log('ORDERS API RESPONSE:', {
+        activeCount: activeOrders.length,
+        historyCount: histOrders.length,
+        activeSample: activeOrders[0] || null,
+        historySample: histOrders[0] || null
+      });
+
+      // Merge: active takes precedence for dedup (more up-to-date status)
       var merged = histOrders.concat(activeOrders);
       if (!merged.length) merged = activeOrders;
       try {
@@ -3708,7 +3743,8 @@ function loadBybitorOrders() {
     });
   }).catch(function(e) {
     _ordFetching = false;
-    showRetry('Could not load orders');
+    console.error('[loadBybitorOrders] fetch error:', e.message);
+    showRetry('Could not load orders — tap to retry');
   });
 }
 // Wire orders screen tab buttons (click + touchend for iOS)
