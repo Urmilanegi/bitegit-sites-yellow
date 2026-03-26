@@ -2569,8 +2569,6 @@ async function submitDealOrder() {
     setDealHint('Order created! Ref: ' + data.order.reference, 'success');
     closeDealModal();
     openOrder(data.order);
-    // Ensure orders screen shows fresh data immediately (SSE will also trigger this)
-    _ordLoaded = false;
   } catch (error) {
     console.warn('[submitDealOrder] FAILED:', error.message, 'code=' + (error.code || 'none'));
     setDealHint(error.message || 'Unable to create order.', 'error');
@@ -3621,6 +3619,7 @@ var _ordHistoryAbort = null; // background history request controller
 var _ordFailing   = 0;      // consecutive failure count (reset on success / user change)
 var _ordPollTimer = null;   // single fallback-poll timer (only when SSE is down)
 var _ordFetching  = false;  // legacy compat flag — mirrors !!_ordAbort
+var _ordRefreshQueued = false; // another refresh was requested while one was in progress
 
 // ── cache ──────────────────────────────────────────────────────────────────
 var _ORD_CACHE_KEY    = 'p2p_orders_cache';
@@ -3807,25 +3806,44 @@ function _ordShowLogin() {
     '</div>';
 }
 
+function _ordDrainQueuedRefresh() {
+  if (!_ordRefreshQueued || !currentUser || !currentUser.id) {
+    return;
+  }
+  _ordRefreshQueued = false;
+  setTimeout(function() {
+    if (currentUser && currentUser.id) {
+      fetchOrdersSafe();
+    }
+  }, 80);
+}
+
 // ── SINGLE ENTRY POINT ─────────────────────────────────────────────────────
 // fetchOrdersSafe() — race-protected, abort-controller guarded, retry-capped
 function fetchOrdersSafe() {
   if (!currentUser || !currentUser.id) { _ordShowLogin(); return; }
 
-  // Show cache instantly (zero delay UX) before any network call
-  var cached = _loadOrdCache();
-  if (cached.length) {
-    _ordRenderAll(cached, true);
-  } else {
-    _ordShowSkeleton();
+  if (_ordFetching) {
+    _ordRefreshQueued = true;
+    return;
   }
 
-  // Abort any in-flight request — prevents stale responses from overwriting fresh data
-  if (_ordAbort) { try { _ordAbort.abort(); } catch(_) {} }
+  // Show cache/skeleton only for the initial unresolved load.
+  if (!_ordLoaded) {
+    var cached = _loadOrdCache();
+    if (cached.length) {
+      _ordRenderAll(cached, true);
+    } else {
+      _ordShowSkeleton();
+    }
+  }
+
+  // Keep only one background history request active.
   if (_ordHistoryAbort) { try { _ordHistoryAbort.abort(); } catch(_) {} }
   var ctrl = window.AbortController ? new AbortController() : null;
   _ordAbort    = ctrl;
   _ordFetching = true;
+  _ordRefreshQueued = false;
   var myReqId  = ++_ordReqId;
 
   var fetchOpts = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
@@ -3842,6 +3860,7 @@ function fetchOrdersSafe() {
       return _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
         if (fallbackData) {
           _ordFailing = 0;
+          _ordDrainQueuedRefresh();
           return fallbackData;
         }
         _ordFailing++;
@@ -3850,6 +3869,7 @@ function fetchOrdersSafe() {
         } else {
           _ordShowRetry('Could not load orders — tap to retry');
         }
+        _ordDrainQueuedRefresh();
         return null;
       });
     }
@@ -3863,6 +3883,7 @@ function fetchOrdersSafe() {
     var endedFromCache = _ordEndedOrders(_ordAllOrders);
     _ordRenderAll(_ordMergeById(activeOrders, endedFromCache), false);
     _fetchOrderHistoryInBackground(myReqId);
+    _ordDrainQueuedRefresh();
   })
   .catch(function(e) {
     if (e && e.name === 'AbortError') return; // intentionally cancelled — ignore
@@ -3874,6 +3895,7 @@ function fetchOrdersSafe() {
         var endedFromCache = _ordEndedOrders(_ordAllOrders);
         _ordRenderAll(_ordMergeById(fallbackData.orders || [], endedFromCache), false);
         _fetchOrderHistoryInBackground(myReqId);
+        _ordDrainQueuedRefresh();
         return;
       }
       _ordFailing++;
@@ -3882,6 +3904,7 @@ function fetchOrdersSafe() {
       } else {
         _ordShowRetry('Connection error — tap to retry');
       }
+      _ordDrainQueuedRefresh();
     });
   });
 }
@@ -3894,7 +3917,7 @@ function _startFallbackPoll() {
   if (_ordPollTimer) return; // already running
   _ordPollTimer = setInterval(function() {
     if (currentUser && !_ordAbort) fetchOrdersSafe();
-  }, 3000);
+  }, 15000);
 }
 function _stopFallbackPoll() {
   if (_ordPollTimer) { clearInterval(_ordPollTimer); _ordPollTimer = null; }
@@ -3908,7 +3931,7 @@ function stopBgOrdPolling()  { _stopFallbackPoll(); }
 
 // ── VISIBILITY — refresh when tab/app comes back into focus ────────────────
 document.addEventListener('visibilitychange', function() {
-  if (!document.hidden && currentUser) fetchOrdersSafe();
+  if (!document.hidden && currentUser && !_ordFetching) fetchOrdersSafe();
 });
 
 // Wire orders screen tab buttons (click + touchend for iOS)
@@ -4998,8 +5021,7 @@ window.deleteMobAd = async function(offerId) {
         history.replaceState(null,'','/p2p#profile');
       } else if (screenId === 'mobOrdersScreen') {
         history.replaceState(null,'','/p2p#orders');
-        _ordLoaded = false; // always fetch fresh when screen opens
-        // Show cache immediately (no delay); startOrdPolling kicks off background refresh
+        // Keep any already-rendered data visible; background refresh still runs.
         switchOrdMain('pending');
         startOrdPolling();
       }
