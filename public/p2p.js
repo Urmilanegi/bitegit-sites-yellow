@@ -2030,6 +2030,7 @@ async function loadCurrentUser() {
       currentUser = null;
       try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
       _clearOrdersCache();
+      fetchOrdersSafe(); // session expired — replace stuck skeleton with login prompt
     }
   } catch (error) {
     // Network/parse error — keep optimistic hint state, schedule retry
