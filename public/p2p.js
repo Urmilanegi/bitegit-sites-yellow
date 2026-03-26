@@ -2046,7 +2046,7 @@ async function loadCurrentUser() {
     if (data.loggedIn && normalizedUser) {
       var _prevId = getCurrentUserId();
       if (_prevId !== normalizedUser.id) {
-        _clearOrdersCache(); // different user → wipe all stale state immediately
+        _clearOrdersCache({ preserveSnapshots: true }); // keep per-order snapshots for instant reloads
       }
       currentUser = normalizedUser;
       updateCurrentUserKyc(currentUser.kyc || {});
@@ -2057,7 +2057,7 @@ async function loadCurrentUser() {
     } else {
       currentUser = null;
       try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
-      _clearOrdersCache();
+      _clearOrdersCache({ preserveSnapshots: true });
       fetchOrdersSafe(); // session expired — replace stuck skeleton with login prompt
     }
   } catch (error) {
@@ -2127,7 +2127,7 @@ async function loginUser() {
     }
 
     // Always wipe all order state on login — guarantees zero cross-user contamination
-    _clearOrdersCache();
+    _clearOrdersCache({ preserveSnapshots: true });
 
     currentUser = normalizeCurrentUserPayload(data.user);
     if (!currentUser) {
@@ -2160,7 +2160,9 @@ async function loginUser() {
   }
 }
 
-function _clearOrdersCache() {
+function _clearOrdersCache(options) {
+  options = options || {};
+  var preserveSnapshots = options.preserveSnapshots === true;
   // Cancel any in-flight request immediately
   if (typeof _ordAbort !== 'undefined' && _ordAbort) {
     try { _ordAbort.abort(); } catch(_) {}
@@ -2175,14 +2177,16 @@ function _clearOrdersCache() {
   }
   // Wipe localStorage
   try { localStorage.removeItem(_ORD_CACHE_KEY || 'p2p_orders_cache'); } catch(_) {}
-  try {
-    var toRemove = [];
-    for (var i = 0; i < localStorage.length; i++) {
-      var k = localStorage.key(i);
-      if (k && k.startsWith('p2p_order_')) toRemove.push(k);
-    }
-    toRemove.forEach(function(k) { localStorage.removeItem(k); });
-  } catch(_) {}
+  if (!preserveSnapshots) {
+    try {
+      var toRemove = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.startsWith('p2p_order_')) toRemove.push(k);
+      }
+      toRemove.forEach(function(k) { localStorage.removeItem(k); });
+    } catch(_) {}
+  }
   // Reset all order state
   _ordAllOrders = [];
   _ordLoaded    = false;
@@ -2536,6 +2540,7 @@ async function createOrder(offerId, options = {}) {
     } else {
       _ordAllOrders = _ordAllOrders.map(function(o) { return o.id === newOrd.id ? newOrd : o; });
     }
+    try { localStorage.setItem('p2p_order_' + newOrd.id, JSON.stringify(newOrd)); } catch(_) {}
     _ordLoaded = true;
     _saveOrdCache(_ordAllOrders);
 
@@ -3681,6 +3686,115 @@ function _loadOrdCache() {
   } catch(_) { return []; }
 }
 
+function _ordBelongsToCurrentUser(order) {
+  if (!order || !currentUser) {
+    return false;
+  }
+
+  var currentUserId = getCurrentUserId();
+  var currentUserEmail = String(currentUser.email || '').trim().toLowerCase();
+  var currentUserName = String(currentUser.username || '').trim().toLowerCase();
+  var hasMatch = false;
+
+  function normalized(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function checkId(value) {
+    return Boolean(currentUserId) && String(value || '').trim() === currentUserId;
+  }
+
+  function checkName(value) {
+    return Boolean(currentUserName) && normalized(value) === currentUserName;
+  }
+
+  function checkEmail(value) {
+    return Boolean(currentUserEmail) && normalized(value) === currentUserEmail;
+  }
+
+  [
+    order.buyerUserId,
+    order.buyerId,
+    order.sellerUserId,
+    order.sellerId
+  ].forEach(function(value) {
+    if (!hasMatch && checkId(value)) {
+      hasMatch = true;
+    }
+  });
+
+  if (hasMatch) {
+    return true;
+  }
+
+  [
+    order.buyerUsername,
+    order.sellerUsername
+  ].forEach(function(value) {
+    if (!hasMatch && checkName(value)) {
+      hasMatch = true;
+    }
+  });
+
+  if (hasMatch) {
+    return true;
+  }
+
+  [
+    order.buyerEmail,
+    order.sellerEmail
+  ].forEach(function(value) {
+    if (!hasMatch && checkEmail(value)) {
+      hasMatch = true;
+    }
+  });
+
+  if (hasMatch) {
+    return true;
+  }
+
+  if (Array.isArray(order.participants)) {
+    order.participants.forEach(function(participant) {
+      if (hasMatch) return;
+      if (checkId(participant && participant.id)) hasMatch = true;
+      else if (checkName(participant && participant.username)) hasMatch = true;
+      else if (checkEmail(participant && participant.email)) hasMatch = true;
+    });
+  }
+
+  return hasMatch;
+}
+
+function _ordLoadSavedSnapshots(options) {
+  options = options || {};
+  var activeOnly = options.activeOnly !== false;
+  if (!currentUser || !window.localStorage) {
+    return [];
+  }
+
+  var orders = [];
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (!key || key.indexOf('p2p_order_') !== 0) continue;
+      var raw = localStorage.getItem(key);
+      if (!raw) continue;
+      var order = JSON.parse(raw);
+      if (!order || !order.id || !_ordBelongsToCurrentUser(order)) continue;
+      if (activeOnly && !isOngoingOrderStatus(order.status)) continue;
+      orders.push(order);
+    }
+  } catch (_) {
+    return [];
+  }
+
+  return orders.sort(function(a, b) {
+    var left = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    var right = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return right - left;
+  });
+}
+
 // ── UI helpers ─────────────────────────────────────────────────────────────
 function _ordRenderAll(allOrders, fromCache) {
   var map = {};
@@ -3866,7 +3980,12 @@ function fetchOrdersSafe() {
     if (cached.length) {
       _ordRenderAll(cached, true);
     } else {
-      _ordShowSkeleton();
+      var snapshots = _ordLoadSavedSnapshots({ activeOnly: true });
+      if (snapshots.length) {
+        _ordRenderAll(snapshots, false);
+      } else {
+        _ordShowSkeleton();
+      }
     }
   }
 
@@ -3956,7 +4075,15 @@ function _stopFallbackPoll() {
 }
 
 // ── KEPT for call-site compatibility (showMobScreen calls startOrdPolling) ─
-function startOrdPolling()   { fetchOrdersSafe(); }
+function startOrdPolling()   {
+  if (!_ordLoaded) {
+    var snapshots = _ordLoadSavedSnapshots({ activeOnly: true });
+    if (snapshots.length) {
+      _ordRenderAll(snapshots, false);
+    }
+  }
+  fetchOrdersSafe();
+}
 function stopOrdPolling()    { /* no-op — SSE handles real-time */ }
 function startBgOrdPolling() { _startFallbackPoll(); }
 function stopBgOrdPolling()  { _stopFallbackPoll(); }
