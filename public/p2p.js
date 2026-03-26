@@ -3423,7 +3423,15 @@ function _ordCard(order) {
   var qty = Number(order.assetAmount || 0);
   var qtyStr = qty % 1 === 0 ? qty.toString() : parseFloat(qty.toFixed(4)).toString();
   var fmt = function(n) { return formatNumber ? formatNumber(n) : n; };
-  var counterparty = escapeHtml ? escapeHtml(order.participantsLabel || '--') : (order.participantsLabel || '--');
+  // Show only the OTHER person's name — not both participants
+  var _myId = currentUser && currentUser.id;
+  var _myName = currentUser && currentUser.username;
+  var _isBuyer = (_myId && (order.buyerUserId === _myId || order.buyerId === _myId)) ||
+                 (_myName && order.buyerUsername === _myName);
+  var _rawCounterparty = _isBuyer
+    ? (order.sellerUsername || 'Seller')
+    : (order.buyerUsername || 'Buyer');
+  var counterparty = escapeHtml ? escapeHtml(_rawCounterparty) : _rawCounterparty;
   var rawId = order.id || '';
   var ordId = encodeURIComponent(rawId);
   // store order in localStorage so order-flow page can show instantly
@@ -3575,24 +3583,24 @@ function switchOrdSub(sub) {
 }
 
 var _ORD_CACHE_KEY = 'p2p_orders_cache';
-var _ORD_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours — show cached orders instantly; background refresh always runs
+var _ORD_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 function _saveOrdCache(orders) {
+  if (!currentUser || !currentUser.id) return; // never save without knowing who logged in
   try {
-    localStorage.setItem(_ORD_CACHE_KEY, JSON.stringify({ ts: Date.now(), orders: orders }));
+    localStorage.setItem(_ORD_CACHE_KEY, JSON.stringify({ ts: Date.now(), userId: currentUser.id, orders: orders }));
   } catch(e){}
 }
 function _loadOrdCache() {
   try {
     var raw = JSON.parse(localStorage.getItem(_ORD_CACHE_KEY) || 'null');
     if (!raw) return [];
-    // Support old plain-array format
-    if (Array.isArray(raw)) {
-      localStorage.removeItem(_ORD_CACHE_KEY); // wipe stale format
+    // HARD guard: reject cache if it was saved for a different user
+    if (!currentUser || !currentUser.id || raw.userId !== currentUser.id) {
+      localStorage.removeItem(_ORD_CACHE_KEY); // wipe wrong-user cache immediately
       return [];
     }
-    // Discard if older than TTL — ensures new orders are never hidden by stale cache
+    // Discard if stale
     if (!raw.ts || (Date.now() - raw.ts) > _ORD_CACHE_TTL_MS) {
-      console.log('[ordCache] expired — discarding');
       localStorage.removeItem(_ORD_CACHE_KEY);
       return [];
     }
@@ -3681,8 +3689,14 @@ function loadBybitorOrders() {
     });
   }
 
-  // show cached orders instantly — user sees real data in <1ms
-  var cached = _loadOrdCache();
+  // No user logged in — show login prompt immediately, never show stale cache
+  if (!currentUser || !currentUser.id) {
+    showLoginPrompt();
+    return;
+  }
+
+  // show cached orders instantly — only if they belong to the current user
+  var cached = _loadOrdCache(); // _loadOrdCache rejects wrong-user data automatically
   var _hadCachedData = cached.length > 0;
   if (cached.length) {
     renderAll(cached, true);
