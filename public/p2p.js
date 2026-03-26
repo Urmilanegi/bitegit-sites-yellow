@@ -2006,7 +2006,9 @@ async function loadCurrentUser() {
       if (hintUser && hintUser.id) {
         currentUser = hintUser;
         updateUserUi(); // show logged-in UI immediately, no waiting
-        fetchOrdersSafe(); // start loading orders from cache/network immediately — don't wait for /me
+        // Show cached orders instantly — no network fetch yet to avoid aborting the confirmed fetch below
+        var _hintCache = _loadOrdCache();
+        if (_hintCache.length) { _ordRenderAll(_hintCache, true); } else { _ordShowSkeleton(); }
       }
     }
   } catch(_) {}
@@ -5831,10 +5833,10 @@ window.deleteMobAd = async function(offerId) {
     if (_userStream) { _userStream.close(); _userStream = null; }
     _userStream = new EventSource('/api/p2p/me/stream', { withCredentials: true });
     _userStream.addEventListener('connected', function() {
-      // SSE reconnected (server woke up) — fetch fresh orders immediately
-      // SSE is back, so we can stop the fallback poll
+      // SSE connected — stop fallback poll; only fetch if orders haven't loaded yet
+      // (avoids aborting the in-flight fetch from loadCurrentUser confirmation)
       _stopFallbackPoll();
-      fetchOrdersSafe();
+      if (!_ordLoaded) fetchOrdersSafe();
     });
     _userStream.addEventListener('new_order', function(e) {
       loadLiveOrders(); // refresh the marketplace listings too
