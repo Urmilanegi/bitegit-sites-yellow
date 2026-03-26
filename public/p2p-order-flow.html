@@ -992,6 +992,32 @@
     "I believe the seller may be a scammer.",
     "Other"
   ];
+  var SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
+
+  function readCachedAd(adId) {
+    try {
+      var raw = localStorage.getItem(SELECTED_AD_CACHE_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || !parsed.offer || !parsed.ts) return null;
+      if ((Date.now() - Number(parsed.ts || 0)) > (5 * 60 * 1000)) return null;
+      var offer = parsed.offer;
+      if (adId && String(offer.id || '').trim() !== String(adId || '').trim()) return null;
+      return offer;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function cacheSelectedAd(ad) {
+    if (!ad || !ad.id) return;
+    try {
+      localStorage.setItem(SELECTED_AD_CACHE_KEY, JSON.stringify({
+        ts: Date.now(),
+        offer: ad
+      }));
+    } catch (_) {}
+  }
 
   // ============================================================
   // INIT
@@ -1521,6 +1547,11 @@
   async function loadAd() {
     var params = new URLSearchParams(window.location.search);
     var adId = params.get('adId') || params.get('offerId');
+    var cachedAd = readCachedAd(adId);
+    if (cachedAd) {
+      currentAd = cachedAd;
+      renderBuyForm();
+    }
     try {
       var url = adId ? ('/api/p2p/ads/' + encodeURIComponent(adId)) : '/api/p2p/ads?side=sell&asset=USDT';
       var res = await fetch(url, { credentials: 'include' });
@@ -1531,7 +1562,10 @@
       } else if (data.ads && data.ads.length > 0) {
         currentAd = data.ads[0];
       }
-      if (currentAd) renderBuyForm();
+      if (currentAd) {
+        cacheSelectedAd(currentAd);
+        renderBuyForm();
+      }
     } catch (e) {}
   }
 
