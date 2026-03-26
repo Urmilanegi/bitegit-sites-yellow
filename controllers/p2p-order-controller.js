@@ -234,6 +234,13 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       }
 
       const updatedOrder = await walletService.markOrderPaid(orderId, req.p2pUser);
+
+      if (typeof broadcastUserEvent === 'function') {
+        const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+        if (updatedOrder.sellerId) broadcastUserEvent(updatedOrder.sellerId, 'order_updated', pushPayload);
+        if (updatedOrder.buyerId) broadcastUserEvent(updatedOrder.buyerId, 'order_updated', pushPayload);
+      }
+
       return res.json({
         ...toOrderResponse(updatedOrder),
         order: updatedOrder
@@ -259,6 +266,13 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       }
 
       const updatedOrder = await walletService.releaseOrder(orderId, req.p2pUser);
+
+      if (typeof broadcastUserEvent === 'function') {
+        const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+        if (updatedOrder.sellerId) broadcastUserEvent(updatedOrder.sellerId, 'order_updated', pushPayload);
+        if (updatedOrder.buyerId) broadcastUserEvent(updatedOrder.buyerId, 'order_updated', pushPayload);
+      }
+
       return res.json({
         ...toOrderResponse(updatedOrder),
         order: updatedOrder
@@ -284,6 +298,13 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       }
 
       const updatedOrder = await walletService.cancelOrder(orderId, req.p2pUser, 'CANCELLED');
+
+      if (typeof broadcastUserEvent === 'function') {
+        const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+        if (updatedOrder.sellerId) broadcastUserEvent(updatedOrder.sellerId, 'order_updated', pushPayload);
+        if (updatedOrder.buyerId) broadcastUserEvent(updatedOrder.buyerId, 'order_updated', pushPayload);
+      }
+
       return res.json({
         ...toOrderResponse(updatedOrder),
         order: updatedOrder
