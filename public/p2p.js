@@ -2579,7 +2579,25 @@ async function submitDealOrder() {
 
 function renderLiveOrders(orders) {
   const incomingOrders = Array.isArray(orders) ? orders : [];
-  const participantOrders = incomingOrders.filter((order) => Boolean(order?.isParticipant));
+  const currentUserId = String(currentUser?.id || '').trim();
+  const participantOrders = incomingOrders
+    .map((order) => {
+      if (!order || typeof order !== 'object') {
+        return null;
+      }
+
+      const buyerUserId = String(order.buyerUserId || '').trim();
+      const sellerUserId = String(order.sellerUserId || '').trim();
+      const inferredParticipant =
+        Boolean(currentUserId) && (buyerUserId === currentUserId || sellerUserId === currentUserId);
+
+      return {
+        ...order,
+        isParticipant:
+          typeof order.isParticipant === 'boolean' ? order.isParticipant : inferredParticipant
+      };
+    })
+    .filter((order) => Boolean(order?.isParticipant));
   participantOrders.forEach((order) => storeOrderForMobile(order));
   pruneMobileOrdersCache();
   const visibleOrders = participantOrders.filter((order) => isOngoingOrderStatus(order.status));
@@ -2669,18 +2687,18 @@ async function loadLiveOrders() {
   }
 
   try {
-    const params = new URLSearchParams({
-      side: currentSide,
-      asset: currentAsset
+    const response = await fetch('/api/p2p/orders/my-active', {
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-store' }
     });
-    const response = await fetch(`/api/p2p/orders/live?${params.toString()}`);
     const data = await response.json();
 
     if (!response.ok) {
       throw new Error(data.message || 'Unable to load ongoing orders.');
     }
 
-    const visibleCount = renderLiveOrders(data.orders);
+    const orders = Array.isArray(data) ? data : (data.orders || []);
+    const visibleCount = renderLiveOrders(orders);
     liveOrdersMeta.textContent = `Ongoing Orders: ${visibleCount}`;
   } catch (error) {
     if (liveOrdersRows) {

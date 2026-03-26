@@ -1315,6 +1315,21 @@ function isParticipant(order, userId) {
   return [order.sellerUserId, order.buyerUserId].includes(userId);
 }
 
+async function listActiveOrdersForUserResponse(userId, { limit = 50 } = {}) {
+  const activeStatuses = P2P_ORDER_ACTIVE_STATUSES;
+  const rows = typeof repos?.listP2PActiveOrdersForUser === 'function'
+    ? await repos.listP2PActiveOrdersForUser({ userId, limit })
+    : (await repos.listP2POrderHistory(userId, { limit, offset: 0 })).orders.filter((order) => activeStatuses.includes(order.status));
+
+  return rows
+    .map((order) => normalizeOrderState(order))
+    .map((order) => ({
+      ...order,
+      isParticipant: true,
+      paymentMethod: order.paymentMethod
+    }));
+}
+
 function addSystemMessage(order, text) {
   const now = Date.now();
   order.messages.push({
@@ -2892,17 +2907,9 @@ app.get('/api/p2p/orders/my-active', requiresP2PUser, async (req, res) => {
   try {
     const userId = req.p2pUser.id;
     const username = req.p2pUser.username;
-    const result = await repos.listP2POrderHistory(userId, { limit: 50, offset: 0 });
-    console.log(`[my-active] user=${username} id=${userId} total_orders=${result.total}`);
-    const activeStatuses = ['CREATED', 'PENDING', 'PAID', 'PAYMENT_SENT', 'DISPUTED'];
-    const activeOrders = result.orders
-      .filter((o) => activeStatuses.includes(o.status))
-      .map((order) => {
-        const normalized = normalizeOrderState(order);
-        return { ...normalized, isParticipant: true, paymentMethod: order.paymentMethod };
-      });
+    const activeOrders = await listActiveOrdersForUserResponse(userId, { limit: 50 });
     console.log(`[my-active] active_orders=${activeOrders.length}`);
-    return res.json({ orders: activeOrders });
+    return res.json({ total: activeOrders.length, orders: activeOrders });
   } catch (error) {
     console.error('[my-active] error:', error);
     return res.status(500).json({ message: 'Server error fetching active orders.' });
@@ -2910,27 +2917,8 @@ app.get('/api/p2p/orders/my-active', requiresP2PUser, async (req, res) => {
 });
 
 app.get('/api/p2p/orders/live', requiresP2PUser, async (req, res) => {
-  const side = String(req.query.side || '').trim().toLowerCase();
-  const asset = String(req.query.asset || '').trim().toUpperCase();
-
   try {
-    const liveOrders = (await repos.listP2PLiveOrders({ side: side || undefined, asset: asset || undefined, limit: 20 }))
-      .map((order) => normalizeOrderState(order))
-      .map((order) => ({
-        id: order.id,
-        reference: order.reference,
-        side: order.side,
-        asset: order.asset,
-        status: order.status,
-        advertiser: order.advertiser,
-        amountInr: order.amountInr,
-        price: order.price,
-        participantsLabel: order.participantsLabel,
-        isParticipant: order.participants.some((participant) => participant.id === req.p2pUser.id),
-        updatedAt: order.updatedAt,
-        remainingSeconds: order.remainingSeconds
-      }));
-
+    const liveOrders = await listActiveOrdersForUserResponse(req.p2pUser.id, { limit: 50 });
     return res.json({
       total: liveOrders.length,
       orders: liveOrders
