@@ -2015,19 +2015,21 @@ async function loadCurrentUser() {
     const response = await fetch('/api/p2p/me', { credentials: 'include' });
     const data = await response.json();
     if (data.loggedIn && data.user) {
-      // If server returned a different user than the cached hint, wipe stale order cache
+      // If server returned a different user than what was in hint, wipe stale order cache
       var _prevId = currentUser && currentUser.id;
-      if (_prevId && _prevId !== data.user.id) {
-        _clearOrdersCache();
-      }
+      var _userChanged = _prevId && _prevId !== data.user.id;
+      if (_userChanged) _clearOrdersCache();
       currentUser = data.user;
       updateCurrentUserKyc(currentUser.kyc || {});
-      // Refresh hint with latest server data
       try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: currentUser.id, username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
+      // Always trigger orders load after we confirm user identity from server
+      // This covers: page refresh with no hint, user change, network retry on wake
+      _ordFetching = false;
+      loadBybitorOrders();
     } else {
       currentUser = null;
-      try { localStorage.removeItem('_p2p_hint'); } catch(_) {} // session expired — clear hint
-      _clearOrdersCache(); // clear order cache when session ends
+      try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
+      _clearOrdersCache();
     }
   } catch (error) {
     // Network/parse error — keep optimistic hint state, schedule retry
@@ -3689,105 +3691,104 @@ function loadBybitorOrders() {
     });
   }
 
-  // No user logged in — show login prompt immediately, never show stale cache
-  if (!currentUser || !currentUser.id) {
-    showLoginPrompt();
-    return;
-  }
-
-  // show cached orders instantly — only if they belong to the current user
-  var cached = _loadOrdCache(); // _loadOrdCache rejects wrong-user data automatically
+  // Show cached data for THIS user instantly — wrong-user cache is auto-rejected by _loadOrdCache
+  var cached = _loadOrdCache();
   var _hadCachedData = cached.length > 0;
   if (cached.length) {
-    renderAll(cached, true);
-  } else {
-    // no cache — show skeleton shimmer
+    renderAll(cached, true); // instant render from cache
+  } else if (currentUser && currentUser.id) {
+    // Logged-in but no cache — show skeleton
     Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
       var el = document.getElementById(_ORD_LIST_IDS[sub]);
       if (el) el.style.display = 'none';
     });
     var spinEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
     if (spinEl) { spinEl.style.display = 'block'; spinEl.innerHTML = _ordLoadingHtml(); }
+  } else {
+    // Not logged in — show login prompt, don't fetch
+    showLoginPrompt();
+    return;
   }
 
   // skip if a fetch is already in flight
   if (_ordFetching) return;
   _ordFetching = true;
 
-  // retry counter — show status after 1st retry so user knows server is waking up
   if (typeof loadBybitorOrders._retryCount === 'undefined') loadBybitorOrders._retryCount = 0;
-
-  // update skeleton with "waking up" hint after 1st retry
-  function _showWakingHint() {
-    var spinEl2 = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-    if (spinEl2 && !spinEl2.querySelector('[data-waking]')) {
-      var hint = document.createElement('div');
-      hint.setAttribute('data-waking', '1');
-      hint.style.cssText = 'text-align:center;padding:10px 16px 0;font-size:12px;color:rgba(255,255,255,0.3);';
-      hint.textContent = 'Server is waking up, please wait…';
-      spinEl2.appendChild(hint);
-    }
-  }
+  if (typeof loadBybitorOrders._errCount === 'undefined') loadBybitorOrders._errCount = 0;
 
   var _hdr = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
 
-  // SINGLE endpoint: /api/p2p/orders returns all orders (active + history) in one call
   fetchOrFail('/api/p2p/orders?limit=50', _hdr).then(function(r) {
 
     // ── 401 Unauthenticated ───────────────────────────────────────────────
-    if (r.status === 401) { showLoginPrompt(); return; }
+    if (r.status === 401) { _ordFetching = false; showLoginPrompt(); return; }
 
-    // ── 503 / Timeout — server still starting, silent retry ──────────────
-    var isWaiting = r.status === 503 || r._timedOut;
+    // ── 503 / Timeout — server still starting ────────────────────────────
+    var isWaiting = r.status === 503 || r._timedOut || r.status === 0;
     if (isWaiting) {
       _ordFetching = false;
       loadBybitorOrders._retryCount = (loadBybitorOrders._retryCount || 0) + 1;
       var retryN = loadBybitorOrders._retryCount;
-      console.log('[loadBybitorOrders] server not ready (' + (r._timedOut ? 'timeout' : '503') + '), retry #' + retryN);
-      if (retryN === 1) _showWakingHint(); // show "waking up" after 1st attempt
-      if (retryN <= 10) {
-        // Retry quickly — server wakes fast once ping hits it
-        // Delays: 1s, 2s, 3s, 4s, 5s … (max 5s) instead of 4/8/12/16/20s
-        var delay = Math.min(retryN * 1000, 5000);
-        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, delay);
-      } else {
-        loadBybitorOrders._retryCount = 0;
-        if (_hadCachedData) {
-          var hint = document.getElementById('_ordRefreshHint');
-          if (!hint) {
-            hint = document.createElement('div');
-            hint.id = '_ordRefreshHint';
-            hint.style.cssText = 'text-align:center;padding:8px 16px;font-size:12px;color:rgba(255,255,255,0.35);border-bottom:1px solid rgba(255,255,255,0.04);';
-            hint.innerHTML = 'Could not refresh. <button onclick="document.getElementById(\'_ordRefreshHint\').remove();_ordFetching=false;loadBybitorOrders();" style="background:transparent;border:none;color:#00d4d4;font-size:12px;cursor:pointer;padding:0;">Retry now</button>';
-            var activeList = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
-            if (activeList) activeList.insertBefore(hint, activeList.firstChild);
+      // Show cached data while waiting — never show skeleton during retries if cache exists
+      if (_hadCachedData) {
+        // Keep showing cached orders, add subtle refresh indicator on 1st retry only
+        if (retryN === 1) {
+          var spinEl2 = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+          if (spinEl2 && !spinEl2.querySelector('[data-waking]')) {
+            var wHint = document.createElement('div');
+            wHint.setAttribute('data-waking', '1');
+            wHint.style.cssText = 'text-align:center;padding:6px 16px 0;font-size:11px;color:rgba(255,255,255,0.25);';
+            wHint.textContent = 'Refreshing…';
+            spinEl2.insertBefore(wHint, spinEl2.firstChild);
           }
+        }
+        // Cap at 5 retries then show "tap to refresh" — never loop forever
+        if (retryN <= 5) {
+          setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, Math.min(retryN * 2000, 8000));
         } else {
-          showRetry('Server is starting up — tap Retry');
+          loadBybitorOrders._retryCount = 0;
+          var refreshHint = document.getElementById('_ordRefreshHint');
+          if (!refreshHint) {
+            refreshHint = document.createElement('div');
+            refreshHint.id = '_ordRefreshHint';
+            refreshHint.style.cssText = 'text-align:center;padding:8px;font-size:12px;color:rgba(255,255,255,0.35);';
+            refreshHint.innerHTML = 'Could not refresh. <button onclick="document.getElementById(\'_ordRefreshHint\').remove();_ordFetching=false;loadBybitorOrders();" style="background:transparent;border:none;color:#00d4d4;font-size:12px;cursor:pointer;">Retry</button>';
+            var aList = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
+            if (aList) aList.insertBefore(refreshHint, aList.firstChild);
+          }
+        }
+      } else {
+        // No cache — retry quickly, then show retry button (never infinite loop)
+        if (retryN <= 4) {
+          setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, Math.min(retryN * 1500, 5000));
+        } else {
+          loadBybitorOrders._retryCount = 0;
+          showRetry('Server starting up — tap to retry');
         }
       }
       return;
     }
 
-    // reset retry counter on any real response
     loadBybitorOrders._retryCount = 0;
+    loadBybitorOrders._errCount = 0;
 
-    // ── 404 Route missing ────────────────────────────────────────────────
     if (r.status === 404) {
       _ordFetching = false;
-      console.error('[loadBybitorOrders] 404 — /api/p2p/orders missing on server');
-      if (!_hadCachedData) showRetry('API route missing — contact support');
+      if (!_hadCachedData) showRetry('Orders unavailable — contact support');
       return;
     }
 
-    // ── 5xx Server error ─────────────────────────────────────────────────
+    // ── 5xx / Network error ───────────────────────────────────────────────
     if (!r.ok) {
       _ordFetching = false;
-      console.warn('[loadBybitorOrders] server error', r.status);
-      if (_hadCachedData) {
-        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 8000);
+      loadBybitorOrders._errCount = (loadBybitorOrders._errCount || 0) + 1;
+      // Cap at 3 error retries — then show retry button and stop looping
+      if (loadBybitorOrders._errCount <= 3) {
+        setTimeout(function() { if (!_ordFetching) loadBybitorOrders(); }, 5000);
       } else {
-        showRetry('Server error (' + r.status + ') — tap to retry');
+        loadBybitorOrders._errCount = 0;
+        if (!_hadCachedData) showRetry('Server error — tap to retry');
       }
       return;
     }
@@ -3796,7 +3797,6 @@ function loadBybitorOrders() {
     r.json().catch(function() { return { orders: [] }; }).then(function(data) {
       _ordFetching = false;
       var orders = Array.isArray(data) ? data : (data.orders || data.data || []);
-      console.log('ORDERS API RESPONSE:', { count: orders.length, sample: orders[0] || null });
       try {
         renderAll(orders, false);
       } catch(e) {
