@@ -1033,17 +1033,29 @@
     document.body.style.visibility = 'visible';
     buildReasonList();
     wireEvents();
+    var params = new URLSearchParams(window.location.search);
+    var orderId = params.get('orderId');
+    var openChat = params.get('openChat') === '1';
+    _entrySource = String(params.get('source') || (orderId ? 'orders' : 'ad')).trim().toLowerCase() || 'ad';
+
+    if (orderId) {
+      loadExistingOrder(orderId, openChat);
+    } else {
+      showScreen('screen-buy');
+      loadAd();
+      hideLoading();
+    }
+
     checkAuth().then(function() {
-      var params = new URLSearchParams(window.location.search);
-      var orderId = params.get('orderId');
-      var openChat = params.get('openChat') === '1';
-      _entrySource = String(params.get('source') || (orderId ? 'orders' : 'ad')).trim().toLowerCase() || 'ad';
-      if (orderId) {
+      if (!currentUser) {
+        return;
+      }
+      if (orderId && !currentOrder) {
         loadExistingOrder(orderId, openChat);
-      } else {
-        showScreen('screen-buy');
+        return;
+      }
+      if (!orderId && !currentAd) {
         loadAd();
-        hideLoading();
       }
     });
   });
@@ -1292,13 +1304,30 @@
 
     try {
       var res = await fetch('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' });
-      if (!res.ok) { hideLoading(); showToast('Order not found'); showScreen('screen-buy'); loadAd(); return; }
+      if (!res.ok) {
+        hideLoading();
+        if (res.status === 401) {
+          showLoginModal();
+          return;
+        }
+        showToast('Order not found');
+        showScreen('screen-buy');
+        loadAd();
+        return;
+      }
       var data = await res.json();
       var order = data.order || data;
       try { localStorage.setItem('p2p_order_' + orderId, JSON.stringify(order)); } catch(e) {}
       applyOrderAndShow(order, forceOpenChat);
       hideLoading();
-    } catch(e) { hideLoading(); showToast('Error loading order'); showScreen('screen-buy'); loadAd(); }
+    } catch(e) {
+      hideLoading();
+      if (!currentOrder) {
+        showToast('Error loading order');
+        showScreen('screen-buy');
+        loadAd();
+      }
+    }
   }
 
   function buildReasonList() {

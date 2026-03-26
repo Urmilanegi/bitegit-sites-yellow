@@ -1565,6 +1565,25 @@ function normalizeOrdersForClient(rows, context = {}) {
   });
 }
 
+function mergeNormalizedOrdersById() {
+  const seen = new Set();
+  const merged = [];
+
+  Array.from(arguments)
+    .flat()
+    .forEach((order) => {
+      if (!order || !order.id || seen.has(order.id)) {
+        return;
+      }
+      seen.add(order.id);
+      merged.push(order);
+    });
+
+  return merged.sort((left, right) => {
+    return new Date(right.updatedAt || right.createdAt || 0).getTime() - new Date(left.updatedAt || left.createdAt || 0).getTime();
+  });
+}
+
 function isParticipant(order, userOrId) {
   if (!order || !userOrId) {
     return false;
@@ -3241,6 +3260,64 @@ app.get('/api/p2p/orders/my-active', requiresP2PUser, async (req, res) => {
     } catch (fallbackError) {
       console.error('[my-active:fallback] error:', fallbackError);
       return res.status(500).json({ message: 'Server error fetching active orders.' });
+    }
+  }
+});
+
+app.get('/api/p2p/orders/bootstrap', requiresP2PUser, async (req, res) => {
+  if (!repos) {
+    return res.status(503).json({
+      message: 'Server is starting up — please retry in a moment.',
+      code: 'SERVICE_UNAVAILABLE',
+      activeOrders: [],
+      historyOrders: [],
+      orders: []
+    });
+  }
+
+  const activeLimit = Math.min(Math.max(Number(req.query.activeLimit || 50), 1), 50);
+  const historyLimit = Math.min(Math.max(Number(req.query.historyLimit || 50), 1), 50);
+
+  try {
+    const [activeOrders, historyResult] = await Promise.all([
+      listActiveOrdersForUserResponse(req.p2pUser, { limit: activeLimit }),
+      repos.listP2POrderHistory(req.p2pUser, { limit: historyLimit, offset: 0 })
+    ]);
+
+    const historyOrders = normalizeOrdersForClient(historyResult.orders, {
+      route: 'bootstrap_history',
+      userId: req.p2pUser.id
+    });
+
+    const mergedOrders = mergeNormalizedOrdersById(activeOrders, historyOrders);
+
+    return res.json({
+      activeOrders,
+      historyOrders,
+      orders: mergedOrders,
+      activeTotal: activeOrders.length,
+      historyTotal: Number(historyResult.total || historyOrders.length || 0)
+    });
+  } catch (error) {
+    console.error('[p2p-orders/bootstrap] error:', error);
+    try {
+      const historyResult = await repos.listP2POrderHistory(req.p2pUser, { limit: historyLimit, offset: 0 });
+      const historyOrders = normalizeOrdersForClient(historyResult.orders, {
+        route: 'bootstrap_fallback',
+        userId: req.p2pUser.id
+      });
+      const activeOrders = historyOrders.filter((order) => P2P_ORDER_ACTIVE_STATUSES.includes(String(order?.status || '').trim().toUpperCase()));
+      return res.json({
+        activeOrders,
+        historyOrders,
+        orders: mergeNormalizedOrdersById(activeOrders, historyOrders),
+        activeTotal: activeOrders.length,
+        historyTotal: Number(historyResult.total || historyOrders.length || 0),
+        degraded: true
+      });
+    } catch (fallbackError) {
+      console.error('[p2p-orders/bootstrap:fallback] error:', fallbackError);
+      return res.status(500).json({ message: 'Server error fetching orders bootstrap.' });
     }
   }
 });

@@ -3779,6 +3779,15 @@ function _loadOrdCache() {
   } catch(_) { return []; }
 }
 
+function _ordPersistSnapshots(orders) {
+  try {
+    (Array.isArray(orders) ? orders : []).forEach(function(order) {
+      if (!order || !order.id) return;
+      localStorage.setItem('p2p_order_' + order.id, JSON.stringify(order));
+    });
+  } catch (_) {}
+}
+
 function _ordBelongsToCurrentUser(order) {
   if (!order || !currentUser) {
     return false;
@@ -3894,6 +3903,7 @@ function _ordRenderAll(allOrders, fromCache) {
   allOrders.forEach(function(o) { if (o && o.id) map[o.id] = o; });
   _ordAllOrders = Object.keys(map).map(function(k) { return map[k]; })
     .sort(function(a, b) { return (b.createdAt || 0) > (a.createdAt || 0) ? 1 : -1; });
+  _ordPersistSnapshots(_ordAllOrders);
   if (!fromCache) _saveOrdCache(_ordAllOrders);
   _ordLoaded  = true;
   _ordFetching = false;
@@ -3948,6 +3958,16 @@ function _ordFetchWithTimeout(url, fetchOpts, timeoutMs) {
 
 function _ordExtractOrders(data) {
   return Array.isArray(data) ? data : (data && (data.orders || data.data) || []);
+}
+
+function _ordExtractBootstrapOrders(data) {
+  if (!data || typeof data !== 'object') {
+    return [];
+  }
+  if (Array.isArray(data.orders) && data.orders.length) {
+    return data.orders;
+  }
+  return _ordMergeById(data.activeOrders || [], data.historyOrders || []);
 }
 
 function _ordFilterActiveOrders(orders) {
@@ -4093,7 +4113,7 @@ function fetchOrdersSafe() {
   var fetchOpts = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
   if (ctrl) fetchOpts.signal = ctrl.signal;
 
-  _ordFetchWithTimeout('/api/p2p/orders/my-active', fetchOpts, 15000)
+  _ordFetchWithTimeout('/api/p2p/orders/bootstrap?activeLimit=50&historyLimit=50', fetchOpts, 15000)
   .then(function(r) {
     if (myReqId !== _ordReqId) return null; // stale — newer request already running
     _ordAbort    = null;
@@ -4123,10 +4143,13 @@ function fetchOrdersSafe() {
   .then(function(data) {
     if (!data) return;
     if (myReqId !== _ordReqId) return; // race check after json parse
-    var activeOrders = data.degraded ? (data.orders || []) : _ordExtractOrders(data);
-    var endedFromCache = _ordEndedOrders(_ordAllOrders);
-    _ordRenderAll(_ordMergeById(activeOrders, endedFromCache), false);
-    _fetchOrderHistoryInBackground(myReqId);
+    var mergedOrders = _ordExtractBootstrapOrders(data);
+    if (!mergedOrders.length) {
+      var endedFromCache = _ordEndedOrders(_ordAllOrders);
+      _ordRenderAll(_ordMergeById([], endedFromCache), false);
+    } else {
+      _ordRenderAll(mergedOrders, false);
+    }
     _ordDrainQueuedRefresh();
   })
   .catch(function(e) {
@@ -4136,9 +4159,7 @@ function fetchOrdersSafe() {
     _ordFetching = false;
     _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
       if (fallbackData && myReqId === _ordReqId) {
-        var endedFromCache = _ordEndedOrders(_ordAllOrders);
-        _ordRenderAll(_ordMergeById(fallbackData.orders || [], endedFromCache), false);
-        _fetchOrderHistoryInBackground(myReqId);
+        _ordRenderAll(_ordMergeById(fallbackData.orders || [], _ordEndedOrders(_ordAllOrders)), false);
         _ordDrainQueuedRefresh();
         return;
       }
