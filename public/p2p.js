@@ -1001,7 +1001,7 @@ function renderMobileOrdersList() {
             <span class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</span>
           </div>
           <div class="mobile-order-grid">
-            <p>Type<strong>${escapeHtml(String(order.side || '').toUpperCase())} ${escapeHtml(order.asset || '')}</strong></p>
+            <p>Type<strong>${escapeHtml(getOrderDisplaySide(order))} ${escapeHtml(order.asset || '')}</strong></p>
             <p>Amount<strong>₹${formatNumber(order.amountInr || 0)}</strong></p>
             <p>Price<strong>₹${formatNumber(order.price || 0)}</strong></p>
             <p>Payment<strong>${escapeHtml(order.paymentMethod || '--')}</strong></p>
@@ -1988,6 +1988,19 @@ function getOrderRole(order) {
   return '';
 }
 
+function getOrderDisplaySide(order) {
+  var rawSide = String(order && order.side || '').trim().toUpperCase();
+  if (!rawSide) {
+    return 'BUY';
+  }
+  var role = getOrderRole(order);
+  if (role === 'seller') {
+    if (rawSide === 'BUY') return 'SELL';
+    if (rawSide === 'SELL') return 'BUY';
+  }
+  return rawSide;
+}
+
 function resetOrderWatch() {
   if (pollingIntervalId) {
     clearInterval(pollingIntervalId);
@@ -2742,7 +2755,7 @@ function renderLiveOrders(orders) {
         return `
           <tr>
             <td>${order.reference}</td>
-            <td>${order.side.toUpperCase()} ${order.asset}</td>
+            <td>${getOrderDisplaySide(order)} ${order.asset}</td>
             <td>₹${formatNumber(order.amountInr)}</td>
             <td><span class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</span></td>
             <td>${escapeHtml(order.participantsLabel)}</td>
@@ -2767,7 +2780,7 @@ function renderLiveOrders(orders) {
               <span class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</span>
             </div>
             <div class="p2p-card-grid">
-              <p>Type<strong>${order.side.toUpperCase()} ${order.asset}</strong></p>
+              <p>Type<strong>${getOrderDisplaySide(order)} ${order.asset}</strong></p>
               <p>Amount<strong>₹${formatNumber(order.amountInr)}</strong></p>
               <p>Participants<strong>${escapeHtml(order.participantsLabel)}</strong></p>
               <p>Counterparty<strong>${escapeHtml(order.advertiser || '--')}</strong></p>
@@ -3579,7 +3592,7 @@ var _ORD_STATUS_MAP = {
 };
 
 function _ordCard(order) {
-  var side = (order.side || '').toUpperCase();
+  var side = getOrderDisplaySide(order);
   var sideColor = side === 'BUY' ? '#2ebd85' : '#f6465d';
   var d = order.createdAt ? new Date(order.createdAt) : null;
   var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
@@ -6351,6 +6364,16 @@ window.deleteMobAd = async function(offerId) {
   var _navLockTs = 0;
   var _navOverlay = null;
 
+  function hideNavOverlay(resetLock) {
+    if (_navOverlay) {
+      _navOverlay.style.opacity = '0';
+      _navOverlay.style.pointerEvents = 'none';
+    }
+    if (resetLock !== false) {
+      _navLockTs = 0;
+    }
+  }
+
   function ensureNavOverlay() {
     if (_navOverlay && document.body.contains(_navOverlay)) {
       return _navOverlay;
@@ -6386,6 +6409,21 @@ window.deleteMobAd = async function(offerId) {
       window.location.href = url;
     }, 18);
   }
+
+  window.addEventListener('pageshow', function() {
+    hideNavOverlay(true);
+  });
+  window.addEventListener('pagehide', function() {
+    hideNavOverlay(true);
+  });
+  window.addEventListener('popstate', function() {
+    hideNavOverlay(true);
+  });
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      hideNavOverlay(true);
+    }
+  });
   window.fillDealModal = function(offer) {
     if (offer && offer.id) {
       cacheSelectedOffer(offer);
