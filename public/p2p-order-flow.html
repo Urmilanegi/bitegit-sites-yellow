@@ -1091,9 +1091,10 @@
   var _appealDraft = { images: [] };
   var _orderSseConnected = false;
   var _chatWarmPromise = null;
-  var ORDER_FLOW_PAGE_VERSION = '20260328c';
+  var ORDER_FLOW_PAGE_VERSION = '20260328e';
   var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
   var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
+  var ORDERS_FOCUS_STATE_KEY = 'p2p_orders_focus_state';
 
   // ── Global click/navigation guards ─────────────────────────────
   var isProcessing = false;
@@ -1105,6 +1106,24 @@
     if (now - _lastNavMs < 800) return;
     _lastNavMs = now;
     window.location.href = url;
+  }
+
+  function getCurrentScreenId() {
+    var active = document.querySelector('.screen.active');
+    if (active && active.id) return active.id;
+    var chatEl = document.getElementById('screen-chat');
+    if (chatEl && chatEl.style.display !== 'none') return 'screen-chat';
+    return 'screen-buy';
+  }
+
+  function rememberOrdersFocus(mainTab, subTab) {
+    try {
+      sessionStorage.setItem(ORDERS_FOCUS_STATE_KEY, JSON.stringify({
+        main: String(mainTab || 'pending').trim() || 'pending',
+        sub: String(subTab || 'inprogress').trim() || 'inprogress',
+        ts: Date.now()
+      }));
+    } catch (_) {}
   }
 
   function _chatCacheKey(orderId) {
@@ -1342,10 +1361,11 @@
     var params = new URLSearchParams(window.location.search);
     var orderId = params.get('orderId');
     var openChat = params.get('openChat') === '1';
+    var requestedScreen = String(params.get('screen') || '').trim();
     _entrySource = String(params.get('source') || (orderId ? 'orders' : 'ad')).trim().toLowerCase() || 'ad';
 
     if (orderId) {
-      loadExistingOrder(orderId, openChat);
+      loadExistingOrder(orderId, openChat, requestedScreen);
     } else {
       showScreen('screen-buy');
       loadAd();
@@ -1358,10 +1378,10 @@
       }
       if (orderId) {
         if (currentOrder) {
-          applyOrderAndShow(currentOrder, openChat);
+          applyOrderAndShow(currentOrder, openChat, requestedScreen);
           hideLoading();
         } else {
-          loadExistingOrder(orderId, openChat);
+          loadExistingOrder(orderId, openChat, requestedScreen);
         }
         return;
       }
@@ -1404,7 +1424,8 @@
     return true;
   }
 
-  function returnToOrdersScreen() {
+  function returnToOrdersScreen(mainTab, subTab) {
+    rememberOrdersFocus(mainTab, subTab);
     navTo('/p2p#orders');
   }
 
@@ -1414,13 +1435,17 @@
     _cacheOrderMessagesFromOrder(currentOrder);
   }
 
-  function syncOrderUrl() {
+  function syncOrderUrl(screenId) {
     if (!currentOrder || !currentOrder.id) return;
     var params = new URLSearchParams();
     params.set('v', ORDER_FLOW_PAGE_VERSION);
     params.set('orderId', currentOrder.id);
     params.set('source', _entrySource === 'orders' ? 'orders' : 'ad');
-    if (document.getElementById('screen-chat') && document.getElementById('screen-chat').style.display !== 'none') {
+    var resolvedScreen = String(screenId || getCurrentScreenId() || '').trim();
+    if (resolvedScreen) {
+      params.set('screen', resolvedScreen);
+    }
+    if (resolvedScreen === 'screen-chat' || (document.getElementById('screen-chat') && document.getElementById('screen-chat').style.display !== 'none')) {
       params.set('openChat', '1');
     }
     if (window.history && typeof window.history.replaceState === 'function') {
@@ -1550,16 +1575,17 @@
     }
   }
 
-  function applyOrderAndShow(order, forceOpenChat) {
+  function applyOrderAndShow(order, forceOpenChat, requestedScreen) {
     currentOrder = order;
     _cacheOrderMessagesFromOrder(order);
-    syncOrderUrl();
+    syncOrderUrl(requestedScreen);
     isSeller = resolveCurrentUserRole(order) === 'seller';
     renderOrderDetails();
     startTimerFromOrder(order);
     _warmChatMessages(order && order.id);
     var status = String(order.status || '').toUpperCase();
     var isActive = ['CREATED','PENDING','PAID','PAYMENT_SENT','DISPUTED'].indexOf(status) !== -1;
+    var desiredScreen = String(requestedScreen || '').trim();
     syncBuyerPaidUi(status);
     if (forceOpenChat && isActive) {
       openChat('screen-order-generated');
@@ -1573,6 +1599,7 @@
       // Show "Place a new order" only for cancelled
       var pnoBtn = document.getElementById('placeNewOrderBtn');
       if (pnoBtn) pnoBtn.style.display = '';
+      syncOrderUrl('screen-canceled');
     } else if (status === 'RELEASED' || status === 'COMPLETED') {
       // Always set screen-canceled content for completed orders
       var h1r = document.querySelector('#screen-canceled .page-heading h1');
@@ -1587,10 +1614,17 @@
       } else {
         showScreen('screen-canceled');
       }
+      syncOrderUrl('screen-canceled');
     } else if (status === 'PAID' || status === 'PAYMENT_SENT' || status === 'DISPUTED') {
       if (forceOpenChat) {
         openChat('screen-order-generated');
         setTimeout(function() { setupChatForRole(status); }, 200);
+      } else if (!isSeller && desiredScreen === 'screen-transfer') {
+        showScreen('screen-transfer');
+      } else if (desiredScreen === 'screen-cancel-reason' && canCancelCurrentOrder(status)) {
+        showScreen('screen-cancel-reason');
+      } else if (desiredScreen === 'screen-before-cancel' && canCancelCurrentOrder(status)) {
+        showScreen('screen-before-cancel');
       } else if (isSeller) {
         openChat('screen-order-generated');
         setTimeout(function() { setupChatForRole(status); }, 200);
@@ -1601,6 +1635,12 @@
       if (isSeller) {
         openChat('screen-order-generated');
         setTimeout(function() { setupChatForRole(status); }, 200);
+      } else if (desiredScreen === 'screen-transfer') {
+        showScreen('screen-transfer');
+      } else if (desiredScreen === 'screen-cancel-reason' && canCancelCurrentOrder(status)) {
+        showScreen('screen-cancel-reason');
+      } else if (desiredScreen === 'screen-before-cancel' && canCancelCurrentOrder(status)) {
+        showScreen('screen-before-cancel');
       } else {
         showScreen('screen-order-generated');
       }
@@ -1608,13 +1648,13 @@
   }
 
   // Load existing order by ID (from pending orders list)
-  async function loadExistingOrder(orderId, forceOpenChat) {
+  async function loadExistingOrder(orderId, forceOpenChat, requestedScreen) {
     // Show from localStorage cache instantly
     try {
       var cached = localStorage.getItem('p2p_order_' + orderId);
       if (cached) {
         var cachedOrder = JSON.parse(cached);
-        applyOrderAndShow(cachedOrder, forceOpenChat);
+        applyOrderAndShow(cachedOrder, forceOpenChat, requestedScreen);
         hideLoading();
         _warmChatMessages(orderId);
         // Verify & refresh from API in background (silent)
@@ -1626,10 +1666,10 @@
             if (fresh.status !== cachedOrder.status) {
               // status changed — re-apply
               try { localStorage.setItem('p2p_order_' + orderId, JSON.stringify(fresh)); } catch(e){}
-              applyOrderAndShow(fresh, forceOpenChat);
+              applyOrderAndShow(fresh, forceOpenChat, requestedScreen);
             } else {
               currentOrder = fresh;
-              syncOrderUrl();
+              syncOrderUrl(requestedScreen);
               startTimerFromOrder(fresh);
             }
           }).catch(function(){});
@@ -1654,7 +1694,7 @@
       var order = data.order || data;
       try { localStorage.setItem('p2p_order_' + orderId, JSON.stringify(order)); } catch(e) {}
       _cacheOrderMessagesFromOrder(order);
-      applyOrderAndShow(order, forceOpenChat);
+      applyOrderAndShow(order, forceOpenChat, requestedScreen);
       hideLoading();
     } catch(e) {
       hideLoading();
@@ -1707,7 +1747,7 @@
 
     // Screen 2: Order Generated
     document.getElementById('ogBackBtn').addEventListener('click', function() {
-      if (shouldReturnToOrdersOnBack()) { returnToOrdersScreen(); return; }
+      if (shouldReturnToOrdersOnBack()) { returnToOrdersScreen('pending', 'inprogress'); return; }
       showScreen('screen-buy');
     });
     document.getElementById('ogChatBtn').addEventListener('click', function() { openChat('screen-order-generated'); });
@@ -1873,7 +1913,15 @@
 
     // Screen 7: Canceled
     document.getElementById('canceledBackBtn').addEventListener('click', function() {
-      if (shouldReturnToOrdersOnBack()) { returnToOrdersScreen(); return; }
+      var status = String((currentOrder && currentOrder.status) || '').toUpperCase();
+      if (shouldReturnToOrdersOnBack()) {
+        if (status === 'RELEASED' || status === 'COMPLETED') {
+          returnToOrdersScreen('ended', 'completed');
+        } else {
+          returnToOrdersScreen('ended', 'canceled');
+        }
+        return;
+      }
       navTo('/p2p');
     });
     document.getElementById('cnChatBtn').addEventListener('click', function() { openChat('screen-canceled'); });
@@ -2321,8 +2369,9 @@
     if (currentOrder) {
       currentOrder.status = 'EXPIRED';
       cacheCurrentOrder();
-      syncOrderUrl();
+      syncOrderUrl('screen-canceled');
     }
+    rememberOrdersFocus('ended', 'canceled');
     showToast('Order expired');
     showScreen('screen-canceled');
     var h1 = document.querySelector('#screen-canceled .page-heading h1');
@@ -2390,6 +2439,7 @@
     if (id === 'screen-chat') {
       if (chatEl) chatEl.style.display = 'flex';
       loadChatMessages();
+      syncOrderUrl('screen-chat');
       return;
     }
     // Hide chat if switching away
@@ -2405,11 +2455,12 @@
       var app = document.querySelector('.app');
       if (app) app.scrollTop = 0;
     }
+    syncOrderUrl(id);
   }
 
   function goBack() {
     if (shouldReturnToOrdersOnBack()) {
-      returnToOrdersScreen();
+      returnToOrdersScreen('pending', 'inprogress');
       return;
     }
     navTo('/p2p');
@@ -2428,11 +2479,11 @@
     var el = document.getElementById(prev);
     if (el) {
       el.classList.add('active');
-      syncOrderUrl();
+      syncOrderUrl(prev);
       return;
     }
     if (shouldReturnToOrdersOnBack()) {
-      returnToOrdersScreen();
+      returnToOrdersScreen('pending', 'inprogress');
     } else {
       navTo('/p2p');
     }
@@ -3176,7 +3227,15 @@
   }
 
   async function confirmCancel() {
-    var reason = selectedReason >= 0 ? CANCEL_REASONS[selectedReason] : CANCEL_REASONS[0];
+    if (selectedReason < 0) {
+      showToast('Select a cancellation reason.');
+      return;
+    }
+    if (!checkboxChecked) {
+      showToast('Confirm that you have not paid the seller.');
+      return;
+    }
+    var reason = CANCEL_REASONS[selectedReason];
     if (!currentOrder || !currentOrder.id) {
       showToast('Order is not ready yet.');
       return;
@@ -3200,7 +3259,7 @@
       }
       currentOrder = data.order || currentOrder;
       cacheCurrentOrder();
-      syncOrderUrl();
+      syncOrderUrl('screen-canceled');
       renderOrderDetails();
     } catch (e) {
       showToast((e && e.message) || 'Unable to cancel order.');
@@ -3208,6 +3267,7 @@
     }
 
     stopChatPoll();
+    rememberOrdersFocus('ended', 'canceled');
     showScreen('screen-canceled');
     showToast('Cancellation successful');
   }

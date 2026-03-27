@@ -1502,6 +1502,7 @@ function syncMobileTabFromHash(options = {}) {
   }
 
   if (resolvedTab === 'orders') {
+    _applyOrdersFocusState();
     renderMobileOrdersList();
     loadLiveOrders();
   } else if (resolvedTab === 'ads') {
@@ -1528,6 +1529,7 @@ function setMobileTab(tab, options = {}) {
     }
 
     if (normalized === 'orders') {
+      _applyOrdersFocusState();
       renderMobileOrdersList();
       loadLiveOrders();
     } else if (normalized === 'ads') {
@@ -2432,7 +2434,38 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260328c';
+var _ORDER_FLOW_VERSION = '20260328e';
+var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
+
+function _consumeOrdersFocusState() {
+  try {
+    var raw = sessionStorage.getItem(_P2P_ORDERS_FOCUS_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(_P2P_ORDERS_FOCUS_KEY);
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      main: String(parsed.main || '').trim().toLowerCase() || 'pending',
+      sub: String(parsed.sub || '').trim().toLowerCase() || 'inprogress'
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function _applyOrdersFocusState() {
+  var focus = _consumeOrdersFocusState();
+  if (!focus) return false;
+  var main = focus.main === 'ended' ? 'ended' : 'pending';
+  var sub = focus.sub;
+  switchOrdMain(main);
+  if (main === 'ended') {
+    switchOrdSub(sub === 'canceled' ? 'canceled' : 'completed');
+  } else {
+    switchOrdSub(sub === 'dispute' ? 'dispute' : 'inprogress');
+  }
+  return true;
+}
 
 function _buildOrderFlowUrl(params) {
   var qs = new URLSearchParams(params || {});
@@ -5503,7 +5536,9 @@ window.deleteMobAd = async function(offerId) {
         setMobileNavActive('orders');
         history.replaceState(null,'','/p2p#orders');
         // Keep any already-rendered data visible; background refresh still runs.
-        switchOrdMain('pending');
+        if (!_applyOrdersFocusState()) {
+          switchOrdMain(_ordMainTab || 'pending');
+        }
         startOrdPolling();
       } else if (screenId === 'mobPostAdScreen') {
         document.body.dataset.mobileTab = 'post';
