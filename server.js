@@ -1105,13 +1105,16 @@ app.post('/api/admin/login', async (req, res, next) => {
   return handleLegacyAdminLogin(req, res);
 });
 
-function buildP2PUserFromEmail(email, role = 'USER') {
-  const normalizedEmail = String(email || '').trim().toLowerCase();
-  const baseName = normalizedEmail.split('@')[0] || 'trader';
-  const username = baseName.replace(/[^a-z0-9_]/gi, '_').slice(0, 20) || 'trader';
+function buildP2PUserFromEmail(email, role = 'USER', seed = {}) {
+  const normalizedEmail = String(email || seed?.email || '').trim().toLowerCase();
+  const baseName = normalizedEmail.split('@')[0] || String(seed?.username || '').trim() || 'trader';
+  const username =
+    String(seed?.username || '').trim() ||
+    (baseName.replace(/[^a-z0-9_]/gi, '_').slice(0, 20) || 'trader');
+  const seededId = String(seed?.id || seed?.userId || '').trim();
   const userHash = crypto.createHash('sha1').update(normalizedEmail).digest('hex').slice(0, 16);
   return {
-    id: `usr_${userHash}`,
+    id: seededId || `usr_${userHash}`,
     username,
     email: normalizedEmail,
     role: tokenService.normalizeRole(role),
@@ -1119,9 +1122,9 @@ function buildP2PUserFromEmail(email, role = 'USER') {
   };
 }
 
-async function createP2PUserSession(email, role = 'USER') {
+async function createP2PUserSession(email, role = 'USER', seed = {}) {
   const token = createToken();
-  const user = buildP2PUserFromEmail(email, role);
+  const user = buildP2PUserFromEmail(email, role, seed);
 
   await repos.createP2PUserSession(token, user, user.expiresAt);
   return { token, user };
@@ -1819,7 +1822,7 @@ app.post('/api/p2p/login', async (req, res) => {
 
     const userRole = tokenService.normalizeRole(existingCredential?.role || 'USER');
 
-    const { token, user } = await createP2PUserSession(email, userRole);
+    const { token, user } = await createP2PUserSession(email, userRole, existingCredential);
     const tokenPair = await issueAuthTokenPairForUser(user);
     setCookie(res, P2P_USER_COOKIE_NAME, token, P2P_USER_TTL_MS / 1000);
     setP2PAuthCookies(res, tokenPair);
