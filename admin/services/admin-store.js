@@ -1562,20 +1562,109 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
   }
 
   function normalizeAdminP2PMessage(message = {}, index = 0) {
-    const senderRole = String(message.senderRole || '').trim().toLowerCase();
-    const sender = String(message.sender || '').trim();
-    const createdAt = message.timestamp || message.createdAt || message.at || null;
     return {
       id: String(message.id || `msg_${index}`),
-      sender,
-      senderRole:
-        senderRole ||
-        (sender.startsWith('admin:') ? 'admin' : sender.includes('seller') ? 'seller' : sender.includes('buyer') ? 'buyer' : ''),
+      sender: String(message.sender || '').trim(),
+      senderRole: '',
       text: String(message.text || message.message || '').trim(),
       message: String(message.message || message.text || '').trim(),
       isSystem: Boolean(message.isSystem),
-      createdAt,
-      timestamp: createdAt
+      createdAt: message.timestamp || message.createdAt || message.at || null,
+      timestamp: message.timestamp || message.createdAt || message.at || null
+    };
+  }
+
+  function buildP2PMessageAliasSet(values = []) {
+    const aliases = new Set();
+    values.forEach((value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) {
+        return;
+      }
+      aliases.add(normalized);
+      if (normalized.includes('@')) {
+        aliases.add(normalized.split('@')[0] || '');
+      }
+    });
+    aliases.delete('');
+    return aliases;
+  }
+
+  function inferAdminP2PMessageRole(message = {}, order = {}, buyer = {}, seller = {}) {
+    const explicitRole = String(message.senderRole || message.role || '').trim().toLowerCase();
+    if (['buyer', 'seller', 'support', 'admin', 'system'].includes(explicitRole)) {
+      return explicitRole;
+    }
+    if (message.isSystem) {
+      return 'system';
+    }
+
+    const sender = String(message.sender || '').trim();
+    if (/^support$/i.test(sender) || /^admin:/i.test(sender)) {
+      return /^support$/i.test(sender) ? 'support' : 'admin';
+    }
+
+    const senderAliases = buildP2PMessageAliasSet([
+      sender,
+      message.senderUserId,
+      message.userId,
+      message.senderEmail,
+      message.email
+    ]);
+    const buyerAliases = buildP2PMessageAliasSet([
+      buyer.userId,
+      buyer.email,
+      buyer.username,
+      order.buyerUserId,
+      order.buyerId,
+      order.buyerEmail,
+      order.buyerUsername
+    ]);
+    const sellerAliases = buildP2PMessageAliasSet([
+      seller.userId,
+      seller.email,
+      seller.username,
+      order.sellerUserId,
+      order.sellerId,
+      order.sellerEmail,
+      order.sellerUsername
+    ]);
+
+    for (const alias of senderAliases) {
+      if (sellerAliases.has(alias)) {
+        return 'seller';
+      }
+      if (buyerAliases.has(alias)) {
+        return 'buyer';
+      }
+    }
+
+    const fallbackSender = sender.toLowerCase();
+    if (fallbackSender.includes('seller')) {
+      return 'seller';
+    }
+    if (fallbackSender.includes('buyer')) {
+      return 'buyer';
+    }
+    if (fallbackSender.includes('support')) {
+      return 'support';
+    }
+
+    return '';
+  }
+
+  function normalizeAdminP2PMessageWithContext(message = {}, index = 0, order = {}, buyer = {}, seller = {}) {
+    const base = normalizeAdminP2PMessage(message, index);
+    const senderRole = inferAdminP2PMessageRole(message, order, buyer, seller);
+    const sender =
+      senderRole === 'support' || senderRole === 'admin'
+        ? 'Support'
+        : base.sender;
+
+    return {
+      ...base,
+      sender,
+      senderRole
     };
   }
 
@@ -1590,7 +1679,7 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     ]);
 
     const normalizedMessages = (Array.isArray(order.messages) ? order.messages : [])
-      .map((message, index) => normalizeAdminP2PMessage(message, index));
+      .map((message, index) => normalizeAdminP2PMessageWithContext(message, index, order, buyer, seller));
 
     return {
       ...order,
@@ -1680,8 +1769,57 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
         );
         cancelledCount += 1;
       } catch (error) {
+        const orderId = String(row.id || '').trim();
+        try {
+          const malformedOrder = await p2pOrders.findOne({ id: orderId });
+          const buyerParticipant = Array.isArray(malformedOrder?.participants)
+            ? malformedOrder.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'buyer')
+            : null;
+          const sellerParticipant = Array.isArray(malformedOrder?.participants)
+            ? malformedOrder.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'seller')
+            : null;
+          const repairPatch = {};
+
+          if (!String(malformedOrder?.buyerUserId || malformedOrder?.buyerId || '').trim() && String(buyerParticipant?.id || '').trim()) {
+            repairPatch.buyerUserId = String(buyerParticipant.id).trim();
+            repairPatch.buyerId = String(buyerParticipant.id).trim();
+          }
+          if (!String(malformedOrder?.buyerUsername || '').trim() && String(buyerParticipant?.username || '').trim()) {
+            repairPatch.buyerUsername = String(buyerParticipant.username).trim();
+          }
+          if (!String(malformedOrder?.sellerUserId || malformedOrder?.sellerId || '').trim() && String(sellerParticipant?.id || '').trim()) {
+            repairPatch.sellerUserId = String(sellerParticipant.id).trim();
+            repairPatch.sellerId = String(sellerParticipant.id).trim();
+          }
+          if (!String(malformedOrder?.sellerUsername || '').trim() && String(sellerParticipant?.username || '').trim()) {
+            repairPatch.sellerUsername = String(sellerParticipant.username).trim();
+          }
+
+          if (Object.keys(repairPatch).length > 0) {
+            await p2pOrders.updateOne({ id: orderId }, { $set: repairPatch });
+            await walletService.cancelOrder(
+              orderId,
+              {
+                id: String(actor?.id || '').trim(),
+                email: String(actor?.email || '').trim(),
+                username: 'Support',
+                isSystem: true
+              },
+              'CANCELLED'
+            );
+            cancelledCount += 1;
+            continue;
+          }
+        } catch (repairError) {
+          failed.push({
+            orderId,
+            message: String(repairError?.message || error?.message || 'Unable to cancel order')
+          });
+          continue;
+        }
+
         failed.push({
-          orderId: String(row.id || '').trim(),
+          orderId,
           message: String(error?.message || 'Unable to cancel order')
         });
       }

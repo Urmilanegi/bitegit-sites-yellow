@@ -279,8 +279,28 @@
     .msg-item { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
     .msg-avatar {
       width: 36px; height: 36px; border-radius: 8px;
-      background: #333; display: flex; align-items: center; justify-content: center;
-      font-size: 16px; font-weight: 700; flex-shrink: 0;
+      background: linear-gradient(145deg, #223048 0%, #171f2f 100%);
+      border: 1px solid rgba(98, 181, 255, 0.34);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.06);
+      color: #eef6ff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 800; flex-shrink: 0;
+      letter-spacing: 0.02em;
+    }
+    .msg-avatar.msg-avatar-buyer {
+      background: linear-gradient(145deg, #335eff 0%, #44c8f0 100%);
+      border-color: rgba(112, 214, 255, 0.72);
+      color: #fff;
+    }
+    .msg-avatar.msg-avatar-seller {
+      background: linear-gradient(145deg, #1f2a3d 0%, #2e425f 100%);
+      border-color: rgba(129, 178, 255, 0.46);
+      color: #f5fbff;
+    }
+    .msg-avatar.msg-avatar-support {
+      background: linear-gradient(145deg, #14443f 0%, #27b7c4 100%);
+      border-color: rgba(103, 255, 232, 0.58);
+      color: #faffff;
     }
     .msg-bubble-wrap { display: flex; flex-direction: column; gap: 4px; }
     .msg-sender { font-size: 12px; color: #666; }
@@ -2696,17 +2716,33 @@
           (timeStr ? '<div style="font-size:11px;color:#555;margin-top:3px;">' + timeStr + '</div>' : '');
       }
     } else {
+      var senderRole = String(msg.senderRole || '').trim().toLowerCase();
       var counterName = currentOrder
-        ? (isSeller ? (currentOrder.buyerUsername || 'BUYER') : (currentOrder.sellerUsername || 'SELLER'))
-        : (isSeller ? 'BUYER' : 'SELLER');
-      var letter = (msg.sender || counterName).charAt(0).toUpperCase();
+        ? senderRole === 'support' || senderRole === 'admin'
+          ? 'Support'
+          : senderRole === 'buyer'
+            ? (currentOrder.buyerUsername || 'BUYER')
+            : senderRole === 'seller'
+              ? (currentOrder.sellerUsername || 'SELLER')
+              : (isSeller ? (currentOrder.buyerUsername || 'BUYER') : (currentOrder.sellerUsername || 'SELLER'))
+        : senderRole === 'support' || senderRole === 'admin'
+          ? 'Support'
+          : (isSeller ? 'BUYER' : 'SELLER');
+      var displayName = senderRole === 'support' || senderRole === 'admin'
+        ? 'Support'
+        : (msg.sender || counterName);
+      var avatarClass = 'msg-avatar';
+      if (senderRole === 'support' || senderRole === 'admin') avatarClass += ' msg-avatar-support';
+      else if (senderRole === 'seller') avatarClass += ' msg-avatar-seller';
+      else if (senderRole === 'buyer') avatarClass += ' msg-avatar-buyer';
+      var letter = (displayName || counterName).charAt(0).toUpperCase();
       var bubbleContent = hasImage
         ? '<img src="' + escHtml(msg.imageUrl || msg.imageBase64) + '" style="max-width:200px;border-radius:0 10px 10px 10px;display:block;" />'
         : '<div class="msg-bubble">' + escHtml(msg.text || '') + '</div>';
       el.className = 'msg-item';
-      el.innerHTML = '<div class="msg-avatar">' + letter + '</div>' +
+      el.innerHTML = '<div class="' + avatarClass + '">' + letter + '</div>' +
         '<div class="msg-bubble-wrap">' +
-        '<div class="msg-sender">' + escHtml(msg.sender || counterName) + '</div>' +
+        '<div class="msg-sender">' + escHtml(displayName || counterName) + '</div>' +
         bubbleContent +
         (timeStr ? '<div style="font-size:11px;color:#555;margin-top:2px;">' + timeStr + '</div>' : '') +
         '</div>';

@@ -1015,7 +1015,9 @@ function renderDisputeDetail(order) {
             ? '🏪 Seller'
             : (m.senderRole === 'support' || m.senderRole === 'admin')
               ? '🛟 Support'
-              : '👤 Buyer';
+              : m.senderRole === 'buyer'
+                ? '👤 Buyer'
+                : '👤 User';
         const ts = m.timestamp ? formatDate(m.timestamp) : '';
         const textColor = m.isSystem ? 'text-slate-400 italic' : 'text-slate-200';
         return `<div class="py-1.5 border-b border-slate-800/40 last:border-0">
