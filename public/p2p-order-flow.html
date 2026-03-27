@@ -1173,6 +1173,15 @@
     return isBuyerWaitingReleaseStatus(s) || ['DISPUTED', 'RELEASED', 'COMPLETED'].indexOf(s) !== -1;
   }
 
+  function canCancelCurrentOrder(status) {
+    var s = getCurrentOrderStatus(status);
+    return ['CREATED', 'PENDING', 'OPEN', ''].indexOf(s) !== -1;
+  }
+
+  function showCancelBlockedMessage() {
+    showToast('This order can no longer be cancelled. Use chat/dispute if payment is already sent.');
+  }
+
   function shouldReturnToOrdersOnBack(status) {
     if (!currentOrder || !currentOrder.id) return false;
     return true;
@@ -1294,7 +1303,7 @@
     var tfBtn = document.getElementById('tfPaidBtn');
     var tfCancelBtn = document.getElementById('tfCancelBtn');
     _applyPaidLockButton(tfBtn);
-    if (tfCancelBtn) { tfCancelBtn.style.display = ''; }
+    if (tfCancelBtn) { tfCancelBtn.style.display = 'none'; }
   }
 
   // Update screen-order-generated UI based on order status (for buyer)
@@ -1312,8 +1321,7 @@
         '<span style="color:#fff;font-size:14px;font-weight:600;">Waiting for seller\'s confirmation</span></div>' +
         '<style>@keyframes _ordPulse{0%,100%{opacity:.5}50%{opacity:1}}</style>';
       _applyPaidLockButton(nextBtn);
-      // Keep cancel button visible
-      if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.textContent = 'Cancel Order'; }
+      if (cancelBtn) { cancelBtn.style.display = 'none'; }
     }
   }
 
@@ -1481,8 +1489,17 @@
     });
     document.getElementById('ogNextBtn').addEventListener('click', _doNext);
     document.getElementById('ogNextBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doNext(); });
-    document.getElementById('ogCancelBtn').addEventListener('click', function() { cancelSource = 'order'; showScreen('screen-before-cancel'); });
-    document.getElementById('ogCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); cancelSource = 'order'; showScreen('screen-before-cancel'); });
+    document.getElementById('ogCancelBtn').addEventListener('click', function() {
+      if (!canCancelCurrentOrder()) { showCancelBlockedMessage(); return; }
+      cancelSource = 'order';
+      showScreen('screen-before-cancel');
+    });
+    document.getElementById('ogCancelBtn').addEventListener('touchend', function(e) {
+      e.preventDefault();
+      if (!canCancelCurrentOrder()) { showCancelBlockedMessage(); return; }
+      cancelSource = 'order';
+      showScreen('screen-before-cancel');
+    });
 
     // Screen 3: Transfer
     document.getElementById('tfBackBtn').addEventListener('click', function() {
@@ -1499,8 +1516,17 @@
     });
     document.getElementById('tfPaidBtn').addEventListener('click', _doShowPaid);
     document.getElementById('tfPaidBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doShowPaid(); });
-    document.getElementById('tfCancelBtn').addEventListener('click', function() { cancelSource = 'transfer'; showScreen('screen-before-cancel'); });
-    document.getElementById('tfCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); cancelSource = 'transfer'; showScreen('screen-before-cancel'); });
+    document.getElementById('tfCancelBtn').addEventListener('click', function() {
+      if (!canCancelCurrentOrder()) { showCancelBlockedMessage(); return; }
+      cancelSource = 'transfer';
+      showScreen('screen-before-cancel');
+    });
+    document.getElementById('tfCancelBtn').addEventListener('touchend', function(e) {
+      e.preventDefault();
+      if (!canCancelCurrentOrder()) { showCancelBlockedMessage(); return; }
+      cancelSource = 'transfer';
+      showScreen('screen-before-cancel');
+    });
 
     // Screen 4: Chat
     document.getElementById('chatBackBtn').addEventListener('click', goBackFromChat);
@@ -1534,6 +1560,10 @@
     });
     document.getElementById('chatWithSellerBtn').addEventListener('click', function() { openChat('screen-before-cancel'); });
     var _doProceedCancel = mkDebounce(function() {
+      if (!canCancelCurrentOrder()) {
+        showCancelBlockedMessage();
+        return;
+      }
       buildReasonList();
       checkboxChecked = false;
       var box = document.getElementById('cancel-checkbox');
@@ -2617,18 +2647,36 @@
 
   async function confirmCancel() {
     var reason = selectedReason >= 0 ? CANCEL_REASONS[selectedReason] : CANCEL_REASONS[0];
-    if (currentOrder && currentOrder.id) {
-      try {
-        var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/cancel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ reason: reason })
-        });
-        var data = await res.json();
-        if (res.ok) { currentOrder = data.order || currentOrder; renderOrderDetails(); }
-      } catch (e) {}
+    if (!currentOrder || !currentOrder.id) {
+      showToast('Order is not ready yet.');
+      return;
     }
+
+    if (!canCancelCurrentOrder()) {
+      showCancelBlockedMessage();
+      return;
+    }
+
+    try {
+      var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ reason: reason })
+      });
+      var data = await res.json().catch(function() { return {}; });
+      if (!res.ok) {
+        throw new Error((data && data.message) || 'Unable to cancel order.');
+      }
+      currentOrder = data.order || currentOrder;
+      cacheCurrentOrder();
+      syncOrderUrl();
+      renderOrderDetails();
+    } catch (e) {
+      showToast((e && e.message) || 'Unable to cancel order.');
+      return;
+    }
+
     stopChatPoll();
     showScreen('screen-canceled');
     showToast('Cancellation successful');

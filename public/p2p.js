@@ -2417,6 +2417,13 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
+var _ORDER_FLOW_VERSION = '20260327o';
+
+function _buildOrderFlowUrl(params) {
+  var qs = new URLSearchParams(params || {});
+  qs.set('v', _ORDER_FLOW_VERSION);
+  return '/p2p-order-flow.html?' + qs.toString();
+}
 
 function _buildOffersCacheKey(params) {
   return params ? params.toString() : '';
@@ -2464,8 +2471,8 @@ function prefetchOrderFlowAssets() {
     return _orderFlowWarmPromise;
   }
   _orderFlowWarmPromise = Promise.allSettled([
-    fetch('/p2p-order-flow.html', { credentials: 'include', cache: 'force-cache' }),
-    fetch('/p2p-order-flow.html?warm=1', { credentials: 'include', cache: 'force-cache' })
+    fetch(_buildOrderFlowUrl({}), { credentials: 'include', cache: 'force-cache' }),
+    fetch(_buildOrderFlowUrl({ warm: '1' }), { credentials: 'include', cache: 'force-cache' })
   ]).catch(function() {
     return null;
   });
@@ -2952,8 +2959,7 @@ function updateOrderUi(order) {
   }
 
   if (cancelOrderBtn) {
-    // Allow cancel when: order created (either side) OR buyer already paid but wants to cancel
-    const canCancel = isCreated || (isPaid && activeOrderRole === 'buyer');
+    const canCancel = isCreated;
     cancelOrderBtn.disabled = !canCancel;
     cancelOrderBtn.style.opacity = canCancel ? '1' : '0.4';
   }
@@ -3622,8 +3628,8 @@ function _ordCard(order) {
       localStorage.setItem(_lsKey, JSON.stringify(order));
     }
   } catch(e){}
-  var orderUrl = '/p2p-order-flow.html?orderId=' + ordId + '&source=orders';
-  var chatUrl  = '/p2p-order-flow.html?orderId=' + ordId + '&source=orders&openChat=1';
+  var orderUrl = _buildOrderFlowUrl({ orderId: ordId, source: 'orders' });
+  var chatUrl  = _buildOrderFlowUrl({ orderId: ordId, source: 'orders', openChat: '1' });
   var status = String(order.status || '').toUpperCase();
   var isEnded = ['RELEASED','COMPLETED','CANCELLED','CANCELED','EXPIRED'].indexOf(status) !== -1;
   var chatBtn = '<a href="'+chatUrl+'" class="ord-open-link" data-order-id="'+rawIdAttr+'" data-open-chat="1" data-url="'+chatUrl+'" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
@@ -6427,7 +6433,7 @@ window.deleteMobAd = async function(offerId) {
   window.fillDealModal = function(offer) {
     if (offer && offer.id) {
       cacheSelectedOffer(offer);
-      _navSafe('/p2p-order-flow.html?adId=' + encodeURIComponent(offer.id) + '&source=ad', 'Opening buy flow...');
+      _navSafe(_buildOrderFlowUrl({ adId: offer.id, source: 'ad' }), 'Opening buy flow...');
     }
   };
   window._p2pNavSafe = _navSafe; // expose for openOrder override below
@@ -6440,7 +6446,7 @@ window.deleteMobAd = async function(offerId) {
   var _origOpenOrder = openOrder;
   openOrder = function(order) {
     if (order && order.id) {
-      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(order.id) + '&source=orders', 'Opening order...');
+      _navSafe(_buildOrderFlowUrl({ orderId: order.id, source: 'orders' }), 'Opening order...');
       return;
     }
     _origOpenOrder.call(this, order);
@@ -6449,7 +6455,7 @@ window.deleteMobAd = async function(offerId) {
   var _origOpenOrderById = openOrderById;
   openOrderById = async function(orderId) {
     if (orderId) {
-      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(orderId) + '&source=orders', 'Opening order...');
+      _navSafe(_buildOrderFlowUrl({ orderId: orderId, source: 'orders' }), 'Opening order...');
       return;
     }
     return _origOpenOrderById.call(this, orderId);
