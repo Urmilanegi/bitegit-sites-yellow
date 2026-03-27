@@ -287,17 +287,21 @@ function syncBodyInteractionState() {
 }
 
 function normalizeStatusForUi(status) {
-  if (status === 'PENDING' || status === 'OPEN') {
+  var normalized = String(status || '').trim().toUpperCase();
+  if (normalized === 'PENDING' || normalized === 'OPEN') {
     return 'CREATED';
   }
   // PAYMENT_SENT = buyer confirmed payment → treat as PAID in UI (seller needs to release)
-  if (status === 'PAYMENT_SENT') {
+  if (normalized === 'PAYMENT_SENT') {
     return 'PAID';
   }
-  if (status === 'COMPLETED') {
+  if (normalized === 'COMPLETED') {
     return 'RELEASED';
   }
-  return String(status || '').toUpperCase();
+  if (normalized === 'CANCELED') {
+    return 'CANCELLED';
+  }
+  return normalized;
 }
 
 function statusLabel(status) {
@@ -2836,7 +2840,7 @@ function updateOrderUi(order) {
   }
 
   activeOrderSnapshot = order;
-  storeOrderForMobile(order);
+  _ordSyncSingleOrder(order);
   renderMobileOrdersList();
   loadProfilePanel();
   activeOrderRole = getOrderRole(order);
@@ -3237,12 +3241,8 @@ function openOrder(order) {
     try {
       const payload = JSON.parse(event.data || '{}');
       if (payload.order) {
-        updateOrderUi(payload.order);
-        // Update orders screen cache with latest status
-        if (_ordAllOrders.length) {
-          _ordAllOrders = _ordAllOrders.map(function(o) { return o.id === payload.order.id ? Object.assign({}, o, payload.order) : o; });
-          _saveOrdCache(_ordAllOrders);
-        }
+        var nextOrder = _ordSyncSingleOrder(payload.order, { seedOrderList: true });
+        updateOrderUi(nextOrder || payload.order);
       }
     } catch(e) { console.error('[orderStream] order_update error:', e); _ordFetching = false; }
   });
@@ -3340,7 +3340,11 @@ async function updateOrderStatus(action, options = {}) {
       throw new Error(data.message || 'Unable to update order.');
     }
 
-    updateOrderUi(data.order);
+    var nextOrder = _ordSyncSingleOrder(data.order, {
+      seedOrderList: true,
+      focusBucket: action === 'cancel' || action === 'expire' || action === 'release'
+    });
+    updateOrderUi(nextOrder || data.order);
     if (action === 'mark_paid' && !options.skipNotification) {
       await sendOrderMessage('Payment done from buyer side. Please verify and release crypto.');
     }
@@ -3350,6 +3354,9 @@ async function updateOrderStatus(action, options = {}) {
     await fetchMessages();
     await loadLiveOrders();
     await loadProfilePanel({ refreshWallet: true });
+    if (action === 'cancel' || action === 'expire' || action === 'release') {
+      fetchOrdersSafe();
+    }
   } catch (error) {
     console.warn('[updateOrderStatus] error:', error.message);
     if (chatState) chatState.textContent = error.name === 'AbortError' ? 'Request timed out. Try again.' : error.message;
@@ -3917,6 +3924,63 @@ function _ordPrimeOrderOpen(orderId) {
       localStorage.setItem('p2p_order_' + match.id, JSON.stringify(match));
     }
   } catch (_) {}
+}
+
+function _ordFocusBucketForStatus(status) {
+  var normalizedStatus = normalizeStatusForUi(status);
+  if (normalizedStatus === 'RELEASED') {
+    switchOrdMain('ended');
+    switchOrdSub('completed');
+    return;
+  }
+  if (normalizedStatus === 'CANCELLED' || normalizedStatus === 'EXPIRED') {
+    switchOrdMain('ended');
+    switchOrdSub('canceled');
+  }
+}
+
+function _ordSyncSingleOrder(order, options) {
+  options = options || {};
+  if (!order || !order.id) {
+    return null;
+  }
+
+  var normalizedOrder = Object.assign({}, order, {
+    status: normalizeStatusForUi(order.status),
+    updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(),
+    createdAt: order.createdAt || order.updatedAt || new Date().toISOString()
+  });
+
+  storeOrderForMobile(normalizedOrder);
+  try {
+    localStorage.setItem('p2p_order_' + normalizedOrder.id, JSON.stringify(normalizedOrder));
+  } catch (_) {}
+
+  var found = false;
+  _ordAllOrders = (Array.isArray(_ordAllOrders) ? _ordAllOrders : []).map(function(existing) {
+    if (existing && existing.id === normalizedOrder.id) {
+      found = true;
+      return Object.assign({}, existing, normalizedOrder);
+    }
+    return existing;
+  });
+
+  if (!found) {
+    _ordAllOrders = _ordMergeById([normalizedOrder], _ordAllOrders);
+  }
+
+  if (_ordLoaded || options.seedOrderList) {
+    _ordLoaded = true;
+    _ordRenderAll(_ordAllOrders, false);
+  } else {
+    _saveOrdCache(_ordAllOrders);
+  }
+
+  if (options.focusBucket) {
+    _ordFocusBucketForStatus(normalizedOrder.status);
+  }
+
+  return normalizedOrder;
 }
 
 // ── UI helpers ─────────────────────────────────────────────────────────────
