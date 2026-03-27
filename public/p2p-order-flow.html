@@ -263,14 +263,60 @@
     .chat-header .pay-bar {
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 0 4px;
+      gap: 12px;
     }
-    .chat-header .pay-info .amount { font-size: 16px; font-weight: 700; }
-    .chat-header .pay-info .ctimer { font-size: 13px; color: #888; }
-    .chat-header .pay-info .ctimer span { color: #00d4d4; font-weight: 600; }
+    .chat-header .pay-info .amount { font-size: 17px; font-weight: 700; color: #fff; }
+    .chat-header .pay-info .ctimer { font-size: 13px; color: rgba(255,255,255,0.52); margin-top: 2px; }
+    .chat-header .pay-info .ctimer span { color: #27d1ff; font-weight: 700; }
     .pay-btn {
-      padding: 8px 20px; background: transparent;
-      border: 1px solid #444; border-radius: 8px;
-      color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+      min-width: 86px; height: 38px; padding: 0 18px; background: #fff;
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+      color: #111; font-size: 14px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.22);
+      transition: transform 0.12s ease, opacity 0.18s ease, box-shadow 0.18s ease;
+    }
+    .pay-btn:active {
+      transform: scale(0.96);
+    }
+    .chat-notice {
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(120, 75, 12, 0.38);
+      border: 1px solid rgba(240, 185, 11, 0.15);
+      color: rgba(255,255,255,0.86);
+    }
+    .chat-notice-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.9);
+      color: #111;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .chat-notice-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      line-height: 1.45;
+    }
+    .chat-notice-copy strong {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .chat-notice-copy span {
+      font-size: 12px;
+      color: rgba(255,255,255,0.72);
     }
 
     .chat-messages { flex: 1; padding: 12px 20px; overflow-y: auto; }
@@ -278,13 +324,13 @@
 
     .msg-item { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
     .msg-avatar {
-      width: 36px; height: 36px; border-radius: 8px;
+      width: 38px; height: 38px; border-radius: 10px;
       background: linear-gradient(145deg, #223048 0%, #171f2f 100%);
-      border: 1px solid rgba(98, 181, 255, 0.34);
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.06);
+      border: 1px solid rgba(98, 181, 255, 0.45);
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(74,160,255,0.08), inset 0 1px 0 rgba(255,255,255,0.08);
       color: #eef6ff;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px; font-weight: 800; flex-shrink: 0;
+      font-size: 17px; font-weight: 800; flex-shrink: 0;
       letter-spacing: 0.02em;
     }
     .msg-avatar.msg-avatar-buyer {
@@ -310,13 +356,23 @@
       max-width: 240px; line-height: 1.4;
     }
     .system-msg {
-      background: rgba(240,185,11,0.08); border: 1px solid rgba(240,185,11,0.25);
-      border-radius: 10px; padding: 12px 14px;
-      font-size: 13px; color: #f0b90b; line-height: 1.5; margin: 8px 16px;
-      font-weight: 700; display: flex; align-items: flex-start; gap: 8px;
+      margin: 8px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.03);
+      padding: 12px 14px;
+      font-size: 14px;
+      color: #f5f7fb;
+      line-height: 1.45;
     }
-    .system-msg .sys-icon { font-size: 15px; flex-shrink:0; margin-top:1px; }
-    .system-msg .sys-text { flex: 1; }
+    .system-msg .sys-text { display: block; }
+    .system-msg .sys-meta {
+      display: block;
+      margin-top: 6px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.34);
+      letter-spacing: 0.02em;
+    }
 
     .chat-input-bar {
       padding: 10px 16px 16px; border-top: 1px solid #1a1a1a;
@@ -696,6 +752,13 @@
     <div class="online-row"><div class="online-dot"></div><span class="online-text">Online</span></div>
 
     <div style="padding: 0 20px 12px; border-bottom: 1px solid #1a1a1a; flex-shrink:0;">
+      <div id="chatNoticeBar" class="chat-notice">
+        <span class="chat-notice-dot">i</span>
+        <div class="chat-notice-copy">
+          <strong>Notice</strong>
+          <span>Remember to click paid after you have transferred funds from your bank account.</span>
+        </div>
+      </div>
       <!-- BUYER: pay bar + waiting bar -->
       <div id="chatPayBar" class="pay-bar">
         <div class="pay-info">
@@ -705,15 +768,13 @@
         <button class="pay-btn" id="chatPayBtn">Pay</button>
       </div>
       <div id="chatWaitingBar" style="display:none;padding:10px 0 4px;flex-direction:column;gap:0;">
-        <!-- Top row: To be received + Cancel button -->
-        <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
           <div>
-            <div style="font-size:15px;font-weight:700;color:#fff;">To be received <span id="chatReceiveAmount">0.00</span> USDT</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:2px;">Waiting for seller to release</div>
+            <div id="chatWaitingTitle" style="font-size:15px;font-weight:700;color:#fff;">To be received <span id="chatReceiveAmount">0.00</span> USDT</div>
+            <div id="chatWaitingHelp" style="font-size:12px;color:rgba(255,255,255,0.46);margin-top:2px;">Waiting for seller to release</div>
           </div>
-          <button id="chatCancelOrAppealBtn" style="background:transparent;border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.55);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer;flex-shrink:0;">Cancel</button>
+          <button id="chatCancelOrAppealBtn" style="display:none;background:transparent;border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.55);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer;flex-shrink:0;">Cancel</button>
         </div>
-        <!-- 5-min appeal banner: shown after 5 min of waiting -->
         <div id="chatAppealBanner" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(240,185,11,0.07);border-radius:8px;border:1px solid rgba(240,185,11,0.18);font-size:12px;color:rgba(255,255,255,0.55);line-height:1.5;">
           Haven't received your assets? <span id="chatFileAppealBtn" style="color:#00d4d4;cursor:pointer;font-weight:600;text-decoration:underline;">File an appeal</span> and wait for our customer support team to help.
         </div>
@@ -1028,6 +1089,11 @@
   var _paidActionPending = false;
   var _paidCountdownTargets = [];
   var _appealDraft = { images: [] };
+  var _orderSseConnected = false;
+  var _chatWarmPromise = null;
+  var ORDER_FLOW_PAGE_VERSION = '20260328a';
+  var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
+  var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
 
   // ── Global click/navigation guards ─────────────────────────────
   var isProcessing = false;
@@ -1039,6 +1105,74 @@
     if (now - _lastNavMs < 800) return;
     _lastNavMs = now;
     window.location.href = url;
+  }
+
+  function _chatCacheKey(orderId) {
+    return CHAT_CACHE_KEY_PREFIX + String(orderId || '').trim();
+  }
+
+  function _loadCachedChatMessages(orderId) {
+    if (!orderId) return [];
+    try {
+      var raw = JSON.parse(localStorage.getItem(_chatCacheKey(orderId)) || 'null');
+      if (!raw || !Array.isArray(raw.messages)) return [];
+      if (!raw.ts || (Date.now() - Number(raw.ts || 0)) > CHAT_CACHE_TTL_MS) return [];
+      return raw.messages;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function _saveCachedChatMessages(orderId, messages) {
+    if (!orderId || !Array.isArray(messages)) return;
+    try {
+      localStorage.setItem(_chatCacheKey(orderId), JSON.stringify({
+        ts: Date.now(),
+        messages: messages.slice(-120)
+      }));
+    } catch (_) {}
+  }
+
+  function _renderChatMessagesList(messages) {
+    var container = document.getElementById('chatMessages');
+    if (!container) return;
+    container.innerHTML = '';
+    chatRenderedIds = {};
+    _lastChatDateLabel = '';
+    (Array.isArray(messages) ? messages : []).forEach(function(message) {
+      appendChatMessage(message);
+    });
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function _cacheOrderMessagesFromOrder(order) {
+    if (!order || !order.id || !Array.isArray(order.messages) || !order.messages.length) return;
+    _saveCachedChatMessages(order.id, order.messages);
+  }
+
+  function _warmChatMessages(orderId) {
+    var normalizedOrderId = String(orderId || '').trim();
+    if (!normalizedOrderId) return Promise.resolve([]);
+    if (_chatWarmPromise && _chatWarmPromise.orderId === normalizedOrderId) {
+      return _chatWarmPromise.promise;
+    }
+
+    var promise = fetch('/api/p2p/orders/' + encodeURIComponent(normalizedOrderId) + '/messages', { credentials: 'include' })
+      .then(function(res) { return res.ok ? res.json() : null; })
+      .then(function(data) {
+        var msgs = data && Array.isArray(data.messages || data) ? (data.messages || data) : [];
+        if (msgs.length) _saveCachedChatMessages(normalizedOrderId, msgs);
+        return msgs;
+      })
+      .catch(function() { return []; })
+      .finally(function() {
+        if (_chatWarmPromise && _chatWarmPromise.orderId === normalizedOrderId) {
+          _chatWarmPromise = null;
+        }
+      });
+
+    _chatWarmPromise = { orderId: normalizedOrderId, promise: promise };
+    return promise;
   }
 
   // Lock wrapper: prevents duplicate async calls
@@ -1274,11 +1408,13 @@
   function cacheCurrentOrder() {
     if (!currentOrder || !currentOrder.id) return;
     try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch (_) {}
+    _cacheOrderMessagesFromOrder(currentOrder);
   }
 
   function syncOrderUrl() {
     if (!currentOrder || !currentOrder.id) return;
     var params = new URLSearchParams();
+    params.set('v', ORDER_FLOW_PAGE_VERSION);
     params.set('orderId', currentOrder.id);
     params.set('source', _entrySource === 'orders' ? 'orders' : 'ad');
     if (document.getElementById('screen-chat') && document.getElementById('screen-chat').style.display !== 'none') {
@@ -1407,10 +1543,12 @@
 
   function applyOrderAndShow(order, forceOpenChat) {
     currentOrder = order;
+    _cacheOrderMessagesFromOrder(order);
     syncOrderUrl();
     isSeller = resolveCurrentUserRole(order) === 'seller';
     renderOrderDetails();
     startTimerFromOrder(order);
+    _warmChatMessages(order && order.id);
     var status = String(order.status || '').toUpperCase();
     var isActive = ['CREATED','PENDING','PAID','PAYMENT_SENT','DISPUTED'].indexOf(status) !== -1;
     syncBuyerPaidUi(status);
@@ -1466,6 +1604,7 @@
         var cachedOrder = JSON.parse(cached);
         applyOrderAndShow(cachedOrder, forceOpenChat);
         hideLoading();
+        _warmChatMessages(orderId);
         // Verify & refresh from API in background (silent)
       fetch('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' })
           .then(function(r){ return r.ok ? r.json() : null; })
@@ -1502,6 +1641,7 @@
       var data = await res.json();
       var order = data.order || data;
       try { localStorage.setItem('p2p_order_' + orderId, JSON.stringify(order)); } catch(e) {}
+      _cacheOrderMessagesFromOrder(order);
       applyOrderAndShow(order, forceOpenChat);
       hideLoading();
     } catch(e) {
@@ -2017,6 +2157,7 @@
           }
           // Cache order immediately for instant navigation
           cacheCurrentOrder();
+          _warmChatMessages(currentOrder && currentOrder.id);
           syncOrderUrl();
           startTimerFromOrder(currentOrder);
           renderOrderDetails();
@@ -2223,6 +2364,9 @@
     }
     // Hide chat if switching away
     if (chatEl) chatEl.style.display = 'none';
+    stopChatPoll();
+    _orderSseConnected = false;
+    if (_orderSSE) { _orderSSE.close(); _orderSSE = null; }
     document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
     var el = document.getElementById(id);
     if (el) {
@@ -2243,6 +2387,7 @@
 
   function goBackFromChat() {
     stopChatPoll();
+    _orderSseConnected = false;
     if (_orderSSE) { _orderSSE.close(); _orderSSE = null; }
     var chatEl = document.getElementById('screen-chat');
     if (chatEl) chatEl.style.display = 'none';
@@ -2284,11 +2429,11 @@
 
   function _scheduleAppealBanner() {
     _clearAppealBannerTimer();
-    // Show "Haven't received?" banner 5 minutes after buyer marks paid
+    // Show "Haven't received?" banner 3 minutes after buyer marks paid
     _appealBannerTimer = setTimeout(function() {
       var banner = document.getElementById('chatAppealBanner');
       if (banner) banner.style.display = 'block';
-    }, 5 * 60 * 1000);
+    }, 3 * 60 * 1000);
   }
 
   function setupChatForRole(status) {
@@ -2308,6 +2453,11 @@
     var sellerWaitBar = document.getElementById('chatSellerWaitBar');
     var sellerReleaseBar = document.getElementById('chatSellerReleaseBar');
     var completedBar = document.getElementById('chatCompletedBar');
+    var noticeBar = document.getElementById('chatNoticeBar');
+    var waitingTitle = document.getElementById('chatWaitingTitle');
+    var waitingHelp = document.getElementById('chatWaitingHelp');
+    var waitActionBtn = document.getElementById('chatCancelOrAppealBtn');
+    var payBtn = document.getElementById('chatPayBtn');
 
     // Reset all
     if (payBar) payBar.style.display = 'none';
@@ -2315,6 +2465,14 @@
     if (sellerWaitBar) sellerWaitBar.style.display = 'none';
     if (sellerReleaseBar) sellerReleaseBar.style.display = 'none';
     if (completedBar) completedBar.style.display = 'none';
+    if (noticeBar) noticeBar.style.display = 'none';
+    if (waitActionBtn) waitActionBtn.style.display = 'none';
+    if (payBtn) {
+      payBtn.disabled = _paidActionPending || hasBuyerMarkedPaid();
+      payBtn.style.opacity = payBtn.disabled ? '0.7' : '1';
+      payBtn.style.cursor = payBtn.disabled ? 'default' : 'pointer';
+      payBtn.textContent = _paidActionPending ? 'Processing' : 'Pay';
+    }
     _clearAppealBannerTimer();
 
     if (isCompleted) {
@@ -2341,23 +2499,19 @@
         }
       } else {
         if (isPaid) {
-          // Show redesigned waiting bar with USDT amount
           if (waitBar) {
             waitBar.style.display = 'flex';
             var rcvEl = document.getElementById('chatReceiveAmount');
             if (rcvEl && currentOrder) {
-              rcvEl.textContent = Number(currentOrder.cryptoAmount || 0).toFixed(4);
+              rcvEl.textContent = Number(currentOrder.cryptoAmount || currentOrder.assetAmount || 0).toFixed(2);
             }
-            // Update cancel button label: PAYMENT_SENT → "Appeal", CREATED → "Cancel"
-            var cancelOrAppealBtn = document.getElementById('chatCancelOrAppealBtn');
-            if (cancelOrAppealBtn) {
-              var canCancel = canCancelCurrentOrder();
-              cancelOrAppealBtn.textContent = canCancel ? 'Cancel' : 'Appeal';
+            if (waitingHelp) {
+              waitingHelp.textContent = 'Please wait for the seller to confirm the payment and release the assets.';
             }
-            // Start 5-min timer to show appeal banner
             _scheduleAppealBanner();
           }
         } else {
+          if (noticeBar) noticeBar.style.display = 'flex';
           if (payBar) payBar.style.display = 'flex';
         }
       }
@@ -2435,6 +2589,8 @@
 
   async function _submitAppeal() {
     if (!currentOrder || !currentOrder.id || _appealInFlight) return;
+    var submitBtn = document.getElementById('appealSubmitBtn');
+    var restoreLabel = submitBtn ? submitBtn.innerHTML : 'Submit appeal';
     var type = String(document.getElementById('appealTypeInput')?.value || '').trim();
     var reason = String(document.getElementById('appealReasonInput')?.value || '').trim();
     if (!type) {
@@ -2447,6 +2603,12 @@
     }
 
     _appealInFlight = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.92';
+      submitBtn.style.transform = 'scale(0.98)';
+      submitBtn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:7px;"><span style="width:14px;height:14px;border:2px solid rgba(17,17,17,0.22);border-top-color:#111;border-radius:50%;animation:_spin 0.7s linear infinite;display:inline-block;"></span>Submitting appeal...</span>';
+    }
     showToast('Submitting appeal...');
     try {
       var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/status', {
@@ -2479,6 +2641,12 @@
       showToast('Network error. Try again.');
     } finally {
       _appealInFlight = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '';
+        submitBtn.style.transform = '';
+        submitBtn.innerHTML = restoreLabel;
+      }
     }
   }
 
@@ -2551,23 +2719,20 @@
 
   function loadChatMessages() {
     if (!currentOrder || !currentOrder.id) return;
-    fetch('/api/p2p/orders/' + currentOrder.id + '/messages', { credentials: 'include' })
-      .then(function(res) { return res.ok ? res.json() : null; })
-      .then(function(data) {
-        if (!data) return;
-        var msgs = data.messages || data;
-        if (Array.isArray(msgs)) {
-          var container = document.getElementById('chatMessages');
-          if (!container) return;
-          container.innerHTML = '';
-          chatRenderedIds = {};
-          _lastChatDateLabel = '';
-          msgs.forEach(function(m) { appendChatMessage(m); });
-          container.scrollTop = container.scrollHeight;
-        }
-      }).catch(function() {});
-    startChatPoll();
     startOrderSSE();
+    var cachedMsgs = _loadCachedChatMessages(currentOrder.id);
+    if (cachedMsgs.length) {
+      _renderChatMessagesList(cachedMsgs);
+    } else if (Array.isArray(currentOrder.messages) && currentOrder.messages.length) {
+      _renderChatMessagesList(currentOrder.messages);
+      _saveCachedChatMessages(currentOrder.id, currentOrder.messages);
+    }
+    _warmChatMessages(currentOrder.id).then(function(msgs) {
+      if (Array.isArray(msgs) && msgs.length) {
+        _renderChatMessagesList(msgs);
+      }
+    });
+    startChatPoll();
   }
 
   // ── SSE stream for real-time messages + status changes ──────────
@@ -2575,11 +2740,18 @@
   function startOrderSSE() {
     if (!currentOrder || !currentOrder.id) return;
     if (_orderSSE) { _orderSSE.close(); _orderSSE = null; }
+    _orderSseConnected = false;
     _orderSSE = new EventSource('/api/p2p/orders/' + currentOrder.id + '/stream', { withCredentials: true });
+    _orderSSE.onopen = function() {
+      _orderSseConnected = true;
+    };
     _orderSSE.addEventListener('message_update', function(e) {
       try {
         var payload = JSON.parse(e.data || '{}');
         var msgs = payload.messages || [];
+        if (Array.isArray(msgs) && msgs.length) {
+          _saveCachedChatMessages(currentOrder.id, msgs);
+        }
         msgs.forEach(function(m) { appendChatMessage(m); });
         var container = document.getElementById('chatMessages');
         if (container) container.scrollTop = container.scrollHeight;
@@ -2592,12 +2764,14 @@
         if (order && order.status && order.status !== _lastKnownStatus) {
           _lastKnownStatus = order.status;
           currentOrder = order;
+          cacheCurrentOrder();
+          startTimerFromOrder(order);
           setupChatForRole(order.status);
         }
       } catch(err) {}
     });
     _orderSSE.onerror = function() {
-      // SSE failed — polling fallback already running, just close
+      _orderSseConnected = false;
       if (_orderSSE) { _orderSSE.close(); _orderSSE = null; }
     };
   }
@@ -2607,6 +2781,9 @@
     stopChatPoll();
     _lastKnownStatus = currentOrder ? currentOrder.status : '';
     chatPollTimer = setInterval(function() {
+      if (_orderSseConnected) {
+        return;
+      }
       pollNewMessages();
       // Also check if order status changed (e.g. buyer paid, seller released)
       if (!currentOrder || !currentOrder.id) return;
@@ -2618,10 +2795,12 @@
           if (order.status && order.status !== _lastKnownStatus) {
             _lastKnownStatus = order.status;
             currentOrder = order;
+            cacheCurrentOrder();
+            startTimerFromOrder(order);
             setupChatForRole(order.status);
           }
         }).catch(function(){});
-    }, 1200);
+    }, 4000);
   }
 
   function stopChatPoll() {
@@ -2689,22 +2868,11 @@
 
     var el = document.createElement('div');
     if (isSystem) {
-      // Styled system message with icon
       var sysText = String(msg.text || '');
-      var sysIcon = '🔔';
-      // Detect type for different styling
-      if (/order created|order placed/i.test(sysText)) sysIcon = '📋';
-      else if (/paid|payment sent/i.test(sysText)) sysIcon = '💸';
-      else if (/released|completed|funds released/i.test(sysText)) sysIcon = '✅';
-      else if (/cancelled|canceled/i.test(sysText)) sysIcon = '❌';
-      el.style.cssText = 'margin:8px 16px;';
-      el.innerHTML = '<div style="background:rgba(255,255,255,0.06);border-radius:12px;padding:10px 14px;border:1px solid rgba(255,255,255,0.08);">' +
-        '<div style="display:flex;align-items:flex-start;gap:8px;">' +
-        '<span style="font-size:16px;flex-shrink:0;">' + sysIcon + '</span>' +
-        '<div style="flex:1;">' +
-        '<div style="font-size:13px;color:#ccc;line-height:1.4;">' + escHtml(sysText) + '</div>' +
-        (timeStr ? '<div style="font-size:10px;color:#555;margin-top:4px;">' + timeStr + '</div>' : '') +
-        '</div></div></div>';
+      el.innerHTML = '<div class="system-msg">' +
+        '<span class="sys-text">' + escHtml(sysText) + '</span>' +
+        (timeStr ? '<span class="sys-meta">' + escHtml(timeStr) + '</span>' : '') +
+        '</div>';
     } else if (isMe) {
       el.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:12px;flex-direction:column;align-items:flex-end;padding:0 16px;';
       if (hasImage) {
@@ -2822,16 +2990,8 @@
         if (!data) return;
         var msgs = data.messages || data;
         if (Array.isArray(msgs)) {
-          var added = false;
-          msgs.forEach(function(m) {
-            var before = Object.keys(chatRenderedIds).length;
-            appendChatMessage(m);
-            if (Object.keys(chatRenderedIds).length > before) added = true;
-          });
-          if (added) {
-            var container = document.getElementById('chatMessages');
-            if (container) container.scrollTop = container.scrollHeight;
-          }
+          _saveCachedChatMessages(currentOrder.id, msgs);
+          _renderChatMessagesList(msgs);
         }
       }).catch(function() { _polling = false; });
   }
@@ -2899,7 +3059,7 @@
     cacheCurrentOrder();
     renderOrderDetails();
     syncBuyerPaidUi('PAYMENT_SENT');
-    showScreen('screen-order-generated');
+    openChat('screen-order-generated');
     showToast('Payment marked. Waiting for seller to release.');
     try {
       var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/mark-paid', {

@@ -2417,7 +2417,7 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260327o';
+var _ORDER_FLOW_VERSION = '20260328a';
 
 function _buildOrderFlowUrl(params) {
   var qs = new URLSearchParams(params || {});

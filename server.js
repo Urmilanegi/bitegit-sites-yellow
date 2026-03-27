@@ -1149,6 +1149,62 @@ async function issueAuthTokenPairForUser(user) {
   return tokenPair;
 }
 
+async function restoreP2PUserFromRefreshToken(req, options = {}) {
+  const shouldIssueTokens = options.issueTokens !== false;
+  if (!req || !repos) {
+    return null;
+  }
+  if (req._restoredP2PUser) {
+    return req._restoredP2PUser;
+  }
+
+  const cookies = parseCookies(req);
+  const refreshToken = authMiddleware
+    ? authMiddleware.extractRefreshTokenFromRequest(req)
+    : String(cookies[P2P_REFRESH_COOKIE_NAME] || '').trim();
+
+  if (!refreshToken) {
+    return null;
+  }
+
+  try {
+    const decoded = tokenService.verifyRefreshToken(refreshToken);
+    const refreshTokenHash = tokenService.hashRefreshToken(refreshToken);
+    const dbToken = await repos.getRefreshTokenByHash(refreshTokenHash);
+
+    if (!dbToken || String(dbToken.userId || '') !== String(decoded?.sub || '')) {
+      return null;
+    }
+
+    const expiresAtMs = new Date(dbToken.expiresAt).getTime();
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      await repos.deleteRefreshTokenByHash(refreshTokenHash).catch(() => {});
+      return null;
+    }
+
+    const restoredUser = normalizeP2PUserObject({
+      id: dbToken.userId,
+      userId: dbToken.userId,
+      username: dbToken.username,
+      email: dbToken.email,
+      role: tokenService.normalizeRole(dbToken.role || 'USER'),
+      expiresAt: Date.now() + P2P_USER_TTL_MS
+    });
+
+    if (!restoredUser) {
+      return null;
+    }
+
+    req._restoredP2PUser = restoredUser;
+    if (shouldIssueTokens && !req._restoredP2PTokenPair) {
+      req._restoredP2PTokenPair = await issueAuthTokenPairForUser(restoredUser);
+    }
+    return restoredUser;
+  } catch (_) {
+    return null;
+  }
+}
+
 function runDetached(task) {
   Promise.resolve()
     .then(task)
@@ -1241,32 +1297,27 @@ async function getP2PUserFromRequest(req) {
   // ── Legacy session fallback (requires DB) ──
   const token = cookies[P2P_USER_COOKIE_NAME];
 
-  if (!token) {
-    return null;
+  if (repos && token) {
+    const session = await repos.getP2PUserSession(token);
+    if (session && session.expiresAt) {
+      if (new Date(session.expiresAt).getTime() < Date.now()) {
+        await repos.deleteP2PUserSession(token);
+      } else {
+        const expiresAt = Date.now() + P2P_USER_TTL_MS;
+        await repos.refreshP2PUserSession(token, expiresAt);
+
+        return normalizeP2PUserObject({
+          id: session.userId,
+          username: session.username,
+          email: session.email,
+          role: tokenService.normalizeRole(session.role || 'USER'),
+          expiresAt
+        });
+      }
+    }
   }
 
-  if (!repos) return null; // DB not ready yet
-
-  const session = await repos.getP2PUserSession(token);
-  if (!session || !session.expiresAt) {
-    return null;
-  }
-
-  if (new Date(session.expiresAt).getTime() < Date.now()) {
-    await repos.deleteP2PUserSession(token);
-    return null;
-  }
-
-  const expiresAt = Date.now() + P2P_USER_TTL_MS;
-  await repos.refreshP2PUserSession(token, expiresAt);
-
-  return normalizeP2PUserObject({
-    id: session.userId,
-    username: session.username,
-    email: session.email,
-    role: tokenService.normalizeRole(session.role || 'USER'),
-    expiresAt
-  });
+  return restoreP2PUserFromRefreshToken(req, { issueTokens: true });
 }
 
 async function requiresP2PUser(req, res, next) {
@@ -1280,6 +1331,9 @@ async function requiresP2PUser(req, res, next) {
       if (!normalized) {
         return res.status(401).json({ message: 'Unauthorized' });
       }
+      if (req._restoredP2PTokenPair) {
+        setP2PAuthCookies(res, req._restoredP2PTokenPair);
+      }
       req.p2pUser = normalized;
       req.authUser = normalized;
       return next();
@@ -1291,6 +1345,9 @@ async function requiresP2PUser(req, res, next) {
       return res.status(401).json({ message: 'Please login to continue.' });
     }
 
+    if (req._restoredP2PTokenPair) {
+      setP2PAuthCookies(res, req._restoredP2PTokenPair);
+    }
     req.p2pUser = user;
     return next();
   } catch (error) {
@@ -2047,6 +2104,10 @@ app.get('/api/p2p/me', async (req, res) => {
 
   if (!user) {
     return res.json({ loggedIn: false, user: null });
+  }
+
+  if (req._restoredP2PTokenPair) {
+    setP2PAuthCookies(res, req._restoredP2PTokenPair);
   }
 
   const kycProfile = await getP2PKycProfileByEmail(user.email);

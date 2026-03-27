@@ -981,9 +981,14 @@ function renderAppealDetails(order) {
       attachmentsEl.innerHTML = '<p class="text-[11px] text-slate-500">No appeal attachments uploaded.</p>';
     } else {
       attachmentsEl.innerHTML = attachments.map((item) => `
-        <a href="${escapeHtml(item.dataUrl || '')}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-200 hover:border-slate-500">
-          <span>📎</span>
-          <span>${escapeHtml(item.name || 'Attachment')}</span>
+        <a href="${escapeHtml(item.dataUrl || '')}" target="_blank" rel="noreferrer" class="group overflow-hidden rounded-xl border border-slate-700 bg-slate-950/80 hover:border-slate-500">
+          <div class="flex h-28 w-full items-center justify-center bg-slate-950/90">
+            <img src="${escapeHtml(item.dataUrl || '')}" alt="${escapeHtml(item.name || 'Appeal attachment')}" class="h-full w-full object-contain transition duration-200 group-hover:scale-[1.02]" />
+          </div>
+          <div class="border-t border-slate-800 px-2 py-2">
+            <p class="truncate text-[11px] font-medium text-slate-200">${escapeHtml(item.name || 'Attachment')}</p>
+            <p class="mt-0.5 text-[10px] text-slate-500">Click to open full image</p>
+          </div>
         </a>
       `).join('');
     }
