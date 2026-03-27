@@ -43,7 +43,8 @@ const {
   isActiveOrderStatus,
   isClosedOrderStatus,
   isExpirableOrderStatus,
-  getOrderStatusBucket
+  getOrderStatusBucket,
+  resolveOrderActorRole
 } = require('./lib/p2p-order-state');
 const { createAdminStore } = require('./admin/services/admin-store');
 const { createAdminExtendedStore } = require('./admin/services/admin-extended-store');
@@ -1699,6 +1700,8 @@ function toClientMessages(messages) {
     if (msg.imageBase64) m.imageBase64 = msg.imageBase64;
     if (msg.role) m.role = msg.role; // 'buyer' | 'seller' | undefined=all
     if (msg.senderRole) m.senderRole = msg.senderRole;
+    if (msg.senderUserId) m.senderUserId = String(msg.senderUserId);
+    if (msg.senderEmail) m.senderEmail = String(msg.senderEmail);
     if (msg.messageType) m.messageType = msg.messageType;
     if (msg.isSystem) m.isSystem = true;
     return m;
@@ -3585,9 +3588,13 @@ app.post('/api/p2p/orders/:orderId/messages', requiresP2PUser, async (req, res) 
       }
 
       const now = Date.now();
+      const senderRole = resolveOrderActorRole(next, req.p2pUser) || '';
       const msgObj = {
         id: `msg_${now}_${Math.floor(Math.random() * 1000)}`,
-        sender: req.p2pUser.username,
+        sender: req.p2pUser.username || req.p2pUser.email || 'User',
+        senderRole,
+        senderUserId: String(req.p2pUser.id || req.p2pUser.userId || '').trim(),
+        senderEmail: String(req.p2pUser.email || '').trim().toLowerCase(),
         text: text || '',
         createdAt: now
       };
