@@ -205,9 +205,11 @@ function registerAdminRoutes(app, deps) {
   router.post('/p2p/ads/:offerId/review', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'review_ad' }, adminControllers.reviewP2PAd));
   router.get('/p2p/disputes', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'list_disputes' }, adminControllers.listP2PDisputes));
   router.get('/p2p/orders/:orderId', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'get_order' }, adminControllers.getP2POrder));
+  router.post('/p2p/orders/:orderId/messages', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'support_message' }, adminControllers.sendP2POrderMessage));
   router.post('/p2p/orders/:orderId/release', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'manual_release_escrow' }, adminControllers.manualReleaseP2POrder));
   router.post('/p2p/orders/:orderId/cancel', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'manual_cancel_order' }, adminControllers.manualCancelP2POrder));
   router.post('/p2p/orders/:orderId/freeze', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'freeze_escrow' }, adminControllers.freezeEscrow));
+  router.post('/p2p/orders/force-cancel-pending', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'force_cancel_pending_orders' }, adminControllers.forceCancelPendingP2POrders));
   router.get('/p2p/settings', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'get_p2p_settings' }, adminControllers.getP2PSettings));
   router.put('/p2p/settings', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'update_p2p_settings' }, adminControllers.updateP2PSettings));
   router.post('/p2p/cleanup-demo', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'cleanup_demo_ads' }, adminControllers.cleanupDemoP2PAds));

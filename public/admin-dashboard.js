@@ -952,6 +952,44 @@ async function loadP2P() {
 let _ddCurrentOrderId = null;
 let _disputesCache = {};  // orderId → order object
 
+function renderAppealDetails(order) {
+  const appeal = order?.appealDetails && typeof order.appealDetails === 'object' ? order.appealDetails : {};
+  const typeEl = document.getElementById('ddAppealType');
+  const reasonEl = document.getElementById('ddAppealReason');
+  const metaEl = document.getElementById('ddAppealMeta');
+  const countEl = document.getElementById('ddAppealAttachmentCount');
+  const attachmentsEl = document.getElementById('ddAppealAttachments');
+
+  if (typeEl) {
+    typeEl.textContent = appeal.type || 'No type selected';
+  }
+  if (reasonEl) {
+    reasonEl.textContent = appeal.reason || 'No appeal reason submitted.';
+  }
+  if (metaEl) {
+    const submittedBy = appeal.submittedBy?.username || appeal.submittedBy?.userId || 'Unknown user';
+    const submittedAt = appeal.submittedAt ? formatDate(appeal.submittedAt) : '-';
+    metaEl.textContent = `Submitted by ${submittedBy} • ${submittedAt}`;
+  }
+
+  const attachments = Array.isArray(appeal.attachments) ? appeal.attachments : [];
+  if (countEl) {
+    countEl.textContent = `${attachments.length} attachment(s)`;
+  }
+  if (attachmentsEl) {
+    if (attachments.length === 0) {
+      attachmentsEl.innerHTML = '<p class="text-[11px] text-slate-500">No appeal attachments uploaded.</p>';
+    } else {
+      attachmentsEl.innerHTML = attachments.map((item) => `
+        <a href="${escapeHtml(item.dataUrl || '')}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-200 hover:border-slate-500">
+          <span>📎</span>
+          <span>${escapeHtml(item.name || 'Attachment')}</span>
+        </a>
+      `).join('');
+    }
+  }
+}
+
 function renderDisputeDetail(order) {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '-'; };
   set('ddOrderRef', order.reference || order.id);
@@ -961,6 +999,7 @@ function renderDisputeDetail(order) {
   set('ddAmount', `${formatNumber(order.cryptoAmount || 0, 4)} USDT / ₹${formatNumber(order.amountInr || order.fiatAmount || 0, 2)}`);
   set('ddStatus', order.status || '-');
   set('ddTime', order.disputedAt ? formatDate(order.disputedAt) : formatDate(order.updatedAt));
+  renderAppealDetails(order);
 
   // Render chat history
   const chatEl = document.getElementById('ddChatHistory');
@@ -970,7 +1009,13 @@ function renderDisputeDetail(order) {
       chatEl.innerHTML = '<p class="text-slate-500 text-xs text-center py-4">No chat messages.</p>';
     } else {
       chatEl.innerHTML = msgs.map(m => {
-        const who = m.isSystem ? '🤖 System' : (m.senderRole === 'seller' ? '🏪 Seller' : '👤 Buyer');
+        const who = m.isSystem
+          ? '🤖 System'
+          : m.senderRole === 'seller'
+            ? '🏪 Seller'
+            : (m.senderRole === 'support' || m.senderRole === 'admin')
+              ? '🛟 Support'
+              : '👤 Buyer';
         const ts = m.timestamp ? formatDate(m.timestamp) : '';
         const textColor = m.isSystem ? 'text-slate-400 italic' : 'text-slate-200';
         return `<div class="py-1.5 border-b border-slate-800/40 last:border-0">
@@ -990,6 +1035,7 @@ function renderDisputeDetail(order) {
   document.getElementById('ddReleaseBtn').onclick = () => _resolveDispute('release');
   document.getElementById('ddCancelBtn').onclick = () => _resolveDispute('cancel');
   document.getElementById('ddFreezeBtn').onclick = () => _resolveDispute('freeze');
+  document.getElementById('ddSendSupportBtn').onclick = () => _sendSupportMessage();
 }
 
 async function openDisputeDetail(orderId) {
@@ -1035,6 +1081,31 @@ async function _resolveDispute(action) {
     await loadP2P();
   } catch (err) {
     showMessage(err.message || 'Action failed.', 'error');
+  }
+}
+
+async function _sendSupportMessage() {
+  if (!_ddCurrentOrderId) return;
+  const noteField = document.getElementById('ddAdminNote');
+  const text = String(noteField?.value || '').trim();
+  if (!text) {
+    showMessage('Type a support message first.', 'error');
+    return;
+  }
+
+  try {
+    const payload = await apiRequest(`/p2p/orders/${encodeURIComponent(_ddCurrentOrderId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text })
+    });
+    const order = payload?.order || payload;
+    if (order?.id) {
+      _disputesCache[order.id] = order;
+      renderDisputeDetail(order);
+    }
+    showMessage('Support message sent to user chat.', 'success');
+  } catch (error) {
+    showMessage(error.message || 'Unable to send support message.', 'error');
   }
 }
 
@@ -2114,6 +2185,19 @@ function wireEventListeners() {
   document.getElementById('p2pAdsList').addEventListener('click', handleP2PActions);
   document.getElementById('p2pDisputesList').addEventListener('click', handleP2PActions);
   document.getElementById('p2pReloadBtn').addEventListener('click', async () => loadP2P());
+  document.getElementById('p2pForceCancelBtn').addEventListener('click', async () => {
+    if (!confirm('Force cancel all pending unpaid P2P orders?')) return;
+    try {
+      const result = await apiRequest('/p2p/orders/force-cancel-pending', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      showMessage(result.message || 'Pending orders force-cancelled.', 'success');
+      await loadP2P();
+    } catch (error) {
+      showMessage(error.message || 'Failed to force cancel pending orders.', 'error');
+    }
+  });
 
   // Support chat
   document.getElementById('supportReloadBtn').addEventListener('click', async () => loadSupport());

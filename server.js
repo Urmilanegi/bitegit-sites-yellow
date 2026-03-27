@@ -1698,6 +1698,9 @@ function toClientMessages(messages) {
     };
     if (msg.imageBase64) m.imageBase64 = msg.imageBase64;
     if (msg.role) m.role = msg.role; // 'buyer' | 'seller' | undefined=all
+    if (msg.senderRole) m.senderRole = msg.senderRole;
+    if (msg.messageType) m.messageType = msg.messageType;
+    if (msg.isSystem) m.isSystem = true;
     return m;
   });
 }
@@ -3477,7 +3480,7 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
     } else if (action === 'release') {
       updatedOrder = await walletService.releaseOrder(req.params.orderId, req.p2pUser);
     } else if (action === 'dispute') {
-      updatedOrder = await walletService.setOrderDisputed(req.params.orderId, req.p2pUser);
+      updatedOrder = await walletService.setOrderDisputed(req.params.orderId, req.p2pUser, req.body || {});
     } else {
       return res.status(400).json({ message: 'Invalid action.' });
     }
