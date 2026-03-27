@@ -1319,6 +1319,16 @@ body.p2p-kyc-open { overflow: hidden; }
   flex-shrink: 0;
 }
 
+.p2p-profile-avatar.has-image,
+.mob-profile-avatar.has-image {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: transparent;
+  text-indent: -9999px;
+  overflow: hidden;
+}
+
 /* old JS-used class alias */
 .profile-avatar {
   width: 42px;
@@ -2206,6 +2216,11 @@ body.mob-screen-open .p2p-secondary-nav {
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
+.mob-profile-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .mob-profile-avatar {
   width: 56px;
   height: 56px;
@@ -2222,6 +2237,19 @@ body.mob-screen-open .p2p-secondary-nav {
 
 .mob-profile-name { margin: 0; font-size: 1rem; font-weight: 700; }
 .mob-profile-since { margin: 0.2rem 0 0.5rem; font-size: 0.73rem; color: var(--p2p-muted); }
+
+.mob-profile-edit-btn {
+  min-width: 58px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 194, 178, 0.28);
+  background: rgba(0, 194, 178, 0.12);
+  color: #49d7d7;
+  font-size: 0.76rem;
+  font-weight: 800;
+  font-family: 'Manrope', sans-serif;
+  cursor: pointer;
+}
 
 .mob-verify-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 

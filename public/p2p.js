@@ -153,6 +153,19 @@ const profileCancelledOrders = document.getElementById('profileCancelledOrders')
 const profileAvgReleaseTime = document.getElementById('profileAvgReleaseTime');
 const profileAvgPaymentTime = document.getElementById('profileAvgPaymentTime');
 const profileMeta = document.getElementById('profileMeta');
+const profileEditBtn = document.getElementById('profileEditBtn');
+const profileAvatarMobile = document.getElementById('profileAvatarMobile');
+const profileNameMobile = document.getElementById('profileNameMobile');
+const profileSignupTimeMobile = document.getElementById('profileSignupTimeMobile');
+const profileIdentityTagMobile = document.getElementById('profileIdentityTagMobile');
+const profileTotalTradesMobile = document.getElementById('profileTotalTradesMobile');
+const profileThirtyDayTradesMobile = document.getElementById('profileThirtyDayTradesMobile');
+const profileCompletionRateMobile = document.getElementById('profileCompletionRateMobile');
+const profileAvgReleaseTimeMobile = document.getElementById('profileAvgReleaseTimeMobile');
+const profileAvgPaymentTimeMobile = document.getElementById('profileAvgPaymentTimeMobile');
+const profileCancelledTradesMobile = document.getElementById('profileCancelledTradesMobile');
+const profileDepositMobile = document.getElementById('profileDepositMobile');
+const profileKycMobile = document.getElementById('profileKycMobile');
 
 let currentSide = 'buy';
 let currentAsset = 'USDT';
@@ -209,6 +222,8 @@ const mobileOrdersCache = new Map();
 let profileWalletBalance = 0;
 let profileWalletLocked = 0;
 let profileWalletSyncedAt = 0;
+let paymentMethodsCache = [];
+let profileEditAvatarDraft = '';
 const chatMessageMap = new Map();
 const chatMessageNodes = new Map();
 const CHAT_IMAGE_MAX_SIZE = 3 * 1024 * 1024;
@@ -985,7 +1000,21 @@ function getMobileOrdersSnapshot() {
 }
 
 function getProfileOrdersSnapshot() {
-  return getAllCachedParticipantOrders();
+  var orders = getAllCachedParticipantOrders();
+  if (orders.length) {
+    return orders;
+  }
+
+  var merged = _ordMergeById(
+    _loadOrdCache(),
+    _ordLoadSavedSnapshots({ activeOnly: false })
+  );
+
+  return merged
+    .filter(function(order) { return _ordBelongsToCurrentUser(order); })
+    .sort(function(a, b) {
+      return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+    });
 }
 
 function filteredMobileOrders() {
@@ -1040,6 +1069,42 @@ function formatDurationLabel(ms) {
   }
   const hours = (mins / 60).toFixed(1);
   return `${hours}h`;
+}
+
+function setNodeText(node, value) {
+  if (node) {
+    node.textContent = value;
+  }
+}
+
+function applyProfileAvatarToNode(node, user, fallbackText) {
+  if (!node) {
+    return;
+  }
+  const avatarUrl = String(user?.avatar || '').trim();
+  const initial = String(fallbackText || 'U').trim().slice(0, 1).toUpperCase() || 'U';
+  if (avatarUrl) {
+    node.classList.add('has-image');
+    node.style.backgroundImage = 'url("' + avatarUrl.replace(/"/g, '%22') + '")';
+    node.textContent = initial;
+    node.setAttribute('aria-label', 'Profile photo');
+  } else {
+    node.classList.remove('has-image');
+    node.style.backgroundImage = '';
+    node.textContent = initial;
+    node.removeAttribute('aria-label');
+  }
+}
+
+function formatSignupTimeLabel(value) {
+  const date = new Date(value || 0);
+  if (Number.isNaN(date.getTime())) {
+    return 'Signup Time: --';
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `Signup Time: ${year}/${month}/${day}`;
 }
 
 function setAdCreateMeta(text, type = '') {
@@ -1252,16 +1317,18 @@ async function handleAdCreate(event) {
 }
 
 async function loadProfilePanel(options = {}) {
-  if (!profileSection) {
+  if (!profileSection && !document.getElementById('mobProfileScreen')) {
     return;
   }
 
   const setIdentityTag = (label, verified = false) => {
-    if (!profileIdentityTag) {
-      return;
-    }
-    profileIdentityTag.textContent = label;
-    profileIdentityTag.classList.toggle('verified', Boolean(verified));
+    [profileIdentityTag, profileIdentityTagMobile].forEach((node) => {
+      if (!node) {
+        return;
+      }
+      node.textContent = label;
+      node.classList.toggle('verified', Boolean(verified));
+    });
   };
 
   const readTimestampMs = (order, keys) => {
@@ -1280,52 +1347,33 @@ async function loadProfilePanel(options = {}) {
     profileWalletLocked = 0;
     profileWalletSyncedAt = 0;
     mobileOrdersCache.clear();
-    if (profileAvatar) {
-      profileAvatar.textContent = 'U';
-    }
-    if (profileName) {
-      profileName.textContent = 'Guest User';
-    }
-    if (profileEmail) {
-      profileEmail.textContent = 'Login required';
-    }
+    applyProfileAvatarToNode(profileAvatar, null, 'U');
+    applyProfileAvatarToNode(profileAvatarMobile, null, 'U');
+    setNodeText(profileName, 'Guest User');
+    setNodeText(profileNameMobile, 'Guest User');
+    setNodeText(profileEmail, 'Login required');
+    setNodeText(profileSignupTimeMobile, 'Signup Time: --');
     setIdentityTag('Identity Not Submitted', false);
-    if (profileKyc) {
-      profileKyc.textContent = 'Not Submitted';
-    }
-    if (profileSecurity) {
-      profileSecurity.textContent = 'Basic';
-    }
-    if (profileTotalOrders) {
-      profileTotalOrders.textContent = '0';
-    }
-    if (profileCompletionRate) {
-      profileCompletionRate.textContent = '0%';
-    }
-    if (profileCompletionRate30d) {
-      profileCompletionRate30d.textContent = '0%';
-    }
-    if (profileDeposit) {
-      profileDeposit.textContent = '₹0';
-    }
-    if (profileCompletedOrders) {
-      profileCompletedOrders.textContent = '0';
-    }
-    if (profileCompletedOrders30d) {
-      profileCompletedOrders30d.textContent = '0';
-    }
-    if (profileCancelledOrders) {
-      profileCancelledOrders.textContent = '0';
-    }
-    if (profileAvgReleaseTime) {
-      profileAvgReleaseTime.textContent = '--';
-    }
-    if (profileAvgPaymentTime) {
-      profileAvgPaymentTime.textContent = '--';
-    }
-    if (profileMeta) {
-      profileMeta.textContent = 'Login to view profile analytics.';
-    }
+    setNodeText(profileKyc, 'Not Submitted');
+    setNodeText(profileKycMobile, 'Not Submitted');
+    setNodeText(profileSecurity, 'Basic');
+    setNodeText(profileTotalOrders, '0');
+    setNodeText(profileTotalTradesMobile, '0');
+    setNodeText(profileCompletionRate, '0%');
+    setNodeText(profileCompletionRate30d, '0%');
+    setNodeText(profileCompletionRateMobile, '0%');
+    setNodeText(profileDeposit, '₹0');
+    setNodeText(profileDepositMobile, '₹0');
+    setNodeText(profileCompletedOrders, '0');
+    setNodeText(profileCompletedOrders30d, '0');
+    setNodeText(profileThirtyDayTradesMobile, '0');
+    setNodeText(profileCancelledOrders, '0');
+    setNodeText(profileCancelledTradesMobile, '0');
+    setNodeText(profileAvgReleaseTime, '--');
+    setNodeText(profileAvgReleaseTimeMobile, '--');
+    setNodeText(profileAvgPaymentTime, '--');
+    setNodeText(profileAvgPaymentTimeMobile, '--');
+    setNodeText(profileMeta, 'Login to view profile analytics.');
     return;
   }
 
@@ -1334,21 +1382,17 @@ async function loadProfilePanel(options = {}) {
     .slice(0, 1)
     .toUpperCase();
 
-  if (profileAvatar) {
-    profileAvatar.textContent = initial || 'U';
-  }
-  if (profileName) {
-    profileName.textContent = currentUser.username || 'P2P User';
-  }
-  if (profileEmail) {
-    profileEmail.textContent = currentUser.email || '--';
-  }
+  applyProfileAvatarToNode(profileAvatar, currentUser, initial || 'U');
+  applyProfileAvatarToNode(profileAvatarMobile, currentUser, initial || 'U');
+  setNodeText(profileName, currentUser.username || 'P2P User');
+  setNodeText(profileNameMobile, currentUser.username || 'P2P User');
+  setNodeText(profileEmail, currentUser.email || '--');
+  setNodeText(profileSignupTimeMobile, formatSignupTimeLabel(currentUser.createdAt));
   const currentKycStatus = normalizeKycStatus(currentUser?.kyc?.status);
   const isKycVerified = currentKycStatus === 'VERIFIED';
   setIdentityTag(isKycVerified ? 'Identity Verified' : `Identity ${getKycStatusLabel(currentKycStatus)}`, isKycVerified);
-  if (profileKyc) {
-    profileKyc.textContent = getKycStatusLabel(currentKycStatus);
-  }
+  setNodeText(profileKyc, getKycStatusLabel(currentKycStatus));
+  setNodeText(profileKycMobile, getKycStatusLabel(currentKycStatus));
   // Update KYC badge in profile menu
   var kycBadge = document.getElementById('kycStatusBadge');
   if (kycBadge) {
@@ -1377,9 +1421,7 @@ async function loadProfilePanel(options = {}) {
       kycBadge.style.cssText = 'font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(246,70,93,0.15);border:1px solid rgba(246,70,93,0.3);color:#f6465d;margin-left:6px;';
     }
   }
-  if (profileSecurity) {
-    profileSecurity.textContent = currentKycStatus === 'VERIFIED' ? 'KYC + Email Protected' : 'KYC Required';
-  }
+  setNodeText(profileSecurity, currentKycStatus === 'VERIFIED' ? 'KYC + Email Protected' : 'KYC Required');
 
   const shouldRefreshWallet =
     Boolean(options.refreshWallet) || Date.now() - profileWalletSyncedAt > 30 * 1000;
@@ -1406,14 +1448,20 @@ async function loadProfilePanel(options = {}) {
     return createdMs > 0 && createdMs >= nowMs - thirtyDaysMs;
   });
 
-  const completedOrders = orders30d.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
-  const cancelledOrders = orders30d.filter((order) =>
+  const completedOrdersAll = orders.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
+  const completedOrders30d = orders30d.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
+  const cancelledOrdersAll = orders.filter((order) =>
     ['CANCELLED', 'EXPIRED'].includes(normalizeStatusForUi(order.status))
   );
-  const totalOrders = orders30d.length;
-  const completionRateValue = totalOrders ? (completedOrders.length / totalOrders) * 100 : 0;
+  const cancelledOrders30d = orders30d.filter((order) =>
+    ['CANCELLED', 'EXPIRED'].includes(normalizeStatusForUi(order.status))
+  );
+  const totalOrdersAll = orders.length;
+  const totalOrders30d = orders30d.length;
+  const completionRateValueAll = totalOrdersAll ? (completedOrdersAll.length / totalOrdersAll) * 100 : 0;
+  const completionRateValue30d = totalOrders30d ? (completedOrders30d.length / totalOrders30d) * 100 : 0;
 
-  const releaseDurations = completedOrders
+  const releaseDurations = completedOrdersAll
     .map((order) => {
       const createdAtMs = readTimestampMs(order, ['createdAt']);
       const releasedAtMs = readTimestampMs(order, ['releasedAt', 'completedAt', 'updatedAt']);
@@ -1428,7 +1476,7 @@ async function loadProfilePanel(options = {}) {
       ? releaseDurations.reduce((sum, value) => sum + value, 0) / releaseDurations.length
       : 0;
 
-  const paymentDurations = orders30d
+  const paymentDurations = orders
     .map((order) => {
       const createdAtMs = readTimestampMs(order, ['createdAt']);
       if (!createdAtMs) {
@@ -1456,38 +1504,247 @@ async function loadProfilePanel(options = {}) {
       ? paymentDurations.reduce((sum, value) => sum + value, 0) / paymentDurations.length
       : 0;
 
-  if (profileTotalOrders) {
-    profileTotalOrders.textContent = String(totalOrders);
+  const walletLabel = `₹${formatNumber(profileWalletBalance + profileWalletLocked)}`;
+  const avgReleaseLabel = formatDurationLabel(avgReleaseMs);
+  const avgPaymentLabel = formatDurationLabel(avgPaymentMs);
+
+  setNodeText(profileTotalOrders, String(totalOrdersAll));
+  setNodeText(profileTotalTradesMobile, String(totalOrdersAll));
+  setNodeText(profileCompletionRate, `${completionRateValueAll.toFixed(1)}%`);
+  setNodeText(profileCompletionRate30d, `${completionRateValue30d.toFixed(1)}%`);
+  setNodeText(profileCompletionRateMobile, `${completionRateValueAll.toFixed(1)}%`);
+  setNodeText(profileDeposit, walletLabel);
+  setNodeText(profileDepositMobile, walletLabel);
+  setNodeText(profileCompletedOrders, String(completedOrdersAll.length));
+  setNodeText(profileCompletedOrders30d, String(completedOrders30d.length));
+  setNodeText(profileThirtyDayTradesMobile, String(totalOrders30d));
+  setNodeText(profileCancelledOrders, String(cancelledOrdersAll.length));
+  setNodeText(profileCancelledTradesMobile, String(cancelledOrdersAll.length));
+  setNodeText(profileAvgReleaseTime, avgReleaseLabel);
+  setNodeText(profileAvgReleaseTimeMobile, avgReleaseLabel);
+  setNodeText(profileAvgPaymentTime, avgPaymentLabel);
+  setNodeText(profileAvgPaymentTimeMobile, avgPaymentLabel);
+  setNodeText(
+    profileMeta,
+    `All trades: ${totalOrdersAll} | 30D trades: ${totalOrders30d} | Cancelled: ${cancelledOrders30d.length} | Wallet: ${formatNumber(profileWalletBalance)}`
+  );
+}
+
+function compressImageFileToDataUrl(file, options = {}) {
+  const maxEdge = Math.max(320, Number(options.maxEdge || 720));
+  const quality = Math.min(0.92, Math.max(0.5, Number(options.quality || 0.8)));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (event) => {
+      const image = new Image();
+      image.onerror = reject;
+      image.onload = () => {
+        let width = image.width;
+        let height = image.height;
+        if (width > maxEdge || height > maxEdge) {
+          if (width >= height) {
+            height = Math.round((height * maxEdge) / width);
+            width = maxEdge;
+          } else {
+            width = Math.round((width * maxEdge) / height);
+            height = maxEdge;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      image.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function closeProfileEditModal() {
+  const modal = document.getElementById('profileEditModal');
+  if (modal) {
+    modal.remove();
   }
-  if (profileCompletionRate) {
-    profileCompletionRate.textContent = `${completionRateValue.toFixed(1)}%`;
+  profileEditAvatarDraft = '';
+}
+
+function renderProfileEditAvatarPreview(avatarUrl) {
+  const preview = document.getElementById('profileEditAvatarPreview');
+  if (!preview) {
+    return;
   }
-  if (profileCompletionRate30d) {
-    profileCompletionRate30d.textContent = `${completionRateValue.toFixed(1)}%`;
+  const initial = String((document.getElementById('profileEditNameInput') || {}).value || currentUser?.username || currentUser?.email || 'U')
+    .trim()
+    .slice(0, 1)
+    .toUpperCase() || 'U';
+  if (avatarUrl) {
+    preview.classList.add('has-image');
+    preview.style.backgroundImage = 'url("' + String(avatarUrl).replace(/"/g, '%22') + '")';
+    preview.textContent = initial;
+  } else {
+    preview.classList.remove('has-image');
+    preview.style.backgroundImage = '';
+    preview.textContent = initial;
   }
-  if (profileDeposit) {
-    profileDeposit.textContent = `₹${formatNumber(profileWalletBalance + profileWalletLocked)}`;
+}
+
+async function submitProfileEdit() {
+  const nameInput = document.getElementById('profileEditNameInput');
+  const saveBtn = document.getElementById('profileEditSaveBtn');
+  const meta = document.getElementById('profileEditMeta');
+  const nickname = String(nameInput?.value || '').trim();
+
+  if (!nickname || nickname.length < 2) {
+    if (meta) {
+      meta.textContent = 'Enter at least 2 characters for your display name.';
+      meta.style.color = '#f6465d';
+    }
+    return;
   }
-  if (profileCompletedOrders) {
-    profileCompletedOrders.textContent = String(completedOrders.length);
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
   }
-  if (profileCompletedOrders30d) {
-    profileCompletedOrders30d.textContent = String(completedOrders.length);
+
+  try {
+    const response = await fetch('/api/p2p/profile', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nickname,
+        avatar: profileEditAvatarDraft || String(currentUser?.avatar || '').trim()
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Unable to update profile right now.');
+    }
+
+    const nextProfile = data.profile || {};
+    currentUser = normalizeCurrentUserPayload({
+      ...currentUser,
+      username: nextProfile.username || nickname,
+      avatar: nextProfile.avatar || profileEditAvatarDraft || '',
+      createdAt: nextProfile.createdAt || currentUser?.createdAt || null
+    });
+
+    try {
+      localStorage.setItem('_p2p_hint', JSON.stringify({
+        id: getCurrentUserId(),
+        username: currentUser.username,
+        email: currentUser.email,
+        role: currentUser.role,
+        avatar: currentUser.avatar || '',
+        createdAt: currentUser.createdAt || null
+      }));
+    } catch (_) {}
+
+    updateUserUi();
+    closeProfileEditModal();
+    showToast('Profile updated');
+  } catch (error) {
+    if (meta) {
+      meta.textContent = error.message || 'Unable to update profile right now.';
+      meta.style.color = '#f6465d';
+    }
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Changes';
+    }
   }
-  if (profileCancelledOrders) {
-    profileCancelledOrders.textContent = String(cancelledOrders.length);
+}
+
+function openProfileEditModal() {
+  if (!currentUser) {
+    requireLoginNotice();
+    return;
   }
-  if (profileAvgReleaseTime) {
-    profileAvgReleaseTime.textContent = formatDurationLabel(avgReleaseMs);
-  }
-  if (profileAvgPaymentTime) {
-    profileAvgPaymentTime.textContent = formatDurationLabel(avgPaymentMs);
-  }
-  if (profileMeta) {
-    profileMeta.textContent = `30D orders: ${totalOrders} | Cancelled: ${cancelledOrders.length} | Wallet: ${formatNumber(
-      profileWalletBalance
-    )}`;
-  }
+
+  closeProfileEditModal();
+  profileEditAvatarDraft = String(currentUser.avatar || '').trim();
+
+  const modal = document.createElement('div');
+  modal.id = 'profileEditModal';
+  modal.className = 'edit-ad-modal-overlay';
+  modal.innerHTML = `
+    <div class="edit-ad-modal">
+      <div class="edit-ad-head">
+        <h3>Edit Profile</h3>
+        <button type="button" class="edit-ad-close" id="profileEditCloseBtn">✕</button>
+      </div>
+      <div class="edit-ad-body">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+          <div id="profileEditAvatarPreview" class="mob-profile-avatar" style="width:68px;height:68px;border-radius:16px;">U</div>
+          <div style="display:flex;flex-direction:column;gap:8px;flex:1;">
+            <input id="profileEditAvatarInput" type="file" accept="image/*" style="display:none;" />
+            <button type="button" id="profileEditAvatarPickBtn" class="mob-kyc-fp-btn" style="max-width:180px;height:40px;background:linear-gradient(96deg,#00c2b2,#0099a8);">Change Photo</button>
+            <span style="font-size:12px;color:rgba(255,255,255,0.46);">Upload a square profile photo.</span>
+          </div>
+        </div>
+        <label class="edit-ad-label">Display Name</label>
+        <input id="profileEditNameInput" type="text" class="edit-ad-input" maxlength="24" value="${escapeHtml(currentUser.username || '')}" placeholder="Enter your display name" />
+        <p id="profileEditMeta" style="margin:0;color:rgba(255,255,255,0.5);font-size:12px;">This name will be shown on your profile.</p>
+      </div>
+      <div style="display:flex;gap:10px;padding:0 1rem 1rem;">
+        <button type="button" id="profileEditCancelBtn" class="edit-ad-input" style="height:46px;cursor:pointer;font-weight:700;background:#16181d;">Cancel</button>
+        <button type="button" id="profileEditSaveBtn" class="mob-kyc-fp-btn" style="height:46px;background:linear-gradient(96deg,#00c2b2,#0099a8);">Save Changes</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  renderProfileEditAvatarPreview(profileEditAvatarDraft);
+
+  const closeBtn = document.getElementById('profileEditCloseBtn');
+  const cancelBtn = document.getElementById('profileEditCancelBtn');
+  const saveBtn = document.getElementById('profileEditSaveBtn');
+  const pickBtn = document.getElementById('profileEditAvatarPickBtn');
+  const fileInput = document.getElementById('profileEditAvatarInput');
+  const nameInput = document.getElementById('profileEditNameInput');
+  const meta = document.getElementById('profileEditMeta');
+
+  closeBtn?.addEventListener('click', closeProfileEditModal);
+  cancelBtn?.addEventListener('click', closeProfileEditModal);
+  saveBtn?.addEventListener('click', submitProfileEdit);
+  pickBtn?.addEventListener('click', () => fileInput?.click());
+  nameInput?.addEventListener('input', () => renderProfileEditAvatarPreview(profileEditAvatarDraft));
+  fileInput?.addEventListener('change', async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      return;
+    }
+    if (!/^image\\//i.test(file.type || '')) {
+      if (meta) {
+        meta.textContent = 'Please choose an image file.';
+        meta.style.color = '#f6465d';
+      }
+      return;
+    }
+    if (meta) {
+      meta.textContent = 'Processing image...';
+      meta.style.color = 'rgba(255,255,255,0.5)';
+    }
+    try {
+      profileEditAvatarDraft = await compressImageFileToDataUrl(file, { maxEdge: 640, quality: 0.78 });
+      renderProfileEditAvatarPreview(profileEditAvatarDraft);
+      if (meta) {
+        meta.textContent = 'Photo ready to save.';
+        meta.style.color = '#16c784';
+      }
+    } catch (_) {
+      if (meta) {
+        meta.textContent = 'Unable to process this image. Try another file.';
+        meta.style.color = '#f6465d';
+      }
+    }
+  });
 }
 
 function syncMobileTabFromHash(options = {}) {
@@ -2087,7 +2344,7 @@ async function loadCurrentUser() {
       }
       currentUser = normalizedUser;
       updateCurrentUserKyc(currentUser.kyc || {});
-      try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
+      try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role, avatar: currentUser.avatar || '', createdAt: currentUser.createdAt || null })); } catch(_) {}
       // Single call — fetchOrdersSafe shows cache instantly then fetches fresh
       fetchOrdersSafe();
       _startFallbackPoll(); // 15s fallback poll in case SSE is down
@@ -2172,7 +2429,7 @@ async function loginUser() {
     }
     updateCurrentUserKyc(currentUser?.kyc || {});
     // Persist a session hint so refresh shows logged-in UI instantly (no flicker)
-    try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
+    try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role, avatar: currentUser.avatar || '', createdAt: currentUser.createdAt || null })); } catch(_) {}
     updateUserUi();
     setAuthModalOpen(false);
     setP2PNavOpen(false);
@@ -2434,7 +2691,7 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260328f';
+var _ORDER_FLOW_VERSION = '20260328g';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
 
 function _consumeOrdersFocusState() {
@@ -4885,6 +5142,12 @@ if (profileDepositBtn) {
   });
 }
 
+if (profileEditBtn) {
+  profileEditBtn.addEventListener('click', () => {
+    openProfileEditModal();
+  });
+}
+
 p2pMenuToggle?.addEventListener('click', () => setP2PNavOpen(true));
 p2pNavClose?.addEventListener('click', () => setP2PNavOpen(false));
 p2pNavOverlay?.addEventListener('click', () => setP2PNavOpen(false));
@@ -5075,6 +5338,7 @@ async function loadPaymentMethods() {
     var res = await fetch('/api/p2p/payment-methods');
     var data = await res.json();
     var methods = data.methods || [];
+    paymentMethodsCache = methods.slice();
     if (!methods.length) {
       list.innerHTML = '<p style="color:#6b7690;font-size:0.82rem;text-align:center;padding:2rem 0;">No payment methods added yet.<br>Tap + to add one.</p>';
       return;
@@ -5086,6 +5350,8 @@ async function loadPaymentMethods() {
 
       var card = document.createElement('div');
       card.style.cssText = 'display:flex;justify-content:space-between;align-items:center;background:#111;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:0.85rem 1rem;margin-bottom:0.65rem;';
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', function(){ openEditPaymentModal(m.id); });
 
       var left = document.createElement('div');
       left.style.cssText = 'display:flex;align-items:center;gap:0.75rem;';
@@ -5097,12 +5363,12 @@ async function loadPaymentMethods() {
       var editBtn = document.createElement('button');
       editBtn.textContent = 'Edit';
       editBtn.style.cssText = 'height:28px;padding:0 0.7rem;border:none;border-radius:6px;font-size:0.72rem;font-weight:700;cursor:pointer;background:rgba(0,194,178,0.15);color:#00c2b2;font-family:Manrope,sans-serif;';
-      editBtn.addEventListener('click', function(){ openEditPaymentModal(m.id); });
+      editBtn.addEventListener('click', function(event){ event.stopPropagation(); openEditPaymentModal(m.id); });
 
       var delBtn = document.createElement('button');
       delBtn.textContent = 'Delete';
       delBtn.style.cssText = 'height:28px;padding:0 0.7rem;border:none;border-radius:6px;font-size:0.72rem;font-weight:700;cursor:pointer;background:rgba(246,70,93,0.12);color:#f6465d;font-family:Manrope,sans-serif;';
-      delBtn.addEventListener('click', function(){ deletePaymentMethod(m.id); });
+      delBtn.addEventListener('click', function(event){ event.stopPropagation(); deletePaymentMethod(m.id); });
 
       actions.appendChild(editBtn); actions.appendChild(delBtn);
       card.appendChild(left); card.appendChild(actions);
@@ -5117,6 +5383,7 @@ function openAddPaymentModal() { _openPaymentModal(null); }
 function openEditPaymentModal(pmId) { _openPaymentModal(pmId); }
 
 function _openPaymentModal(pmId) {
+  var editingMethod = paymentMethodsCache.find(function(item) { return item && item.id === pmId; }) || null;
   var existing = document.getElementById('pmModal');
   if (existing) existing.remove();
   var modal = document.createElement('div');
@@ -5143,7 +5410,27 @@ function _openPaymentModal(pmId) {
       '<button class="mob-kyc-fp-btn" style="background:linear-gradient(96deg,#00c2b2,#0099a8);margin:0 1rem 1rem;" onclick="submitPaymentMethod(\'' + (pmId || '') + '\')">' + (pmId ? 'Save Changes' : 'Add Method') + '</button>' +
     '</div>';
   document.body.appendChild(modal);
+  var typeField = document.getElementById('pmType');
+  var nicknameField = document.getElementById('pmNickname');
+  if (typeField) {
+    typeField.value = editingMethod && editingMethod.type ? editingMethod.type : 'UPI';
+  }
+  if (nicknameField) {
+    nicknameField.value = editingMethod && editingMethod.nickname ? editingMethod.nickname : '';
+  }
   renderPmFields();
+  if (editingMethod) {
+    if ((editingMethod.type === 'UPI') && document.getElementById('pmUpiId')) {
+      document.getElementById('pmUpiId').value = editingMethod.upiId || '';
+    } else if ((editingMethod.type === 'Bank' || editingMethod.type === 'IMPS')) {
+      if (document.getElementById('pmBankName')) document.getElementById('pmBankName').value = editingMethod.bankName || '';
+      if (document.getElementById('pmHolder')) document.getElementById('pmHolder').value = editingMethod.accountHolder || '';
+      if (document.getElementById('pmAccNo')) document.getElementById('pmAccNo').value = editingMethod.accountNumber || '';
+      if (document.getElementById('pmIfsc')) document.getElementById('pmIfsc').value = editingMethod.ifsc || '';
+    } else if (document.getElementById('pmDetails')) {
+      document.getElementById('pmDetails').value = editingMethod.details || '';
+    }
+  }
 }
 
 function renderPmFields() {
@@ -5379,10 +5666,23 @@ function submitKycAdvance() {
   }).then(function(result) {
     if (result.ok) {
       _kycHint('kycAdvHint','✅ Documents submitted! Review takes 24–48 hrs.','success');
+      if (currentUser) {
+        currentUser.kyc = Object.assign({}, currentUser.kyc || {}, {
+          status: 'PENDING_REVIEW'
+        });
+      }
       var badge = document.getElementById('kycStatusBadge');
       if(badge){ badge.textContent='Under Review'; badge.style.cssText='font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(240,185,11,0.12);border:1px solid rgba(240,185,11,0.3);color:#f0b90b;margin-left:6px;'; }
       if(btn){ btn.textContent='Submitted for Review ✓'; }
-      setTimeout(closeKycScreens, 2500);
+      loadProfilePanel({ refreshWallet: true });
+      setTimeout(function() {
+        closeKycScreens();
+        var reviewScreen = document.getElementById('kycUnderReviewScreen');
+        if (reviewScreen) {
+          reviewScreen.style.setProperty('display','flex','important');
+          reviewScreen.style.flexDirection = 'column';
+        }
+      }, 450);
     } else {
       var msg = (result.data && result.data.message) || 'Submission failed. Please try again.';
       _kycHint('kycAdvHint', msg, 'error');

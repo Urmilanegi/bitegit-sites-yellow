@@ -262,18 +262,19 @@
     }
     .chat-header .pay-bar {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 0 4px;
-      gap: 12px;
+      padding: 12px 2px 6px 0;
+      gap: 18px;
     }
     .chat-header .pay-info .amount { font-size: 17px; font-weight: 700; color: #fff; }
     .chat-header .pay-info .ctimer { font-size: 13px; color: rgba(255,255,255,0.52); margin-top: 2px; }
     .chat-header .pay-info .ctimer span { color: #27d1ff; font-weight: 700; }
     .pay-btn {
-      min-width: 86px; height: 38px; padding: 0 18px; background: #fff;
+      min-width: 98px; height: 38px; padding: 0 20px; background: #fff;
       border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
       color: #111; font-size: 14px; font-weight: 700; cursor: pointer;
       box-shadow: 0 10px 20px rgba(0,0,0,0.22);
       transition: transform 0.12s ease, opacity 0.18s ease, box-shadow 0.18s ease;
+      margin-left: auto;
     }
     .pay-btn:active {
       transform: scale(0.96);
@@ -1107,7 +1108,7 @@
   var _appealDraft = { images: [] };
   var _orderSseConnected = false;
   var _chatWarmPromise = null;
-  var ORDER_FLOW_PAGE_VERSION = '20260328f';
+  var ORDER_FLOW_PAGE_VERSION = '20260328g';
   var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
   var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
   var ORDERS_FOCUS_STATE_KEY = 'p2p_orders_focus_state';
@@ -1665,8 +1666,9 @@
       showScreen('screen-canceled');
       var h1c = document.querySelector('#screen-canceled .page-heading h1');
       var subc = document.querySelector('#screen-canceled .page-heading div');
-      if (h1c) h1c.textContent = 'Order Cancelled';
-      if (subc) subc.textContent = 'This order has been cancelled.';
+      var cancelledByMe = currentOrder && currentOrder.cancelledByRole && currentOrder.cancelledByRole === (isSeller ? 'seller' : 'buyer');
+      if (h1c) h1c.textContent = 'Canceled';
+      if (subc) subc.textContent = cancelledByMe ? "You've cancelled the order." : 'Order is canceled. Do not initiate another payment.';
       // Show "Place a new order" only for cancelled
       var pnoBtn = document.getElementById('placeNewOrderBtn');
       if (pnoBtn) pnoBtn.style.display = '';
@@ -3356,6 +3358,9 @@
         throw new Error((data && data.message) || 'Unable to cancel order.');
       }
       currentOrder = data.order || currentOrder;
+      if (!currentOrder.cancelledByRole) {
+        currentOrder.cancelledByRole = isSeller ? 'seller' : 'buyer';
+      }
       cacheCurrentOrder();
       syncOrderUrl('screen-canceled');
       renderOrderDetails();

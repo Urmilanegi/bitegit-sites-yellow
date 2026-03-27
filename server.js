@@ -1903,6 +1903,8 @@ app.post('/api/p2p/login', async (req, res) => {
         id: user.id,
         username: user.username,
         email: user.email,
+        avatar: String(existingCredential?.avatar || '').trim(),
+        createdAt: existingCredential?.createdAt || null,
         role: user.role,
         kyc: kycProfile
       },
@@ -2111,18 +2113,62 @@ app.get('/api/p2p/me', async (req, res) => {
   }
 
   const kycProfile = await getP2PKycProfileByEmail(user.email);
+  const credential =
+    typeof repos.getP2PCredential === 'function'
+      ? await repos.getP2PCredential(user.email).catch(() => null)
+      : null;
 
   return res.json({
     loggedIn: true,
     user: {
       id: user.id,
       userId: user.userId,
-      username: user.username,
+      username: String(credential?.username || user.username || '').trim() || user.username,
       email: user.email,
+      avatar: String(credential?.avatar || '').trim(),
+      createdAt: credential?.createdAt || null,
       role: tokenService.normalizeRole(user.role || 'USER'),
       kyc: kycProfile
     }
   });
+});
+
+app.put('/api/p2p/profile', requiresP2PUser, async (req, res) => {
+  const email = String(req.p2pUser?.email || '').trim().toLowerCase();
+  const userId = String(req.p2pUser?.id || req.p2pUser?.userId || '').trim();
+  const nickname = String(req.body?.nickname || '').trim().replace(/\s+/g, ' ').slice(0, 24);
+  const avatar = typeof req.body?.avatar === 'string' ? String(req.body.avatar || '').trim() : undefined;
+
+  if (!email || !userId) {
+    return res.status(401).json({ message: 'Please login to continue.' });
+  }
+  if (!nickname || nickname.length < 2) {
+    return res.status(400).json({ message: 'Display name must be at least 2 characters.' });
+  }
+  if (avatar && !/^data:image\//i.test(avatar) && !/^https?:\/\//i.test(avatar)) {
+    return res.status(400).json({ message: 'Profile photo format is not supported.' });
+  }
+  if (avatar && avatar.length > 2 * 1024 * 1024) {
+    return res.status(400).json({ message: 'Profile photo is too large.' });
+  }
+  if (typeof repos.updateP2PCredentialProfile !== 'function') {
+    return res.status(503).json({ message: 'Profile update is not available right now.' });
+  }
+
+  try {
+    const profile = await repos.updateP2PCredentialProfile(email, { nickname, avatar }, { userId });
+    return res.json({
+      success: true,
+      profile: {
+        username: String(profile?.username || nickname).trim() || nickname,
+        avatar: String(profile?.avatar || '').trim(),
+        email,
+        createdAt: profile?.createdAt || null
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error while updating profile.' });
+  }
 });
 
 app.get('/api/p2p/kyc/status', requiresP2PUser, async (req, res) => {
