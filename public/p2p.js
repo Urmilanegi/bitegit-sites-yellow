@@ -294,6 +294,9 @@ function normalizeStatusForUi(status) {
   if (status === 'PAYMENT_SENT') {
     return 'PAID';
   }
+  if (status === 'COMPLETED') {
+    return 'RELEASED';
+  }
   return String(status || '').toUpperCase();
 }
 
@@ -2602,6 +2605,10 @@ async function createOrder(offerId, options = {}) {
       throw new Error('Server returned success but no order object. Please contact support.');
     }
 
+    if (data.existingOrder && metaEl) {
+      metaEl.textContent = data.message || 'You already have an active order. Opening it now.';
+    }
+
     if (openAfterCreate) {
       openOrder(data.order);
     }
@@ -3583,6 +3590,7 @@ function _ordCard(order) {
     : (order.buyerUsername || 'Buyer');
   var counterparty = escapeHtml ? escapeHtml(_rawCounterparty) : _rawCounterparty;
   var rawId = order.id || '';
+  var rawIdAttr = escapeHtml ? escapeHtml(rawId) : rawId;
   var ordId = encodeURIComponent(rawId);
   // store order in localStorage so order-flow page can show instantly
   // only write if status changed to avoid redundant writes on every poll cycle
@@ -3598,7 +3606,7 @@ function _ordCard(order) {
   var chatUrl  = '/p2p-order-flow.html?orderId=' + ordId + '&source=orders&openChat=1';
   var status = String(order.status || '').toUpperCase();
   var isEnded = ['RELEASED','COMPLETED','CANCELLED','CANCELED','EXPIRED'].indexOf(status) !== -1;
-  var chatBtn = '<a href="'+chatUrl+'" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
+  var chatBtn = '<a href="'+chatUrl+'" class="ord-open-link" data-order-id="'+rawIdAttr+'" data-open-chat="1" data-url="'+chatUrl+'" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</a>';
   // Amount + chat row:
   // Active: left=info cols, right=amount. Below: left=counterparty, right=Chat
@@ -3615,7 +3623,7 @@ function _ordCard(order) {
         '<span style="font-size:13px;color:rgba(255,255,255,0.65);">'+counterparty+'</span>'+
         chatBtn+
       '</div>';
-  return '<a href="'+orderUrl+'" style="display:block;text-decoration:none;color:inherit;padding:16px;border-bottom:1px solid rgba(255,255,255,0.06);-webkit-tap-highlight-color:rgba(255,255,255,0.04);">'+
+  return '<article class="ord-open-link" data-order-id="'+rawIdAttr+'" data-open-chat="0" data-url="'+orderUrl+'" role="button" tabindex="0" style="display:block;text-decoration:none;color:inherit;padding:16px;border-bottom:1px solid rgba(255,255,255,0.06);-webkit-tap-highlight-color:rgba(255,255,255,0.04);cursor:pointer;">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">'+
       '<span style="font-size:15px;font-weight:700;"><span style="color:'+sideColor+';">'+side+'</span> '+(order.asset||'USDT')+'</span>'+
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'+
@@ -3630,7 +3638,7 @@ function _ordCard(order) {
       amountAndActionHtml+
     '</div>'+
     bottomRowHtml+
-  '</a>';
+  '</article>';
 }
 
 function _ordEmpty(msg) {
@@ -3897,6 +3905,20 @@ function _ordLoadSavedSnapshots(options) {
   });
 }
 
+function _ordPrimeOrderOpen(orderId) {
+  if (!orderId) {
+    return;
+  }
+  try {
+    var match = (_ordAllOrders || []).find(function(order) {
+      return order && String(order.id || '').trim() === String(orderId || '').trim();
+    });
+    if (match) {
+      localStorage.setItem('p2p_order_' + match.id, JSON.stringify(match));
+    }
+  } catch (_) {}
+}
+
 // ── UI helpers ─────────────────────────────────────────────────────────────
 function _ordRenderAll(allOrders, fromCache) {
   var map = {};
@@ -4094,6 +4116,9 @@ function fetchOrdersSafe() {
       _ordRenderAll(cached, true);
     } else {
       var snapshots = _ordLoadSavedSnapshots({ activeOnly: true });
+      if (!snapshots.length) {
+        snapshots = _ordLoadSavedSnapshots({ activeOnly: false });
+      }
       if (snapshots.length) {
         _ordRenderAll(snapshots, false);
       } else {
@@ -4191,7 +4216,7 @@ function _stopFallbackPoll() {
 // ── KEPT for call-site compatibility (showMobScreen calls startOrdPolling) ─
 function startOrdPolling()   {
   if (!_ordLoaded) {
-    var snapshots = _ordLoadSavedSnapshots({ activeOnly: true });
+    var snapshots = _ordLoadSavedSnapshots({ activeOnly: false });
     if (snapshots.length) {
       _ordRenderAll(snapshots, false);
     }
@@ -6199,6 +6224,65 @@ window.deleteMobAd = async function(offerId) {
 })();
 
 // ── Navigate to standalone order flow on Buy ──────────────────────
+(function() {
+  function orderOpenUrl(target) {
+    return String(target.getAttribute('data-url') || target.getAttribute('href') || '').trim();
+  }
+
+  function handleOrderOpen(target) {
+    if (!target) {
+      return;
+    }
+    var orderId = String(target.getAttribute('data-order-id') || '').trim();
+    var openChat = target.getAttribute('data-open-chat') === '1';
+    var url = orderOpenUrl(target);
+    if (!url) {
+      return;
+    }
+    _ordPrimeOrderOpen(orderId);
+    if (typeof prefetchOrderFlowAssets === 'function') {
+      prefetchOrderFlowAssets();
+    }
+    if (typeof window._p2pNavSafe === 'function') {
+      window._p2pNavSafe(url, openChat ? 'Opening chat...' : 'Opening order...');
+      return;
+    }
+    window.location.href = url;
+  }
+
+  document.addEventListener('click', function(event) {
+    var target = event.target && event.target.closest ? event.target.closest('.ord-open-link') : null;
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    handleOrderOpen(target);
+  });
+
+  document.addEventListener('touchstart', function(event) {
+    var target = event.target && event.target.closest ? event.target.closest('.ord-open-link') : null;
+    if (!target) {
+      return;
+    }
+    _ordPrimeOrderOpen(target.getAttribute('data-order-id'));
+    if (typeof prefetchOrderFlowAssets === 'function') {
+      prefetchOrderFlowAssets();
+    }
+  }, { passive: true });
+
+  document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    var target = event.target && event.target.closest ? event.target.closest('article.ord-open-link') : null;
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    handleOrderOpen(target);
+  });
+})();
+
 (function() {
   var _navLockTs = 0;
   var _navOverlay = null;

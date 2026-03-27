@@ -238,6 +238,21 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       });
     } catch (error) {
       const knownStatus = Number(error?.status || 0);
+      if (String(error?.code || '').trim().toUpperCase() === 'ACTIVE_ORDER_EXISTS' && error?.existingOrder) {
+        const existingOrder = { ...error.existingOrder };
+        delete existingOrder._id;
+        const activeStatuses = ['CREATED', 'PENDING', 'PAID', 'PAYMENT_SENT', 'DISPUTED'];
+        const remainingSeconds = activeStatuses.includes(existingOrder.status) && Number(existingOrder.expiresAt) > Date.now()
+          ? Math.max(0, Math.floor((Number(existingOrder.expiresAt) - Date.now()) / 1000))
+          : 0;
+        return res.status(200).json({
+          success: true,
+          existingOrder: true,
+          message: String(error.message || 'You already have an active order.'),
+          ...toOrderResponse(existingOrder),
+          order: { ...existingOrder, remainingSeconds }
+        });
+      }
       if (knownStatus >= 400 && knownStatus < 500) {
         return res.status(knownStatus).json({
           success: false,

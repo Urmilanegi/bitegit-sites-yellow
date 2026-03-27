@@ -1019,6 +1019,83 @@
     } catch (_) {}
   }
 
+  function normalizeCurrentUserPayload(user) {
+    if (!user || typeof user !== 'object') return null;
+    var email = String(user.email || '').trim().toLowerCase();
+    var username = String(user.username || '').trim();
+    var id = String(user.id || user.userId || email || username || '').trim();
+    if (!id) return null;
+    return Object.assign({}, user, {
+      id: id,
+      userId: id,
+      email: email,
+      username: username
+    });
+  }
+
+  function normalizeAliasValue(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function resolveCurrentUserRole(order) {
+    if (!order || !currentUser) return '';
+    var currentUserId = String(currentUser.id || currentUser.userId || '').trim();
+    var currentUserName = normalizeAliasValue(currentUser.username);
+    var currentUserEmail = normalizeAliasValue(currentUser.email);
+
+    function matchesId(value) {
+      return Boolean(currentUserId) && String(value || '').trim() === currentUserId;
+    }
+
+    function matchesName(value) {
+      return Boolean(currentUserName) && normalizeAliasValue(value) === currentUserName;
+    }
+
+    function matchesEmail(value) {
+      return Boolean(currentUserEmail) && normalizeAliasValue(value) === currentUserEmail;
+    }
+
+    function participantMatches(roleName) {
+      if (!Array.isArray(order.participants)) return false;
+      return order.participants.some(function(participant) {
+        if (!participant) return false;
+        if (String(participant.role || '').trim().toLowerCase() !== roleName) return false;
+        return matchesId(participant.id) || matchesName(participant.username) || matchesEmail(participant.email);
+      });
+    }
+
+    if (
+      participantMatches('seller') ||
+      matchesId(order.sellerUserId) ||
+      matchesId(order.sellerId) ||
+      matchesName(order.sellerUsername) ||
+      matchesEmail(order.sellerEmail)
+    ) {
+      return 'seller';
+    }
+
+    if (
+      participantMatches('buyer') ||
+      matchesId(order.buyerUserId) ||
+      matchesId(order.buyerId) ||
+      matchesName(order.buyerUsername) ||
+      matchesEmail(order.buyerEmail)
+    ) {
+      return 'buyer';
+    }
+
+    return '';
+  }
+
+  function openTransferFromChat() {
+    if (!currentOrder || !currentOrder.id) return;
+    if (isSeller || hasBuyerMarkedPaid()) {
+      showScreen('screen-order-generated');
+      return;
+    }
+    showScreen('screen-transfer');
+  }
+
   // ============================================================
   // INIT
   // ============================================================
@@ -1050,8 +1127,13 @@
       if (!currentUser) {
         return;
       }
-      if (orderId && !currentOrder) {
-        loadExistingOrder(orderId, openChat);
+      if (orderId) {
+        if (currentOrder) {
+          applyOrderAndShow(currentOrder, openChat);
+          hideLoading();
+        } else {
+          loadExistingOrder(orderId, openChat);
+        }
         return;
       }
       if (!orderId && !currentAd) {
@@ -1223,8 +1305,7 @@
   function applyOrderAndShow(order, forceOpenChat) {
     currentOrder = order;
     syncOrderUrl();
-    isSeller = !!(currentUser && order.sellerUserId &&
-      (currentUser.id === order.sellerUserId || currentUser.username === order.sellerUsername));
+    isSeller = resolveCurrentUserRole(order) === 'seller';
     renderOrderDetails();
     startTimerFromOrder(order);
     var status = String(order.status || '').toUpperCase();
@@ -1408,8 +1489,8 @@
 
     // Screen 4: Chat
     document.getElementById('chatBackBtn').addEventListener('click', goBackFromChat);
-    document.getElementById('chatPayBtn').addEventListener('click', function() { showScreen('screen-transfer'); });
-    document.getElementById('chatPayBtn').addEventListener('touchend', function(e) { e.preventDefault(); showScreen('screen-transfer'); });
+    document.getElementById('chatPayBtn').addEventListener('click', openTransferFromChat);
+    document.getElementById('chatPayBtn').addEventListener('touchend', function(e) { e.preventDefault(); openTransferFromChat(); });
     var _doReleaseLocked = mkDebounce(doRelease);
     document.getElementById('chatReleaseBtn').addEventListener('click', _doReleaseLocked);
     document.getElementById('chatReleaseBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doReleaseLocked(); });
@@ -1456,7 +1537,10 @@
     document.getElementById('confirmCancelBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doConfirmCancel(); });
 
     // Screen 7: Canceled
-    document.getElementById('canceledBackBtn').addEventListener('click', function() { window.history.back(); });
+    document.getElementById('canceledBackBtn').addEventListener('click', function() {
+      if (shouldReturnToOrdersOnBack()) { returnToOrdersScreen(); return; }
+      navTo('/p2p');
+    });
     document.getElementById('cnChatBtn').addEventListener('click', function() { openChat('screen-canceled'); });
     document.getElementById('placeNewOrderBtn').addEventListener('click', function() {
       currentOrder = null;
@@ -1514,7 +1598,7 @@
       if (res.ok) {
         var data = await res.json();
         if (data.loggedIn && data.user) {
-          currentUser = data.user;
+          currentUser = normalizeCurrentUserPayload(data.user);
           return;
         }
       }
@@ -1555,12 +1639,13 @@
         errEl.style.display = 'block';
         return;
       }
-      currentUser = data.user || data;
+      currentUser = normalizeCurrentUserPayload(data.user || data);
       hideLoginModal();
       var _params = new URLSearchParams(window.location.search);
       var _orderId = _params.get('orderId');
+      var _openChat = _params.get('openChat') === '1';
       if (_orderId) {
-        loadExistingOrder(_orderId);
+        loadExistingOrder(_orderId, _openChat);
       } else {
         loadAd();
       }
@@ -1714,6 +1799,9 @@
         var data = await res.json();
         if (res.ok) {
           currentOrder = data.order || data;
+          if (data && data.existingOrder) {
+            showToast(data.message || 'You already have an active order. Opening it now.');
+          }
           // Cache order immediately for instant navigation
           cacheCurrentOrder();
           syncOrderUrl();
@@ -1926,7 +2014,15 @@
     if (prev === 'screen-chat') prev = 'screen-order-generated';
     document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
     var el = document.getElementById(prev);
-    if (el) el.classList.add('active');
+    if (el) {
+      el.classList.add('active');
+      return;
+    }
+    if (shouldReturnToOrdersOnBack()) {
+      returnToOrdersScreen();
+    } else {
+      navTo('/p2p');
+    }
   }
 
   // ============================================================
