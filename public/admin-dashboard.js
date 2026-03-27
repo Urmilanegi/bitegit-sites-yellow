@@ -895,14 +895,18 @@ async function loadP2P() {
   const countBadge = document.getElementById('p2pDisputeCount');
   const disputes = Array.isArray(disputesPayload.disputes) ? disputesPayload.disputes : [];
 
+  // Cache for instant detail panel (no extra API call)
+  _disputesCache = {};
+  disputes.forEach(o => { _disputesCache[o.id] = o; });
+
   if (countBadge) countBadge.textContent = disputes.length;
 
   disputesList.innerHTML = disputes
     .map(
       (order) => {
-        const buyerLabel = order.buyerEmail || order.buyerId || 'Unknown buyer';
-        const sellerLabel = order.sellerEmail || order.sellerId || 'Unknown seller';
-        const msgCount = Array.isArray(order.chatMessages) ? order.chatMessages.length : (order.messageCount || 0);
+        const buyerLabel = order.buyerEmail || order.buyerUsername || order.buyerUserId || 'Unknown buyer';
+        const sellerLabel = order.sellerEmail || order.sellerUsername || order.sellerUserId || 'Unknown seller';
+        const msgCount = Array.isArray(order.messages) ? order.messages.length : (Array.isArray(order.chatMessages) ? order.chatMessages.length : 0);
         const disputedAt = order.disputedAt ? formatDate(order.disputedAt) : formatDate(order.updatedAt);
         return `
       <article class="rounded-xl border border-red-900/30 bg-slate-900/60 p-4">
@@ -946,58 +950,70 @@ async function loadP2P() {
 // ─── Dispute Detail Modal ──────────────────────────────────────────────────────
 
 let _ddCurrentOrderId = null;
+let _disputesCache = {};  // orderId → order object
+
+function renderDisputeDetail(order) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '-'; };
+  set('ddOrderRef', order.reference || order.id);
+  set('ddBuyer', order.buyerEmail || order.buyerUsername || order.buyerUserId || order.buyerId || '-');
+  set('ddSeller', order.sellerEmail || order.sellerUsername || order.sellerUserId || order.sellerId || '-');
+  set('ddPayment', order.paymentMethod || order.paymentType || order.payment || '-');
+  set('ddAmount', `${formatNumber(order.cryptoAmount || 0, 4)} USDT / ₹${formatNumber(order.amountInr || order.fiatAmount || 0, 2)}`);
+  set('ddStatus', order.status || '-');
+  set('ddTime', order.disputedAt ? formatDate(order.disputedAt) : formatDate(order.updatedAt));
+
+  // Render chat history
+  const chatEl = document.getElementById('ddChatHistory');
+  const msgs = Array.isArray(order.messages) ? order.messages : (Array.isArray(order.chatMessages) ? order.chatMessages : []);
+  if (chatEl) {
+    if (msgs.length === 0) {
+      chatEl.innerHTML = '<p class="text-slate-500 text-xs text-center py-4">No chat messages.</p>';
+    } else {
+      chatEl.innerHTML = msgs.map(m => {
+        const who = m.isSystem ? '🤖 System' : (m.senderRole === 'seller' ? '🏪 Seller' : '👤 Buyer');
+        const ts = m.timestamp ? formatDate(m.timestamp) : '';
+        const textColor = m.isSystem ? 'text-slate-400 italic' : 'text-slate-200';
+        return `<div class="py-1.5 border-b border-slate-800/40 last:border-0">
+          <span class="text-xs text-slate-500">${who} · ${ts}</span>
+          <p class="text-xs ${textColor} mt-0.5">${m.text || m.message || ''}</p>
+        </div>`;
+      }).join('');
+      setTimeout(() => { chatEl.scrollTop = chatEl.scrollHeight; }, 50);
+    }
+  }
+
+  // Clear note
+  const note = document.getElementById('ddAdminNote');
+  if (note) note.value = '';
+
+  // Wire action buttons
+  document.getElementById('ddReleaseBtn').onclick = () => _resolveDispute('release');
+  document.getElementById('ddCancelBtn').onclick = () => _resolveDispute('cancel');
+  document.getElementById('ddFreezeBtn').onclick = () => _resolveDispute('freeze');
+}
 
 async function openDisputeDetail(orderId) {
   _ddCurrentOrderId = orderId;
   const modal = document.getElementById('p2pDisputeDetail');
   modal.style.display = 'block';
 
-  // Reset fields
-  ['ddOrderRef','ddBuyer','ddSeller','ddAmount','ddStatus','ddPayment','ddTime'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = 'Loading…';
-  });
-  const chatEl = document.getElementById('ddChatHistory');
-  if (chatEl) chatEl.innerHTML = '<p class="text-slate-500 text-xs">Loading chat…</p>';
+  let order = _disputesCache[orderId];
+  if (order) {
+    renderDisputeDetail(order);
+  }
 
   try {
     const payload = await apiRequest(`/p2p/orders/${encodeURIComponent(orderId)}`);
-    const order = payload.order || payload;
-
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '-'; };
-    set('ddOrderRef', order.reference || order.id);
-    set('ddBuyer', order.buyerEmail || order.buyerId || '-');
-    set('ddSeller', order.sellerEmail || order.sellerId || '-');
-    set('ddAmount', `${formatNumber(order.cryptoAmount || 0, 4)} USDT / ₹${formatNumber(order.amountInr || order.fiatAmount || 0, 2)}`);
-    set('ddStatus', order.status || '-');
-    set('ddPayment', order.paymentMethod || '-');
-    set('ddTime', order.disputedAt ? formatDate(order.disputedAt) : formatDate(order.updatedAt));
-
-    // Render chat
-    const msgs = Array.isArray(order.chatMessages) ? order.chatMessages : [];
-    if (chatEl) {
-      if (msgs.length === 0) {
-        chatEl.innerHTML = '<p class="text-slate-500 text-xs text-center py-2">No chat messages.</p>';
-      } else {
-        chatEl.innerHTML = msgs.map(m => {
-          const who = m.isSystem ? '🤖 System' : (m.senderRole === 'seller' ? '🏪 Seller' : '👤 Buyer');
-          const ts = m.timestamp ? formatDate(m.timestamp) : '';
-          const textColor = m.isSystem ? 'text-slate-400 italic' : 'text-slate-200';
-          return `<div class="py-1 border-b border-slate-800/50 last:border-0">
-            <span class="text-xs text-slate-500">${who} · ${ts}</span>
-            <p class="text-sm ${textColor} mt-0.5">${m.text || m.message || ''}</p>
-          </div>`;
-        }).join('');
-        chatEl.scrollTop = chatEl.scrollHeight;
-      }
+    order = payload?.order || payload;
+    if (!order || !order.id) {
+      throw new Error('Order data not found');
     }
-
-    // Wire action buttons
-    document.getElementById('ddReleaseBtn').onclick = () => _resolveDispute('release');
-    document.getElementById('ddCancelBtn').onclick = () => _resolveDispute('cancel');
-    document.getElementById('ddFreezeBtn').onclick = () => _resolveDispute('freeze');
-  } catch (err) {
-    showMessage(err.message || 'Failed to load dispute details.', 'error');
+    _disputesCache[orderId] = order;
+    renderDisputeDetail(order);
+  } catch (error) {
+    if (!order) {
+      showMessage(error.message || 'Order data not found, try reloading.', 'error');
+    }
   }
 }
 

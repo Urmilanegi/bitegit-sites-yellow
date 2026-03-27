@@ -547,6 +547,11 @@ function createAdminControllers({
     return res.json(data);
   }
 
+  async function getP2POrder(req, res) {
+    const data = await adminStore.getP2POrder(req.params.orderId);
+    return res.json(data);
+  }
+
   async function manualReleaseP2POrder(req, res) {
     const data = await adminStore.manualReleaseEscrow(req.params.orderId, {
       id: req.adminAuth.adminId,
@@ -804,6 +809,7 @@ function createAdminControllers({
     listP2PAds,
     reviewP2PAd,
     listP2PDisputes,
+    getP2POrder,
     manualReleaseP2POrder,
     manualCancelP2POrder,
     freezeEscrow,

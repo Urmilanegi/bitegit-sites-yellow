@@ -204,6 +204,7 @@ function registerAdminRoutes(app, deps) {
   router.get('/p2p/ads', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'list_ads' }, adminControllers.listP2PAds));
   router.post('/p2p/ads/:offerId/review', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'review_ad' }, adminControllers.reviewP2PAd));
   router.get('/p2p/disputes', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'list_disputes' }, adminControllers.listP2PDisputes));
+  router.get('/p2p/orders/:orderId', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'get_order' }, adminControllers.getP2POrder));
   router.post('/p2p/orders/:orderId/release', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'manual_release_escrow' }, adminControllers.manualReleaseP2POrder));
   router.post('/p2p/orders/:orderId/cancel', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'manual_cancel_order' }, adminControllers.manualCancelP2POrder));
   router.post('/p2p/orders/:orderId/freeze', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'freeze_escrow' }, adminControllers.freezeEscrow));
