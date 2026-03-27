@@ -892,25 +892,47 @@ async function loadP2P() {
   }
 
   const disputesList = document.getElementById('p2pDisputesList');
+  const countBadge = document.getElementById('p2pDisputeCount');
   const disputes = Array.isArray(disputesPayload.disputes) ? disputesPayload.disputes : [];
+
+  if (countBadge) countBadge.textContent = disputes.length;
+
   disputesList.innerHTML = disputes
     .map(
-      (order) => `
-      <article class="list-item">
-        <p class="text-sm font-semibold">${order.reference}</p>
-        <p class="text-xs text-slate-400">${order.id} • ${order.asset} • ₹${formatNumber(order.amountInr || 0, 2)}</p>
-        <div class="mt-2 flex gap-2">
-          <button class="btn-primary" data-p2p-action="release-order" data-order-id="${order.id}" title="Release crypto to buyer">Release to Buyer</button>
-          <button class="btn-danger" data-p2p-action="cancel-order" data-order-id="${order.id}" title="Cancel order, return crypto to seller">Cancel (Seller Wins)</button>
-          <button class="btn-secondary" data-p2p-action="freeze-order" data-order-id="${order.id}">Freeze</button>
+      (order) => {
+        const buyerLabel = order.buyerEmail || order.buyerId || 'Unknown buyer';
+        const sellerLabel = order.sellerEmail || order.sellerId || 'Unknown seller';
+        const msgCount = Array.isArray(order.chatMessages) ? order.chatMessages.length : (order.messageCount || 0);
+        const disputedAt = order.disputedAt ? formatDate(order.disputedAt) : formatDate(order.updatedAt);
+        return `
+      <article class="rounded-xl border border-red-900/30 bg-slate-900/60 p-4">
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <div>
+            <p class="text-sm font-semibold text-slate-100">${order.reference || order.id}</p>
+            <p class="text-xs text-slate-400 mt-0.5">${order.asset || 'USDT'} • ${formatNumber(order.cryptoAmount || 0, 4)} USDT • ₹${formatNumber(order.amountInr || order.fiatAmount || 0, 2)}</p>
+          </div>
+          <span class="rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-400">DISPUTED</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-3">
+          <span>👤 Buyer: <span class="text-slate-200">${buyerLabel}</span></span>
+          <span>🏪 Seller: <span class="text-slate-200">${sellerLabel}</span></span>
+          <span>💬 Messages: <span class="text-slate-200">${msgCount}</span></span>
+          <span>🕐 ${disputedAt}</span>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <button class="btn-primary flex-1" data-p2p-action="view-dispute" data-order-id="${order.id}">🔍 View &amp; Resolve</button>
+          <button class="btn-primary" data-p2p-action="release-order" data-order-id="${order.id}" title="Release crypto to buyer">✅ Release</button>
+          <button class="btn-danger" data-p2p-action="cancel-order" data-order-id="${order.id}" title="Return crypto to seller">↩ Refund</button>
+          <button class="btn-secondary" data-p2p-action="freeze-order" data-order-id="${order.id}">🔒 Freeze</button>
         </div>
       </article>
-    `
+    `;
+      }
     )
     .join('');
 
   if (disputes.length === 0) {
-    disputesList.innerHTML = '<p class="text-sm text-slate-500">No active disputes.</p>';
+    disputesList.innerHTML = '<p class="text-sm text-slate-500 py-4 text-center">No active disputes. ✓</p>';
   }
 
   const settings = settingsPayload.settings || {};
@@ -919,6 +941,85 @@ async function loadP2P() {
   form.minOrderLimit.value = settings.minOrderLimit ?? 0;
   form.maxOrderLimit.value = settings.maxOrderLimit ?? 0;
   form.autoExpiryMinutes.value = settings.autoExpiryMinutes ?? 15;
+}
+
+// ─── Dispute Detail Modal ──────────────────────────────────────────────────────
+
+let _ddCurrentOrderId = null;
+
+async function openDisputeDetail(orderId) {
+  _ddCurrentOrderId = orderId;
+  const modal = document.getElementById('p2pDisputeDetail');
+  modal.style.display = 'flex';
+
+  // Reset fields
+  ['ddOrderRef','ddBuyer','ddSeller','ddAmount','ddStatus','ddPayment','ddTime'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = 'Loading…';
+  });
+  const chatEl = document.getElementById('ddChatHistory');
+  if (chatEl) chatEl.innerHTML = '<p class="text-slate-500 text-xs">Loading chat…</p>';
+
+  try {
+    const payload = await apiRequest(`/p2p/orders/${encodeURIComponent(orderId)}`);
+    const order = payload.order || payload;
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '-'; };
+    set('ddOrderRef', order.reference || order.id);
+    set('ddBuyer', order.buyerEmail || order.buyerId || '-');
+    set('ddSeller', order.sellerEmail || order.sellerId || '-');
+    set('ddAmount', `${formatNumber(order.cryptoAmount || 0, 4)} USDT / ₹${formatNumber(order.amountInr || order.fiatAmount || 0, 2)}`);
+    set('ddStatus', order.status || '-');
+    set('ddPayment', order.paymentMethod || '-');
+    set('ddTime', order.disputedAt ? formatDate(order.disputedAt) : formatDate(order.updatedAt));
+
+    // Render chat
+    const msgs = Array.isArray(order.chatMessages) ? order.chatMessages : [];
+    if (chatEl) {
+      if (msgs.length === 0) {
+        chatEl.innerHTML = '<p class="text-slate-500 text-xs text-center py-2">No chat messages.</p>';
+      } else {
+        chatEl.innerHTML = msgs.map(m => {
+          const who = m.isSystem ? '🤖 System' : (m.senderRole === 'seller' ? '🏪 Seller' : '👤 Buyer');
+          const ts = m.timestamp ? formatDate(m.timestamp) : '';
+          const textColor = m.isSystem ? 'text-slate-400 italic' : 'text-slate-200';
+          return `<div class="py-1 border-b border-slate-800/50 last:border-0">
+            <span class="text-xs text-slate-500">${who} · ${ts}</span>
+            <p class="text-sm ${textColor} mt-0.5">${m.text || m.message || ''}</p>
+          </div>`;
+        }).join('');
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+    }
+
+    // Wire action buttons
+    document.getElementById('ddReleaseBtn').onclick = () => _resolveDispute('release');
+    document.getElementById('ddCancelBtn').onclick = () => _resolveDispute('cancel');
+    document.getElementById('ddFreezeBtn').onclick = () => _resolveDispute('freeze');
+  } catch (err) {
+    showMessage(err.message || 'Failed to load dispute details.', 'error');
+  }
+}
+
+async function _resolveDispute(action) {
+  if (!_ddCurrentOrderId) return;
+  const note = document.getElementById('ddAdminNote')?.value?.trim() || '';
+  const labelMap = { release: 'Release to Buyer', cancel: 'Refund to Seller', freeze: 'Keep Frozen' };
+  if (!confirm(`${labelMap[action]}? This action will be logged.`)) return;
+
+  try {
+    await apiRequest(`/p2p/orders/${encodeURIComponent(_ddCurrentOrderId)}/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ note })
+    });
+    const msgMap = { release: 'Crypto released to buyer.', cancel: 'Order cancelled, crypto refunded to seller.', freeze: 'Escrow frozen.' };
+    showMessage(msgMap[action], 'success');
+    document.getElementById('p2pDisputeDetail').style.display = 'none';
+    _ddCurrentOrderId = null;
+    await loadP2P();
+  } catch (err) {
+    showMessage(err.message || 'Action failed.', 'error');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1805,6 +1906,11 @@ async function handleP2PActions(event) {
   const orderId = button.getAttribute('data-order-id');
 
   try {
+    if (action === 'view-dispute') {
+      await openDisputeDetail(orderId);
+      return;
+    }
+
     if (action === 'approve-ad' || action === 'suspend-ad' || action === 'reject-ad') {
       const decisionMap = { 'approve-ad': 'APPROVED', 'suspend-ad': 'SUSPENDED', 'reject-ad': 'REJECTED' };
       const decision = decisionMap[action];

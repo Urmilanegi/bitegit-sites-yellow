@@ -336,15 +336,83 @@
 
           <!-- P2P Control Panel -->
           <section class="admin-panel hidden" data-panel="p2p">
+            <!-- Disputes section — full width, prominent -->
+            <article class="rounded-2xl border border-red-900/40 bg-slate-900/70 p-4 shadow-panel mb-4">
+              <div class="mb-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <h3 class="text-sm font-semibold uppercase tracking-wide text-red-400">Open Disputes</h3>
+                  <span id="p2pDisputeCount" class="rounded-full bg-red-500/20 px-2 py-0.5 text-xs font-bold text-red-400">0</span>
+                </div>
+                <button id="p2pReloadBtn" class="btn-secondary">Reload</button>
+              </div>
+              <div id="p2pDisputesList" class="space-y-3"></div>
+            </article>
+
+            <!-- Dispute Detail Modal (inline) -->
+            <div id="p2pDisputeDetail" style="display:none;" class="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
+              <div class="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 shadow-panel mt-8 mb-8">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+                  <div>
+                    <h3 class="font-semibold text-slate-100">Dispute Details</h3>
+                    <p class="text-xs text-slate-400 mt-0.5" id="ddOrderRef">-</p>
+                  </div>
+                  <button onclick="document.getElementById('p2pDisputeDetail').style.display='none'" class="rounded-lg border border-slate-700 px-3 py-1.5 text-xs hover:border-slate-500">✕ Close</button>
+                </div>
+                <div class="p-5 space-y-4">
+                  <!-- Order info grid -->
+                  <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div class="rounded-lg bg-slate-800/60 p-3">
+                      <p class="text-xs text-slate-400 mb-1">Buyer</p>
+                      <p class="font-semibold text-slate-100" id="ddBuyer">-</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-800/60 p-3">
+                      <p class="text-xs text-slate-400 mb-1">Seller</p>
+                      <p class="font-semibold text-slate-100" id="ddSeller">-</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-800/60 p-3">
+                      <p class="text-xs text-slate-400 mb-1">Amount</p>
+                      <p class="font-semibold text-slate-100" id="ddAmount">-</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-800/60 p-3">
+                      <p class="text-xs text-slate-400 mb-1">Status</p>
+                      <p class="font-semibold text-yellow-400" id="ddStatus">-</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-800/60 p-3">
+                      <p class="text-xs text-slate-400 mb-1">Payment Method</p>
+                      <p class="font-semibold text-slate-100" id="ddPayment">-</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-800/60 p-3">
+                      <p class="text-xs text-slate-400 mb-1">Disputed At</p>
+                      <p class="font-semibold text-slate-100" id="ddTime">-</p>
+                    </div>
+                  </div>
+                  <!-- Chat history -->
+                  <div>
+                    <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Order Chat History</h4>
+                    <div id="ddChatHistory" class="rounded-lg bg-slate-950/60 border border-slate-800 p-3 max-h-64 overflow-y-auto space-y-2 text-sm"></div>
+                  </div>
+                  <!-- Admin note -->
+                  <div>
+                    <label class="text-xs text-slate-400 mb-1 block">Admin Note (optional)</label>
+                    <textarea id="ddAdminNote" class="input-dark w-full" rows="2" placeholder="Add a note for audit log..."></textarea>
+                  </div>
+                  <!-- Action buttons -->
+                  <div class="flex gap-3 pt-2">
+                    <button id="ddReleaseBtn" class="btn-primary flex-1">✅ Release to Buyer</button>
+                    <button id="ddCancelBtn" class="btn-danger flex-1">↩ Refund to Seller</button>
+                    <button id="ddFreezeBtn" class="btn-secondary">🔒 Keep Frozen</button>
+                  </div>
+                  <p class="text-xs text-slate-500">Release = buyer gets crypto | Refund = seller gets crypto back | Keep Frozen = no action yet</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Ads + Settings row -->
             <div class="grid gap-4 xl:grid-cols-[2fr_1fr]">
               <article class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-panel">
-                <div class="mb-3 flex items-center justify-between">
-                  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">P2P Ads</h3>
-                  <button id="p2pReloadBtn" class="btn-secondary">Reload</button>
-                </div>
+                <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">P2P Ads</h3>
                 <div id="p2pAdsList" class="space-y-2"></div>
               </article>
-
               <article class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-panel">
                 <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">P2P Settings</h3>
                 <form id="p2pSettingsForm" class="space-y-3">
@@ -354,9 +422,6 @@
                   <input name="autoExpiryMinutes" type="number" step="1" class="input-dark" placeholder="Auto Expiry (min)" required />
                   <button type="submit" class="btn-primary w-full">Save P2P Settings</button>
                 </form>
-
-                <h4 class="mt-6 mb-2 text-sm font-semibold text-slate-300">Open Disputes</h4>
-                <div id="p2pDisputesList" class="space-y-2"></div>
               </article>
             </div>
           </section>
