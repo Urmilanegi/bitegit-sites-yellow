@@ -362,7 +362,7 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
         return res.status(400).json({ success: false, message: 'Order id is required.' });
       }
 
-      const updatedOrder = await walletService.setOrderDisputed(orderId, req.p2pUser);
+      const updatedOrder = await walletService.setOrderDisputed(orderId, req.p2pUser, req.body || {});
 
       const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
       broadcastOrderParticipantEvent(broadcastUserEvent, updatedOrder, 'order_updated', pushPayload);

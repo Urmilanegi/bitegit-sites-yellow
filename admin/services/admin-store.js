@@ -249,6 +249,27 @@ function sanitizeAdmin(admin) {
   };
 }
 
+function normalizeAdminAppealDetails(rawAppeal = {}) {
+  const payload = rawAppeal && typeof rawAppeal === 'object' ? rawAppeal : {};
+  const attachments = Array.isArray(payload.attachments)
+    ? payload.attachments.map((item, index) => ({
+        id: String(item?.id || `appeal_file_${index}`),
+        name: String(item?.name || `Attachment ${index + 1}`),
+        dataUrl: String(item?.dataUrl || item?.imageUrl || item?.imageBase64 || '').trim(),
+        uploadedAt: item?.uploadedAt || null
+      }))
+    : [];
+
+  return {
+    type: String(payload.type || '').trim(),
+    reason: String(payload.reason || '').trim(),
+    attachments: attachments.filter((item) => item.dataUrl),
+    submittedAt: payload.submittedAt || null,
+    submittedBy: payload.submittedBy && typeof payload.submittedBy === 'object' ? payload.submittedBy : {},
+    orderSnapshot: payload.orderSnapshot && typeof payload.orderSnapshot === 'object' ? payload.orderSnapshot : {}
+  };
+}
+
 function getDefaultPlatformSettings() {
   return {
     siteName: 'Bitegit Exchange',
@@ -1579,6 +1600,7 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
       sellerEmail: seller.email,
       buyerUsername: buyer.username,
       sellerUsername: seller.username,
+      appealDetails: normalizeAdminAppealDetails(order.appealDetails),
       messages: normalizedMessages,
       chatMessages: normalizedMessages
     };
@@ -1596,6 +1618,80 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     }
 
     return enrichP2POrder(row);
+  }
+
+  async function sendP2POrderMessage(orderId, actor, text) {
+    const normalizedOrderId = String(orderId || '').trim();
+    const normalizedText = String(text || '').trim();
+    if (!normalizedOrderId) {
+      throw new Error('Order ID is required');
+    }
+    if (!normalizedText) {
+      throw new Error('Support message is required');
+    }
+
+    const order = await p2pOrders.findOne({ id: normalizedOrderId });
+    if (!order) {
+      throw new Error('P2P order not found');
+    }
+
+    const now = Date.now();
+    await p2pOrders.updateOne(
+      { id: normalizedOrderId },
+      {
+        $set: { updatedAt: now },
+        $push: {
+          messages: {
+            id: `msg_${now}_support`,
+            sender: 'Support',
+            senderRole: 'support',
+            text: normalizedText,
+            createdAt: now
+          }
+        }
+      }
+    );
+
+    return getP2POrder(normalizedOrderId);
+  }
+
+  async function forceCancelPendingP2POrders(actor, params = {}) {
+    const limit = Math.min(500, Math.max(1, Number.parseInt(params.limit, 10) || 200));
+    const rows = await p2pOrders
+      .find({ status: { $in: ['OPEN', 'PENDING', 'CREATED'] } }, { projection: { id: 1 } })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .toArray();
+
+    let cancelledCount = 0;
+    const failed = [];
+
+    for (const row of rows) {
+      try {
+        await walletService.cancelOrder(
+          String(row.id || '').trim(),
+          {
+            id: String(actor?.id || '').trim(),
+            email: String(actor?.email || '').trim(),
+            username: 'Support',
+            isSystem: true
+          },
+          'CANCELLED'
+        );
+        cancelledCount += 1;
+      } catch (error) {
+        failed.push({
+          orderId: String(row.id || '').trim(),
+          message: String(error?.message || 'Unable to cancel order')
+        });
+      }
+    }
+
+    return {
+      matchedCount: rows.length,
+      cancelledCount,
+      failed
+    };
   }
 
   async function manualReleaseEscrow(orderId, actor) {
@@ -2153,6 +2249,8 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     reviewP2PAd,
     listP2PDisputes,
     getP2POrder,
+    sendP2POrderMessage,
+    forceCancelPendingP2POrders,
     manualReleaseEscrow,
     manualCancelOrder,
     freezeEscrow,
