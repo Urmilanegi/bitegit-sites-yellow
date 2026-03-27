@@ -1,21 +1,7 @@
-const ORDER_STATUS = {
-  CREATED: 'CREATED',
-  PAYMENT_SENT: 'PAYMENT_SENT',
-  COMPLETED: 'COMPLETED',
-  CANCELLED: 'CANCELLED',
-  EXPIRED: 'EXPIRED'
-};
-
-const INTERNAL_TO_PUBLIC_STATUS = {
-  CREATED: ORDER_STATUS.CREATED,
-  PENDING: ORDER_STATUS.CREATED,
-  PAYMENT_SENT: ORDER_STATUS.PAYMENT_SENT,
-  PAID: ORDER_STATUS.PAYMENT_SENT,
-  COMPLETED: ORDER_STATUS.COMPLETED,
-  RELEASED: ORDER_STATUS.COMPLETED,
-  CANCELLED: ORDER_STATUS.CANCELLED,
-  EXPIRED: ORDER_STATUS.EXPIRED
-};
+const {
+  ORDER_STATUS,
+  normalizeOrderStatus
+} = require('../lib/p2p-order-state');
 
 function toAmount(value, precision = 8) {
   const parsed = Number(value);
@@ -42,8 +28,7 @@ function ensureString(value, fieldName) {
 }
 
 function toPublicOrderStatus(status) {
-  const normalized = String(status || '').trim().toUpperCase();
-  return INTERNAL_TO_PUBLIC_STATUS[normalized] || ORDER_STATUS.CREATED;
+  return normalizeOrderStatus(status);
 }
 
 function buildP2POrderDocument(input = {}) {
@@ -92,6 +77,17 @@ function buildP2POrderDocument(input = {}) {
     expiresAt,
     createdAt: now,
     updatedAt: now,
+    statusHistory: [
+      {
+        status: ORDER_STATUS.CREATED,
+        reason: 'order_created',
+        actorId: 'system',
+        actorUsername: 'System',
+        actorRole: 'system',
+        at: now,
+        metadata: {}
+      }
+    ],
     participants: Array.isArray(input.participants) ? input.participants : [],
     messages: Array.isArray(input.messages) ? input.messages : []
   };

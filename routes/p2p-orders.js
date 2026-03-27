@@ -22,11 +22,15 @@ function registerP2POrderRoutes(app, deps = {}) {
   if (typeof controller.cancelOrder !== 'function') {
     throw new Error('cancelOrder handler is required for P2P order routes.');
   }
+  if (typeof controller.raiseDispute !== 'function') {
+    throw new Error('raiseDispute handler is required for P2P order routes.');
+  }
 
   app.post('/api/p2p/orders', requiresP2PUser, controller.createOrder);
   app.post('/api/p2p/orders/:id/mark-paid', requiresP2PUser, controller.markPaymentSent);
   app.post('/api/p2p/orders/:id/release', requiresP2PUser, controller.releaseCrypto);
   app.post('/api/p2p/orders/:id/cancel', requiresP2PUser, controller.cancelOrder);
+  app.post('/api/p2p/orders/:id/dispute', requiresP2PUser, controller.raiseDispute);
 }
 
 module.exports = {

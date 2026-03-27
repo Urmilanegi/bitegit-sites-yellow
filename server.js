@@ -36,6 +36,15 @@ const { createSocialFeedFallbackStore } = require('./modules/social-feed/fallbac
 const { createSocialFeedService } = require('./modules/social-feed/service');
 const { registerSocialFeedRoutes } = require('./routes/social-feed');
 const { createP2POrderController } = require('./controllers/p2p-order-controller');
+const {
+  ORDER_STATUS,
+  ACTIVE_ORDER_STATUSES,
+  normalizeOrderStatus,
+  isActiveOrderStatus,
+  isClosedOrderStatus,
+  isExpirableOrderStatus,
+  getOrderStatusBucket
+} = require('./lib/p2p-order-state');
 const { createAdminStore } = require('./admin/services/admin-store');
 const { createAdminExtendedStore } = require('./admin/services/admin-extended-store');
 const { createAdminAuthMiddleware } = require('./admin/middleware/admin-auth');
@@ -74,7 +83,7 @@ const SIGNUP_OTP_TTL_MS = Math.max(
   60 * 1000,
   Number.parseInt(String(process.env.SIGNUP_OTP_TTL_MS || '600000'), 10) || 600000
 );
-const P2P_ORDER_ACTIVE_STATUSES = ['CREATED', 'PENDING', 'PAID', 'PAYMENT_SENT', 'DISPUTED'];
+const P2P_ORDER_ACTIVE_STATUSES = ACTIVE_ORDER_STATUSES;
 const IS_PRODUCTION = String(process.env.NODE_ENV || '')
   .trim()
   .toLowerCase() === 'production';
@@ -1487,15 +1496,17 @@ function normalizeOrderState(order) {
   }
 
   const now = Date.now();
+  const normalizedStatus = normalizeOrderStatus(order.status);
+  const statusBucket = getOrderStatusBucket(normalizedStatus);
   const createdAtMs = toOrderTimestamp(order.createdAt, now);
   const updatedAtMs = toOrderTimestamp(order.updatedAt, createdAtMs);
-  const expiresFallbackMs = P2P_ORDER_ACTIVE_STATUSES.includes(order.status)
+  const expiresFallbackMs = isExpirableOrderStatus(normalizedStatus)
     ? Math.max(updatedAtMs, createdAtMs)
     : updatedAtMs;
   const expiresAtMs = toOrderTimestamp(order.expiresAt, expiresFallbackMs);
 
   const remainingSeconds =
-    P2P_ORDER_ACTIVE_STATUSES.includes(order.status) && expiresAtMs > now
+    isExpirableOrderStatus(normalizedStatus) && expiresAtMs > now
       ? Math.max(0, Math.floor((expiresAtMs - now) / 1000))
       : 0;
 
@@ -1504,7 +1515,9 @@ function normalizeOrderState(order) {
     reference: order.reference,
     side: order.side,
     asset: order.asset,
-    status: order.status,
+    status: normalizedStatus,
+    rawStatus: String(order.status || '').trim().toUpperCase(),
+    statusBucket,
     advertiser: order.advertiser,
     price: order.price,
     amountInr: order.amountInr,
@@ -1521,9 +1534,28 @@ function normalizeOrderState(order) {
     assetAmount: order.assetAmount || order.cryptoAmount,
     escrowAmount: order.escrowAmount,
     isParticipant: true,
+    isClosed: isClosedOrderStatus(normalizedStatus),
+    chatEnabled: !isClosedOrderStatus(normalizedStatus),
     createdAt: new Date(createdAtMs).toISOString(),
     expiresAt: new Date(expiresAtMs).toISOString(),
     updatedAt: new Date(updatedAtMs).toISOString(),
+    paymentSentAt: order.paymentSentAt ? new Date(toOrderTimestamp(order.paymentSentAt, updatedAtMs)).toISOString() : null,
+    disputedAt: order.disputedAt ? new Date(toOrderTimestamp(order.disputedAt, updatedAtMs)).toISOString() : null,
+    completedAt: order.completedAt ? new Date(toOrderTimestamp(order.completedAt, updatedAtMs)).toISOString() : null,
+    releasedAt: order.releasedAt ? new Date(toOrderTimestamp(order.releasedAt, updatedAtMs)).toISOString() : null,
+    cancelledAt: order.cancelledAt ? new Date(toOrderTimestamp(order.cancelledAt, updatedAtMs)).toISOString() : null,
+    expiredAt: order.expiredAt ? new Date(toOrderTimestamp(order.expiredAt, updatedAtMs)).toISOString() : null,
+    statusHistory: Array.isArray(order.statusHistory)
+      ? order.statusHistory.map((entry) => ({
+          status: normalizeOrderStatus(entry?.status),
+          reason: String(entry?.reason || '').trim(),
+          actorId: String(entry?.actorId || '').trim(),
+          actorUsername: String(entry?.actorUsername || '').trim(),
+          actorRole: String(entry?.actorRole || '').trim(),
+          at: new Date(toOrderTimestamp(entry?.at, updatedAtMs)).toISOString(),
+          metadata: entry?.metadata && typeof entry.metadata === 'object' ? entry.metadata : {}
+        }))
+      : [],
     remainingSeconds
   };
 }
@@ -3021,11 +3053,12 @@ app.post('/api/p2p/orders/:orderId/mark-paid', requiresP2PUser, async (req, res)
     }
     broadcastOrderEvent(updatedOrder.id, 'order_update', { order: normalizedOrder });
     // Push real-time status update to both buyer and seller (try both field names)
-    const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+    const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: normalizeOrderStatus(updatedOrder.status) };
     broadcastOrderParticipantEvent(updatedOrder, 'order_updated', pushPayload);
     return res.json({ success: true, order: normalizedOrder });
   } catch (error) {
-    return res.status(500).json({ message: error.message || 'Server error.' });
+    const statusCode = Number(error?.statusCode || error?.status || 500);
+    return res.status(statusCode).json({ message: error.message || 'Server error.' });
   }
 });
 
@@ -3043,7 +3076,7 @@ app.post('/api/p2p/orders/:orderId/expire', requiresP2PUser, async (req, res) =>
     const normalizedMessages = toClientMessages(updatedOrder.messages || []);
     broadcastOrderEvent(updatedOrder.id, 'order_update', { order: normalizedOrder });
     broadcastOrderEvent(updatedOrder.id, 'message_update', { messages: normalizedMessages });
-    const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+    const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: normalizeOrderStatus(updatedOrder.status) };
     broadcastOrderParticipantEvent(updatedOrder, 'order_updated', pushPayload);
     return res.json({ success: true, order: normalizedOrder, messages: normalizedMessages });
   } catch (error) {
@@ -3065,11 +3098,12 @@ app.post('/api/p2p/orders/:orderId/cancel', requiresP2PUser, async (req, res) =>
     }
     broadcastOrderEvent(updatedOrder.id, 'order_update', { order: normalizedOrder });
     // Push real-time status update to both buyer and seller (try both field names)
-    const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+    const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: normalizeOrderStatus(updatedOrder.status) };
     broadcastOrderParticipantEvent(updatedOrder, 'order_updated', pushPayload);
     return res.json({ success: true, order: normalizedOrder });
   } catch (error) {
-    return res.status(500).json({ message: error.message || 'Server error.' });
+    const statusCode = Number(error?.statusCode || error?.status || 500);
+    return res.status(statusCode).json({ message: error.message || 'Server error.' });
   }
 });
 
@@ -3168,7 +3202,7 @@ app.delete('/api/p2p/offers/:offerId', requiresP2PUser, async (req, res) => {
     if (offer.createdByUserId !== userId) return res.status(403).json({ message: 'Not your ad.' });
     // Check no active orders on this offer
     const activeOrders = await repos.listP2PLiveOrders({ asset: offer.asset, side: offer.side });
-    const hasActive = activeOrders.some(o => (o.adId === offerId || o.offerId === offerId) && ['CREATED','PAYMENT_SENT','DISPUTED'].includes(o.status));
+    const hasActive = activeOrders.some((o) => (o.adId === offerId || o.offerId === offerId) && isActiveOrderStatus(o.status));
     if (hasActive) return res.status(409).json({ message: 'Cannot delete ad with active orders.' });
     const deleted = await repos.deleteOffer(offerId, userId);
     if (!deleted) return res.status(404).json({ message: 'Delete failed.' });
@@ -3253,7 +3287,7 @@ app.get('/api/p2p/orders/my-active', requiresP2PUser, async (req, res) => {
     try {
       const history = await repos.listP2POrderHistory(req.p2pUser, { limit: 50, offset: 0 });
       const fallbackOrders = normalizeOrdersForClient(
-        (history.orders || []).filter((order) => P2P_ORDER_ACTIVE_STATUSES.includes(String(order?.status || '').trim().toUpperCase())),
+        (history.orders || []).filter((order) => isActiveOrderStatus(order?.status)),
         { route: 'my-active-fallback', userId: req.p2pUser.id }
       );
       return res.json({ total: fallbackOrders.length, orders: fallbackOrders, degraded: true });
@@ -3306,7 +3340,7 @@ app.get('/api/p2p/orders/bootstrap', requiresP2PUser, async (req, res) => {
         route: 'bootstrap_fallback',
         userId: req.p2pUser.id
       });
-      const activeOrders = historyOrders.filter((order) => P2P_ORDER_ACTIVE_STATUSES.includes(String(order?.status || '').trim().toUpperCase()));
+      const activeOrders = historyOrders.filter((order) => isActiveOrderStatus(order?.status));
       return res.json({
         activeOrders,
         historyOrders,
@@ -3461,7 +3495,7 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
     broadcastOrderEvent(updatedOrder.id, 'message_update', { messages: normalizedMessages });
 
     // Push real-time status update to both buyer and seller via user SSE stream
-    const _pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+    const _pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: normalizeOrderStatus(updatedOrder.status) };
     broadcastOrderParticipantEvent(updatedOrder, 'order_updated', _pushPayload);
 
     // Send email notifications (non-blocking)
@@ -3543,7 +3577,7 @@ app.post('/api/p2p/orders/:orderId/messages', requiresP2PUser, async (req, res) 
         return { error: 'not_participant' };
       }
 
-      if (['RELEASED', 'CANCELLED', 'EXPIRED'].includes(next.status)) {
+      if (isClosedOrderStatus(next.status)) {
         return { error: 'chat_closed' };
       }
 
@@ -4342,7 +4376,7 @@ async function boot() {
           // Broadcast real-time update to affected buyers and sellers
           if (Array.isArray(result.orders)) {
             for (const o of result.orders) {
-              const payload = { orderId: o.id, status: 'EXPIRED' };
+              const payload = { orderId: o.id, status: ORDER_STATUS.EXPIRED };
               broadcastOrderParticipantEvent(o, 'order_updated', payload);
             }
           }
