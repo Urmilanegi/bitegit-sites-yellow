@@ -1,5 +1,10 @@
 const crypto = require('crypto');
 const { decryptText } = require('../../lib/crypto-utils');
+const {
+  ORDER_STATUS,
+  normalizeOrderStatus,
+  createOrderStatusHistoryEntry
+} = require('../../lib/p2p-order-state');
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN', 'COMPLIANCE_ADMIN'];
 const USER_STATUSES = ['ACTIVE', 'FROZEN', 'BANNED'];
@@ -1744,10 +1749,163 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     return getP2POrder(normalizedOrderId);
   }
 
+  function buildSupportActor(actor = {}) {
+    return {
+      id: String(actor?.id || '').trim() || 'support_bulk_cancel',
+      email: String(actor?.email || '').trim().toLowerCase() || 'support@bitegit.com',
+      username: 'Support',
+      role: 'support',
+      isSystem: true
+    };
+  }
+
+  async function repairLegacyP2POrderParticipants(orderId) {
+    const order = await p2pOrders.findOne({ id: String(orderId || '').trim() });
+    if (!order) {
+      return null;
+    }
+
+    const buyerParticipant = Array.isArray(order?.participants)
+      ? order.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'buyer')
+      : null;
+    const sellerParticipant = Array.isArray(order?.participants)
+      ? order.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'seller')
+      : null;
+    const repairPatch = {};
+
+    if (!String(order?.buyerUserId || order?.buyerId || '').trim() && String(buyerParticipant?.id || '').trim()) {
+      repairPatch.buyerUserId = String(buyerParticipant.id).trim();
+      repairPatch.buyerId = String(buyerParticipant.id).trim();
+    }
+    if (!String(order?.buyerUsername || '').trim() && String(buyerParticipant?.username || '').trim()) {
+      repairPatch.buyerUsername = String(buyerParticipant.username).trim();
+    }
+    if (!String(order?.sellerUserId || order?.sellerId || '').trim() && String(sellerParticipant?.id || '').trim()) {
+      repairPatch.sellerUserId = String(sellerParticipant.id).trim();
+      repairPatch.sellerId = String(sellerParticipant.id).trim();
+    }
+    if (!String(order?.sellerUsername || '').trim() && String(sellerParticipant?.username || '').trim()) {
+      repairPatch.sellerUsername = String(sellerParticipant.username).trim();
+    }
+
+    if (Object.keys(repairPatch).length > 0) {
+      await p2pOrders.updateOne({ id: String(orderId || '').trim() }, { $set: repairPatch });
+      return p2pOrders.findOne({ id: String(orderId || '').trim() });
+    }
+
+    return order;
+  }
+
+  async function forceCloseP2POrderToCancelled(orderOrId, actor = {}) {
+    const supportActor = buildSupportActor(actor);
+    let order =
+      orderOrId && typeof orderOrId === 'object'
+        ? orderOrId
+        : await p2pOrders.findOne({ id: String(orderOrId || '').trim() });
+
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    const normalizedStatus = normalizeOrderStatus(order.status);
+    if (normalizedStatus === ORDER_STATUS.CANCELLED || normalizedStatus === ORDER_STATUS.EXPIRED) {
+      return getP2POrder(order.id);
+    }
+    if (normalizedStatus === ORDER_STATUS.COMPLETED) {
+      throw new Error('Completed order cannot be cancelled.');
+    }
+
+    if (normalizedStatus === ORDER_STATUS.CREATED) {
+      try {
+        return await walletService.cancelOrder(order.id, supportActor, 'CANCELLED');
+      } catch (_) {
+        order = await repairLegacyP2POrderParticipants(order.id);
+        return walletService.cancelOrder(order.id, supportActor, 'CANCELLED');
+      }
+    }
+
+    const now = Date.now();
+    const escrowAmount = Math.max(0, toNumber(order.escrowAmount ?? order.assetAmount, 0));
+    const offerId = String(order.adId || order.offerId || '').trim();
+    if (offerId && escrowAmount > 0) {
+      const offer = await p2pOffers.findOne({ id: offerId });
+      if (offer) {
+        const currentAvailable = toNumber(offer.availableAmount ?? offer.available, 0);
+        const restoredAvailable = toNumber(currentAvailable + escrowAmount, 8);
+        await p2pOffers.updateOne(
+          { _id: offer._id },
+          {
+            $set: {
+              availableAmount: restoredAvailable,
+              available: restoredAvailable,
+              updatedAt: new Date(now)
+            }
+          }
+        );
+      }
+    }
+
+    const buyerUserId = String(order.buyerUserId || order.buyerId || '').trim();
+    if (buyerUserId) {
+      await wallets.updateOne(
+        {
+          userId: buyerUserId,
+          activeP2POrderId: String(order.id || '').trim()
+        },
+        {
+          $set: {
+            activeP2POrderId: null,
+            activeP2POrderReleasedAt: new Date(now),
+            updatedAt: new Date(now)
+          }
+        }
+      );
+    }
+
+    await p2pOrders.updateOne(
+      { id: String(order.id || '').trim() },
+      {
+        $set: {
+          status: ORDER_STATUS.CANCELLED,
+          updatedAt: now,
+          cancelledAt: now,
+          disputeResolvedAt: normalizedStatus === ORDER_STATUS.DISPUTED ? now : order.disputeResolvedAt || null
+        },
+        $push: {
+          messages: {
+            id: `msg_${now}_support_force_cancel`,
+            sender: 'Support',
+            senderRole: 'support',
+            text: 'Support cancelled this order and moved it to the cancelled bucket.',
+            createdAt: now,
+            isSystem: true,
+            messageType: 'system'
+          },
+          statusHistory: createOrderStatusHistoryEntry({
+            status: ORDER_STATUS.CANCELLED,
+            actor: {
+              id: supportActor.id,
+              username: supportActor.username,
+              role: 'support'
+            },
+            reason: 'support_force_cancel',
+            at: now,
+            metadata: {
+              orderId: String(order.id || '').trim(),
+              previousStatus: normalizedStatus
+            }
+          })
+        }
+      }
+    );
+
+    return getP2POrder(order.id);
+  }
+
   async function forceCancelPendingP2POrders(actor, params = {}) {
     const limit = Math.min(500, Math.max(1, Number.parseInt(params.limit, 10) || 200));
     const rows = await p2pOrders
-      .find({ status: { $in: ['OPEN', 'PENDING', 'CREATED'] } }, { projection: { id: 1 } })
+      .find({ status: { $in: ['OPEN', 'PENDING', 'CREATED', 'PAID', 'PAYMENT_SENT', 'DISPUTED'] } }, { projection: { id: 1 } })
       .sort({ updatedAt: -1 })
       .limit(limit)
       .toArray();
@@ -1757,67 +1915,10 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
 
     for (const row of rows) {
       try {
-        await walletService.cancelOrder(
-          String(row.id || '').trim(),
-          {
-            id: String(actor?.id || '').trim(),
-            email: String(actor?.email || '').trim(),
-            username: 'Support',
-            isSystem: true
-          },
-          'CANCELLED'
-        );
+        await forceCloseP2POrderToCancelled(String(row.id || '').trim(), actor);
         cancelledCount += 1;
       } catch (error) {
         const orderId = String(row.id || '').trim();
-        try {
-          const malformedOrder = await p2pOrders.findOne({ id: orderId });
-          const buyerParticipant = Array.isArray(malformedOrder?.participants)
-            ? malformedOrder.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'buyer')
-            : null;
-          const sellerParticipant = Array.isArray(malformedOrder?.participants)
-            ? malformedOrder.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'seller')
-            : null;
-          const repairPatch = {};
-
-          if (!String(malformedOrder?.buyerUserId || malformedOrder?.buyerId || '').trim() && String(buyerParticipant?.id || '').trim()) {
-            repairPatch.buyerUserId = String(buyerParticipant.id).trim();
-            repairPatch.buyerId = String(buyerParticipant.id).trim();
-          }
-          if (!String(malformedOrder?.buyerUsername || '').trim() && String(buyerParticipant?.username || '').trim()) {
-            repairPatch.buyerUsername = String(buyerParticipant.username).trim();
-          }
-          if (!String(malformedOrder?.sellerUserId || malformedOrder?.sellerId || '').trim() && String(sellerParticipant?.id || '').trim()) {
-            repairPatch.sellerUserId = String(sellerParticipant.id).trim();
-            repairPatch.sellerId = String(sellerParticipant.id).trim();
-          }
-          if (!String(malformedOrder?.sellerUsername || '').trim() && String(sellerParticipant?.username || '').trim()) {
-            repairPatch.sellerUsername = String(sellerParticipant.username).trim();
-          }
-
-          if (Object.keys(repairPatch).length > 0) {
-            await p2pOrders.updateOne({ id: orderId }, { $set: repairPatch });
-            await walletService.cancelOrder(
-              orderId,
-              {
-                id: String(actor?.id || '').trim(),
-                email: String(actor?.email || '').trim(),
-                username: 'Support',
-                isSystem: true
-              },
-              'CANCELLED'
-            );
-            cancelledCount += 1;
-            continue;
-          }
-        } catch (repairError) {
-          failed.push({
-            orderId,
-            message: String(repairError?.message || error?.message || 'Unable to cancel order')
-          });
-          continue;
-        }
-
         failed.push({
           orderId,
           message: String(error?.message || 'Unable to cancel order')
@@ -1851,11 +1952,7 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     if (!order) {
       throw new Error('Order not found');
     }
-    const cancelled = await walletService.cancelOrder(order.id, {
-      userId: String(order.sellerUserId || ''),
-      username: `admin:${actor.email}`
-    }, 'CANCELLED');
-    return cancelled;
+    return forceCloseP2POrderToCancelled(order, actor);
   }
 
   async function freezeEscrow(orderId, actor) {
