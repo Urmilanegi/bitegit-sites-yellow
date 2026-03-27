@@ -223,6 +223,14 @@ let profileWalletBalance = 0;
 let profileWalletLocked = 0;
 let profileWalletSyncedAt = 0;
 let paymentMethodsCache = [];
+let paymentMethodFormState = {
+  methodId: '',
+  provider: 'UPI',
+  category: 'UPI',
+  qrCode: '',
+  mode: 'create',
+  backScreen: 'methods'
+};
 let profileEditAvatarDraft = '';
 const chatMessageMap = new Map();
 const chatMessageNodes = new Map();
@@ -236,6 +244,16 @@ const KYC_REQUIRED_CODES = new Set(['KYC_REQUIRED', 'KYC_PENDING', 'KYC_REJECTED
 const KYC_ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const KYC_MAX_FILE_SIZE = 6 * 1024 * 1024;
 const KYC_TARGET_IMAGE_BYTES = 320 * 1024;
+const PAYMENT_METHOD_OPTIONS = [
+  { key: 'UPI', label: 'UPI', category: 'UPI', chip: 'UP' },
+  { key: 'Bank Transfer(India)', label: 'Bank Transfer(India)', category: 'BANK', chip: 'BK' },
+  { key: 'Paytm', label: 'Paytm', category: 'UPI', chip: 'PT' },
+  { key: 'PhonePe', label: 'PhonePe', category: 'UPI', chip: 'PP' },
+  { key: 'Google Pay', label: 'Google Pay', category: 'UPI', chip: 'GP' },
+  { key: 'Bank Transfer(Union Bank)', label: 'Bank Transfer(Union Bank)', category: 'BANK', chip: 'UB' },
+  { key: 'Digital eRupee', label: 'Digital eRupee', category: 'UPI', chip: '₹' },
+  { key: 'Western Union', label: 'Western Union', category: 'OTHER', chip: 'WU' }
+];
 
 function maskEmail(s) {
   var str = String(s || '');
@@ -2691,7 +2709,7 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260328g';
+var _ORDER_FLOW_VERSION = '20260328i';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
 
 function _consumeOrdersFocusState() {
@@ -5282,210 +5300,497 @@ setInterval(() => {
 // ===== KYC FULL-PAGE SCREENS =====
 // ===== PAYMENT METHODS =====
 function openPaymentMethodsScreen() {
-  var old = document.getElementById('pmScreen');
-  if (old) old.remove();
-  var wrap = document.createElement('div');
-  wrap.id = 'pmScreen';
-  wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;';
-
-  var header = document.createElement('div');
-  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:1rem;border-bottom:1px solid rgba(255,255,255,0.07);position:sticky;top:0;background:#000;z-index:1;';
-
-  var backBtn = document.createElement('button');
-  backBtn.textContent = '‹';
-  backBtn.style.cssText = 'background:none;border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:4px 12px;line-height:1;';
-  backBtn.addEventListener('touchend', function(e){ e.stopPropagation(); e.preventDefault(); window._pmJustClosed = Date.now(); var s = document.getElementById('pmScreen'); if(s) s.remove(); });
-  backBtn.addEventListener('click', function(e){ e.stopPropagation(); window._pmJustClosed = Date.now(); var s = document.getElementById('pmScreen'); if(s) s.remove(); });
-
-  var title = document.createElement('span');
-  title.textContent = 'Payment Methods';
-  title.style.cssText = 'font-size:0.95rem;font-weight:700;color:#fff;';
-
-  var addBtnTop = document.createElement('button');
-  addBtnTop.textContent = '+';
-  addBtnTop.style.cssText = 'background:none;border:none;color:#00c2b2;font-size:1.6rem;cursor:pointer;padding:4px 12px;line-height:1;';
-  addBtnTop.addEventListener('click', function(){ openAddPaymentModal(); });
-
-  header.appendChild(backBtn); header.appendChild(title); header.appendChild(addBtnTop);
-
-  var body = document.createElement('div');
-  body.style.cssText = 'padding:0.8rem 1rem 5rem;';
-
-  var hint = document.createElement('p');
-  hint.textContent = 'Add UPI, Bank Transfer or other payment methods.';
-  hint.style.cssText = 'font-size:0.75rem;color:#6b7690;margin:0 0 1rem;';
-
-  var listDiv = document.createElement('div');
-  listDiv.id = 'pmList';
-  listDiv.innerHTML = '<p style="color:#6b7690;font-size:0.82rem;text-align:center;padding:2rem 0;">Loading...</p>';
-
-  var addBtnBottom = document.createElement('button');
-  addBtnBottom.textContent = '+ Add Payment Method';
-  addBtnBottom.style.cssText = 'width:100%;height:44px;border:none;border-radius:10px;background:linear-gradient(96deg,#00c2b2,#0099a8);color:#fff;font-size:0.88rem;font-weight:700;cursor:pointer;margin-top:1rem;font-family:Manrope,sans-serif;';
-  addBtnBottom.addEventListener('click', function(){ openAddPaymentModal(); });
-
-  body.appendChild(hint); body.appendChild(listDiv); body.appendChild(addBtnBottom);
-  wrap.appendChild(header); wrap.appendChild(body);
-  document.body.appendChild(wrap);
+  var legacy = document.getElementById('pmScreen');
+  if (legacy) legacy.remove();
+  if (!currentUser) {
+    requireLoginNotice();
+    return;
+  }
+  if (typeof showMobScreen === 'function') {
+    showMobScreen('mobPaymentMethodsScreen');
+  }
+  renderPaymentMethodsList([]);
   loadPaymentMethods();
 }
 
+function getPaymentMethodOptionConfig(input) {
+  var key = String(input || '').trim().toLowerCase();
+  var direct = PAYMENT_METHOD_OPTIONS.find(function(option) {
+    return String(option.key || '').trim().toLowerCase() === key || String(option.label || '').trim().toLowerCase() === key;
+  });
+  if (direct) {
+    return direct;
+  }
+  if (key === 'bank' || key === 'imps') {
+    return { key: 'Bank Transfer(India)', label: 'Bank Transfer(India)', category: 'BANK', chip: 'BK' };
+  }
+  if (!key || key === 'upi') {
+    return PAYMENT_METHOD_OPTIONS[0];
+  }
+  return { key: input, label: String(input || 'Payment method').trim(), category: 'OTHER', chip: String(input || 'PM').trim().slice(0, 2).toUpperCase() || 'PM' };
+}
+
+function getPaymentMethodDisplayLabel(method) {
+  if (!method) {
+    return 'Payment method';
+  }
+  return String(method.provider || method.nickname || method.type || 'Payment method').trim() || 'Payment method';
+}
+
+function getPaymentMethodDetailText(method) {
+  if (!method) {
+    return '--';
+  }
+  var owner = String(method.accountHolder || '').trim();
+  var identifier = String(method.upiId || method.accountNumber || method.details || '').trim();
+  if (owner && identifier) {
+    return owner + ' • ' + identifier;
+  }
+  if (identifier) {
+    return identifier;
+  }
+  if (owner) {
+    return owner;
+  }
+  return '--';
+}
+
+function showProfileFlowScreen(screenId, hashValue) {
+  if (typeof showMobScreen === 'function') {
+    showMobScreen(screenId);
+  } else {
+    document.querySelectorAll('.mob-screen').forEach(function(screen) {
+      screen.style.display = 'none';
+    });
+    var target = document.getElementById(screenId);
+    if (target) {
+      target.style.setProperty('display', 'flex', 'important');
+      target.style.flexDirection = 'column';
+    }
+    document.body.classList.add('mob-screen-open', 'mob-profile-open');
+    document.body.dataset.mobileTab = 'profile';
+    setMobileNavActive('profile');
+  }
+  if (hashValue) {
+    history.replaceState(null, '', '/p2p#' + hashValue);
+  }
+}
+
+function renderPaymentMethodsList(methods) {
+  var list = document.getElementById('mobPaymentMethodsList');
+  var empty = document.getElementById('mobPaymentMethodsEmpty');
+  if (!list || !empty) {
+    return;
+  }
+  list.innerHTML = '';
+  if (!Array.isArray(methods) || !methods.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  methods.forEach(function(method) {
+    var option = getPaymentMethodOptionConfig(method.provider || method.type);
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mob-payment-method-card';
+    button.setAttribute('data-payment-edit', String(method.id || ''));
+    button.innerHTML =
+      '<span class="mob-payment-method-icon">' + escapeHtml(option.chip || 'PM') + '</span>' +
+      '<span class="mob-payment-method-copy">' +
+        '<span class="mob-payment-method-title">' + escapeHtml(getPaymentMethodDisplayLabel(method)) + '</span>' +
+        '<span class="mob-payment-method-subtitle">' + escapeHtml(getPaymentMethodDetailText(method)) + '</span>' +
+      '</span>' +
+      '<span class="mob-payment-method-arrow">›</span>';
+    list.appendChild(button);
+  });
+}
+
 async function loadPaymentMethods() {
-  var list = document.getElementById('pmList');
-  if (!list) return;
-  if (!currentUser) { list.innerHTML = '<p style="color:#6b7690;text-align:center;padding:2rem 0;">Login required.</p>'; return; }
+  var list = document.getElementById('mobPaymentMethodsList');
+  var empty = document.getElementById('mobPaymentMethodsEmpty');
+  if (!list || !empty) return;
+  if (!currentUser) {
+    renderPaymentMethodsList([]);
+    empty.classList.remove('hidden');
+    empty.querySelector('p').textContent = 'Login required.';
+    return;
+  }
+  list.innerHTML = '<div class="mob-payment-empty"><p>Loading...</p></div>';
   try {
-    var res = await fetch('/api/p2p/payment-methods');
+    var res = await fetch('/api/p2p/payment-methods', { credentials: 'include' });
     var data = await res.json();
     var methods = data.methods || [];
     paymentMethodsCache = methods.slice();
-    if (!methods.length) {
-      list.innerHTML = '<p style="color:#6b7690;font-size:0.82rem;text-align:center;padding:2rem 0;">No payment methods added yet.<br>Tap + to add one.</p>';
-      return;
-    }
-    list.innerHTML = '';
-    methods.forEach(function(m) {
-      var icon = m.type === 'UPI' ? '📱' : m.type === 'Bank' ? '🏦' : '💳';
-      var detail = m.type === 'UPI' ? (m.upiId || '--') : (m.type === 'Bank' || m.type === 'IMPS') ? ((m.bankName || '') + (m.accountNumber ? ' ••' + m.accountNumber.slice(-4) : '')) : (m.details || '--');
-
-      var card = document.createElement('div');
-      card.style.cssText = 'display:flex;justify-content:space-between;align-items:center;background:#111;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:0.85rem 1rem;margin-bottom:0.65rem;';
-      card.style.cursor = 'pointer';
-      card.addEventListener('click', function(){ openEditPaymentModal(m.id); });
-
-      var left = document.createElement('div');
-      left.style.cssText = 'display:flex;align-items:center;gap:0.75rem;';
-      left.innerHTML = '<span style="font-size:1.5rem;">' + icon + '</span><div><div style="font-size:0.85rem;font-weight:700;color:#fff;">' + escapeHtml(m.nickname || m.type) + '</div><div style="font-size:0.73rem;color:#6b7690;margin-top:2px;">' + escapeHtml(detail) + '</div></div>';
-
-      var actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;gap:0.4rem;flex-shrink:0;';
-
-      var editBtn = document.createElement('button');
-      editBtn.textContent = 'Edit';
-      editBtn.style.cssText = 'height:28px;padding:0 0.7rem;border:none;border-radius:6px;font-size:0.72rem;font-weight:700;cursor:pointer;background:rgba(0,194,178,0.15);color:#00c2b2;font-family:Manrope,sans-serif;';
-      editBtn.addEventListener('click', function(event){ event.stopPropagation(); openEditPaymentModal(m.id); });
-
-      var delBtn = document.createElement('button');
-      delBtn.textContent = 'Delete';
-      delBtn.style.cssText = 'height:28px;padding:0 0.7rem;border:none;border-radius:6px;font-size:0.72rem;font-weight:700;cursor:pointer;background:rgba(246,70,93,0.12);color:#f6465d;font-family:Manrope,sans-serif;';
-      delBtn.addEventListener('click', function(event){ event.stopPropagation(); deletePaymentMethod(m.id); });
-
-      actions.appendChild(editBtn); actions.appendChild(delBtn);
-      card.appendChild(left); card.appendChild(actions);
-      list.appendChild(card);
-    });
+    empty.querySelector('p').textContent = 'No data found.';
+    renderPaymentMethodsList(methods);
   } catch(e) {
-    list.innerHTML = '<p style="color:#f6465d;text-align:center;padding:2rem 0;">Failed to load. Try again.</p>';
+    renderPaymentMethodsList([]);
+    empty.classList.remove('hidden');
+    empty.querySelector('p').textContent = 'Failed to load. Try again.';
   }
 }
 
-function openAddPaymentModal() { _openPaymentModal(null); }
-function openEditPaymentModal(pmId) { _openPaymentModal(pmId); }
-
-function _openPaymentModal(pmId) {
-  var editingMethod = paymentMethodsCache.find(function(item) { return item && item.id === pmId; }) || null;
-  var existing = document.getElementById('pmModal');
-  if (existing) existing.remove();
-  var modal = document.createElement('div');
-  modal.id = 'pmModal';
-  modal.className = 'edit-ad-modal-overlay';
-  modal.innerHTML =
-    '<div class="edit-ad-modal">' +
-      '<div class="edit-ad-head">' +
-        '<h3>' + (pmId ? 'Edit' : 'Add') + ' Payment Method</h3>' +
-        '<button onclick="document.getElementById(\'pmModal\').remove()" class="edit-ad-close">✕</button>' +
-      '</div>' +
-      '<div class="edit-ad-body">' +
-        '<label class="edit-ad-label">Type</label>' +
-        '<select id="pmType" class="edit-ad-input" onchange="renderPmFields()">' +
-          '<option value="UPI">UPI / GPay / PhonePe</option>' +
-          '<option value="Bank">Bank Transfer</option>' +
-          '<option value="IMPS">IMPS</option>' +
-          '<option value="Other">Other</option>' +
-        '</select>' +
-        '<label class="edit-ad-label">Nickname (optional)</label>' +
-        '<input id="pmNickname" type="text" class="edit-ad-input" placeholder="e.g. My SBI Account"/>' +
-        '<div id="pmDynamicFields"></div>' +
-      '</div>' +
-      '<button class="mob-kyc-fp-btn" style="background:linear-gradient(96deg,#00c2b2,#0099a8);margin:0 1rem 1rem;" onclick="submitPaymentMethod(\'' + (pmId || '') + '\')">' + (pmId ? 'Save Changes' : 'Add Method') + '</button>' +
-    '</div>';
-  document.body.appendChild(modal);
-  var typeField = document.getElementById('pmType');
-  var nicknameField = document.getElementById('pmNickname');
-  if (typeField) {
-    typeField.value = editingMethod && editingMethod.type ? editingMethod.type : 'UPI';
+function renderPaymentMethodTypes(query) {
+  var container = document.getElementById('paymentMethodTypeList');
+  if (!container) {
+    return;
   }
-  if (nicknameField) {
-    nicknameField.value = editingMethod && editingMethod.nickname ? editingMethod.nickname : '';
+  var needle = String(query || '').trim().toLowerCase();
+  var filtered = PAYMENT_METHOD_OPTIONS.filter(function(option) {
+    return !needle || String(option.label || '').toLowerCase().indexOf(needle) !== -1;
+  });
+  if (!filtered.length) {
+    container.innerHTML = '<div class="mob-payment-empty" style="padding-top:3rem;"><p>No payment methods found.</p></div>';
+    return;
   }
-  renderPmFields();
-  if (editingMethod) {
-    if ((editingMethod.type === 'UPI') && document.getElementById('pmUpiId')) {
-      document.getElementById('pmUpiId').value = editingMethod.upiId || '';
-    } else if ((editingMethod.type === 'Bank' || editingMethod.type === 'IMPS')) {
-      if (document.getElementById('pmBankName')) document.getElementById('pmBankName').value = editingMethod.bankName || '';
-      if (document.getElementById('pmHolder')) document.getElementById('pmHolder').value = editingMethod.accountHolder || '';
-      if (document.getElementById('pmAccNo')) document.getElementById('pmAccNo').value = editingMethod.accountNumber || '';
-      if (document.getElementById('pmIfsc')) document.getElementById('pmIfsc').value = editingMethod.ifsc || '';
-    } else if (document.getElementById('pmDetails')) {
-      document.getElementById('pmDetails').value = editingMethod.details || '';
-    }
-  }
+  container.innerHTML = filtered.map(function(option) {
+    return (
+      '<button type="button" class="mob-payment-type-row" data-payment-type="' + escapeHtml(option.key) + '">' +
+        '<span class="mob-payment-type-chip">' + escapeHtml(option.chip || 'PM') + '</span>' +
+        '<span class="mob-payment-type-label">' + escapeHtml(option.label) + '</span>' +
+        '<span class="mob-payment-type-arrow">›</span>' +
+      '</button>'
+    );
+  }).join('');
 }
 
-function renderPmFields() {
-  var type = document.getElementById('pmType') && document.getElementById('pmType').value;
-  var container = document.getElementById('pmDynamicFields');
-  if (!container) return;
-  if (type === 'UPI') {
-    container.innerHTML = '<label class="edit-ad-label">UPI ID</label><input id="pmUpiId" type="text" class="edit-ad-input" placeholder="yourname@upi"/>';
-  } else if (type === 'Bank' || type === 'IMPS') {
-    container.innerHTML =
-      '<label class="edit-ad-label">Bank Name</label><input id="pmBankName" type="text" class="edit-ad-input" placeholder="State Bank of India"/>' +
-      '<label class="edit-ad-label">Account Holder</label><input id="pmHolder" type="text" class="edit-ad-input" placeholder="Full name"/>' +
-      '<label class="edit-ad-label">Account Number</label><input id="pmAccNo" type="text" class="edit-ad-input" placeholder="Account number"/>' +
-      '<label class="edit-ad-label">IFSC Code</label><input id="pmIfsc" type="text" class="edit-ad-input" placeholder="SBIN0001234"/>';
+function openPaymentMethodPickerScreen() {
+  showProfileFlowScreen('mobPaymentMethodTypesScreen', 'profile-payment-add');
+  var searchInput = document.getElementById('paymentMethodSearchInput');
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  renderPaymentMethodTypes('');
+}
+
+function openAddPaymentModal() {
+  openPaymentMethodPickerScreen();
+}
+
+function getPaymentFormCopy(option) {
+  if (!option) {
+    return {
+      title: 'Add payment method',
+      identifierLabel: 'Payment ID',
+      identifierPlaceholder: 'Enter payment ID'
+    };
+  }
+  if (option.category === 'BANK') {
+    return {
+      title: 'Add ' + option.label,
+      identifierLabel: 'Account / Payment ID',
+      identifierPlaceholder: 'Enter account or payment ID'
+    };
+  }
+  if (option.category === 'UPI') {
+    return {
+      title: 'Add ' + option.label,
+      identifierLabel: 'UPI ID',
+      identifierPlaceholder: 'Enter UPI ID'
+    };
+  }
+  return {
+    title: 'Add ' + option.label,
+    identifierLabel: 'Payment ID',
+    identifierPlaceholder: 'Enter payment ID'
+  };
+}
+
+function renderPaymentQrPreview(dataUrl) {
+  var preview = document.getElementById('paymentMethodQrPreview');
+  var addBtn = document.getElementById('paymentMethodQrBtn');
+  if (!preview || !addBtn) {
+    return;
+  }
+  if (dataUrl) {
+    preview.classList.remove('hidden');
+    preview.style.backgroundImage = 'url("' + String(dataUrl).replace(/"/g, '%22') + '")';
+    addBtn.querySelector('.mob-payment-qr-plus').textContent = '✓';
   } else {
-    container.innerHTML = '<label class="edit-ad-label">Details</label><input id="pmDetails" type="text" class="edit-ad-input" placeholder="Payment details"/>';
+    preview.classList.add('hidden');
+    preview.style.backgroundImage = '';
+    addBtn.querySelector('.mob-payment-qr-plus').textContent = '+';
+  }
+}
+
+function openPaymentMethodFormFor(methodOrKey) {
+  var editingMethod = methodOrKey && typeof methodOrKey === 'object' && methodOrKey.id ? methodOrKey : null;
+  var option = getPaymentMethodOptionConfig(editingMethod ? (editingMethod.provider || editingMethod.type) : methodOrKey);
+  var copy = getPaymentFormCopy(option);
+  paymentMethodFormState = {
+    methodId: editingMethod ? String(editingMethod.id || '') : '',
+    provider: option.label,
+    category: option.category,
+    qrCode: editingMethod ? String(editingMethod.qrCode || '').trim() : '',
+    mode: editingMethod ? 'edit' : 'create',
+    backScreen: editingMethod ? 'methods' : 'types'
+  };
+
+  var title = document.getElementById('paymentMethodFormTitle');
+  var label = document.getElementById('paymentMethodIdentifierLabel');
+  var input = document.getElementById('paymentMethodIdentifierInput');
+  var ownerInput = document.getElementById('paymentMethodOwnerInput');
+  var meta = document.getElementById('paymentMethodFormMeta');
+  var confirmBtn = document.getElementById('paymentMethodConfirmBtn');
+  var backBtn = document.querySelector('#mobPaymentMethodFormScreen [data-payment-back]');
+  if (title) title.textContent = editingMethod ? ('Edit ' + option.label) : copy.title;
+  if (label) label.textContent = copy.identifierLabel;
+  if (input) {
+    input.placeholder = copy.identifierPlaceholder;
+    input.value = editingMethod ? String(editingMethod.upiId || editingMethod.accountNumber || editingMethod.details || '').trim() : '';
+  }
+  if (ownerInput) {
+    ownerInput.value = editingMethod ? String(editingMethod.accountHolder || '').trim() : String(currentUser?.username || '').trim();
+  }
+  if (meta) {
+    meta.textContent = '';
+  }
+  if (confirmBtn) {
+    confirmBtn.textContent = editingMethod ? 'Save Changes' : 'Confirm';
+    confirmBtn.disabled = false;
+  }
+  if (backBtn) {
+    backBtn.setAttribute('data-payment-back', paymentMethodFormState.backScreen);
+  }
+  renderPaymentQrPreview(paymentMethodFormState.qrCode);
+  showProfileFlowScreen('mobPaymentMethodFormScreen', editingMethod ? 'profile-payment-edit' : 'profile-payment-form');
+}
+
+function openEditPaymentModal(pmId) {
+  var editingMethod = paymentMethodsCache.find(function(item) {
+    return item && String(item.id || '') === String(pmId || '');
+  }) || null;
+  if (!editingMethod) {
+    showToast('Payment method not found');
+    return;
+  }
+  openPaymentMethodFormFor(editingMethod);
+}
+
+function openPaymentQrSheet() {
+  var sheet = document.getElementById('mobPaymentQrSheet');
+  if (sheet) {
+    sheet.classList.remove('hidden');
+    sheet.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closePaymentQrSheet() {
+  var sheet = document.getElementById('mobPaymentQrSheet');
+  if (sheet) {
+    sheet.classList.add('hidden');
+    sheet.setAttribute('aria-hidden', 'true');
+  }
+}
+
+async function handlePaymentQrSelection(file) {
+  if (!file) {
+    return;
+  }
+  var meta = document.getElementById('paymentMethodFormMeta');
+  try {
+    paymentMethodFormState.qrCode = await compressImageFileToDataUrl(file, { maxEdge: 680, quality: 0.8 });
+    renderPaymentQrPreview(paymentMethodFormState.qrCode);
+    if (meta) {
+      meta.textContent = 'QR code added.';
+      meta.style.color = 'rgba(255,255,255,0.48)';
+    }
+  } catch (error) {
+    if (meta) {
+      meta.textContent = 'Unable to read that image. Try another file.';
+      meta.style.color = '#f6465d';
+    }
+  } finally {
+    closePaymentQrSheet();
   }
 }
 
 async function submitPaymentMethod(pmId) {
-  var type = document.getElementById('pmType') && document.getElementById('pmType').value;
-  var nickname = document.getElementById('pmNickname') && document.getElementById('pmNickname').value.trim();
-  var body = { type: type, nickname: nickname };
-  if (type === 'UPI') {
-    body.upiId = document.getElementById('pmUpiId') && document.getElementById('pmUpiId').value.trim();
-    if (!body.upiId) { alert('UPI ID is required.'); return; }
-  } else if (type === 'Bank' || type === 'IMPS') {
-    body.bankName = document.getElementById('pmBankName') && document.getElementById('pmBankName').value.trim();
-    body.accountHolder = document.getElementById('pmHolder') && document.getElementById('pmHolder').value.trim();
-    body.accountNumber = document.getElementById('pmAccNo') && document.getElementById('pmAccNo').value.trim();
-    body.ifsc = document.getElementById('pmIfsc') && document.getElementById('pmIfsc').value.trim();
-    if (!body.accountNumber) { alert('Account number is required.'); return; }
+  var methodId = pmId || paymentMethodFormState.methodId;
+  var ownerInput = document.getElementById('paymentMethodOwnerInput');
+  var idInput = document.getElementById('paymentMethodIdentifierInput');
+  var confirmBtn = document.getElementById('paymentMethodConfirmBtn');
+  var meta = document.getElementById('paymentMethodFormMeta');
+  var owner = String(ownerInput && ownerInput.value || '').trim();
+  var identifier = String(idInput && idInput.value || '').trim();
+
+  if (!owner || owner.length < 2) {
+    if (meta) {
+      meta.textContent = 'Enter the account holder name.';
+      meta.style.color = '#f6465d';
+    }
+    return;
+  }
+  if (!identifier) {
+    if (meta) {
+      meta.textContent = paymentMethodFormState.category === 'UPI' ? 'UPI ID is required.' : 'Payment ID is required.';
+      meta.style.color = '#f6465d';
+    }
+    return;
+  }
+
+  var body = {
+    type: paymentMethodFormState.category,
+    provider: paymentMethodFormState.provider,
+    nickname: paymentMethodFormState.provider,
+    accountHolder: owner,
+    qrCode: paymentMethodFormState.qrCode || ''
+  };
+  if (paymentMethodFormState.category === 'UPI') {
+    body.upiId = identifier;
+  } else if (paymentMethodFormState.category === 'BANK') {
+    body.bankName = paymentMethodFormState.provider;
+    body.accountNumber = identifier;
+    body.details = identifier;
   } else {
-    body.details = document.getElementById('pmDetails') && document.getElementById('pmDetails').value.trim();
+    body.details = identifier;
+  }
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = methodId ? 'Saving...' : 'Adding...';
   }
   try {
-    var url = pmId ? '/api/p2p/payment-methods/' + pmId : '/api/p2p/payment-methods';
-    var method = pmId ? 'PATCH' : 'POST';
-    var res = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var url = methodId ? '/api/p2p/payment-methods/' + methodId : '/api/p2p/payment-methods';
+    var method = methodId ? 'PATCH' : 'POST';
+    var res = await fetch(url, { method: method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     var data = await res.json();
-    if (!res.ok) { alert(data.message || 'Failed.'); return; }
-    document.getElementById('pmModal') && document.getElementById('pmModal').remove();
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to save payment method.');
+    }
+    paymentMethodFormState = {
+      methodId: '',
+      provider: 'UPI',
+      category: 'UPI',
+      qrCode: '',
+      mode: 'create',
+      backScreen: 'methods'
+    };
     await loadPaymentMethods();
-  } catch(e) { alert('Network error.'); }
+    showProfileFlowScreen('mobPaymentMethodsScreen', 'profile-payment');
+    showToast(methodId ? 'Payment method updated' : 'Payment method added');
+  } catch(e) {
+    if (meta) {
+      meta.textContent = e.message || 'Network error.';
+      meta.style.color = '#f6465d';
+    }
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = methodId ? 'Save Changes' : 'Confirm';
+    }
+  }
 }
 
 async function deletePaymentMethod(pmId) {
   if (!confirm('Delete this payment method?')) return;
   try {
-    var res = await fetch('/api/p2p/payment-methods/' + pmId, { method: 'DELETE' });
+    var res = await fetch('/api/p2p/payment-methods/' + pmId, { method: 'DELETE', credentials: 'include' });
     var data = await res.json();
     if (!res.ok) { alert(data.message || 'Failed.'); return; }
     await loadPaymentMethods();
   } catch(e) { alert('Network error.'); }
 }
+
+(function initPaymentMethodUi() {
+  var addBtn = document.getElementById('mobPaymentAddBtn');
+  if (addBtn) {
+    addBtn.addEventListener('click', function() {
+      openPaymentMethodPickerScreen();
+    });
+  }
+
+  var searchInput = document.getElementById('paymentMethodSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      renderPaymentMethodTypes(searchInput.value || '');
+    });
+  }
+
+  var qrBtn = document.getElementById('paymentMethodQrBtn');
+  if (qrBtn) {
+    qrBtn.addEventListener('click', function() {
+      openPaymentQrSheet();
+    });
+  }
+
+  var confirmBtn = document.getElementById('paymentMethodConfirmBtn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', function() {
+      submitPaymentMethod();
+    });
+  }
+
+  var cameraInput = document.getElementById('paymentMethodQrCameraInput');
+  if (cameraInput) {
+    cameraInput.addEventListener('change', function() {
+      handlePaymentQrSelection(cameraInput.files && cameraInput.files[0]);
+      cameraInput.value = '';
+    });
+  }
+
+  var albumInput = document.getElementById('paymentMethodQrAlbumInput');
+  if (albumInput) {
+    albumInput.addEventListener('change', function() {
+      handlePaymentQrSelection(albumInput.files && albumInput.files[0]);
+      albumInput.value = '';
+    });
+  }
+
+  var takePhotoBtn = document.getElementById('paymentMethodTakePhotoBtn');
+  if (takePhotoBtn && cameraInput) {
+    takePhotoBtn.addEventListener('click', function() {
+      cameraInput.click();
+    });
+  }
+
+  var selectAlbumBtn = document.getElementById('paymentMethodSelectAlbumBtn');
+  if (selectAlbumBtn && albumInput) {
+    selectAlbumBtn.addEventListener('click', function() {
+      albumInput.click();
+    });
+  }
+
+  var sheetBackdrop = document.getElementById('mobPaymentQrSheetBackdrop');
+  if (sheetBackdrop) {
+    sheetBackdrop.addEventListener('click', closePaymentQrSheet);
+  }
+
+  var sheetCancelBtn = document.getElementById('paymentMethodQrSheetCancelBtn');
+  if (sheetCancelBtn) {
+    sheetCancelBtn.addEventListener('click', closePaymentQrSheet);
+  }
+
+  document.addEventListener('click', function(event) {
+    var typeRow = event.target.closest('[data-payment-type]');
+    if (typeRow) {
+      event.preventDefault();
+      openPaymentMethodFormFor(typeRow.getAttribute('data-payment-type'));
+      return;
+    }
+    var editRow = event.target.closest('[data-payment-edit]');
+    if (editRow) {
+      event.preventDefault();
+      openEditPaymentModal(editRow.getAttribute('data-payment-edit'));
+      return;
+    }
+    var paymentBack = event.target.closest('[data-payment-back]');
+    if (paymentBack) {
+      event.preventDefault();
+      var target = paymentBack.getAttribute('data-payment-back');
+      if (target === 'profile') {
+        showProfileFlowScreen('mobProfileScreen', 'profile');
+        if (typeof loadProfilePanel === 'function') {
+          loadProfilePanel();
+        }
+      } else if (target === 'methods') {
+        openPaymentMethodsScreen();
+      } else {
+        openPaymentMethodPickerScreen();
+      }
+    }
+  });
+})();
 // ===== END PAYMENT METHODS =====
 
 // ===== 3-DOT MENU =====
@@ -5816,18 +6121,21 @@ window.deleteMobAd = async function(offerId) {
 
 // ===== MOB-SCREEN NAV (profile / orders screens) =====
 (function initMobScreenNav() {
+  var profileFlowScreens = new Set(['mobProfileScreen', 'mobPaymentMethodsScreen', 'mobPaymentMethodTypesScreen', 'mobPaymentMethodFormScreen']);
   function showMobScreen(screenId) {
     var all = document.querySelectorAll('.mob-screen');
     all.forEach(function(s){ s.style.display = 'none'; });
     var el = document.getElementById(screenId);
     if (el) { el.style.setProperty('display','flex','important'); el.style.flexDirection = 'column'; }
-    if (screenId === 'mobProfileScreen' || screenId === 'mobOrdersScreen' || screenId === 'mobPostAdScreen') {
+    if (profileFlowScreens.has(screenId) || screenId === 'mobOrdersScreen' || screenId === 'mobPostAdScreen') {
       document.body.classList.add('mob-screen-open');
-      if (screenId === 'mobProfileScreen') {
+      if (profileFlowScreens.has(screenId)) {
         document.body.dataset.mobileTab = 'profile';
         setMobileNavActive('profile');
         document.body.classList.add('mob-profile-open');
-        history.replaceState(null,'','/p2p#profile');
+        if (screenId === 'mobProfileScreen') {
+          history.replaceState(null,'','/p2p#profile');
+        }
       } else if (screenId === 'mobOrdersScreen') {
         document.body.dataset.mobileTab = 'orders';
         setMobileNavActive('orders');
@@ -5865,6 +6173,8 @@ window.deleteMobAd = async function(offerId) {
   (function restoreFromHash() {
     var hash = window.location.hash.replace('#','');
     if (hash === 'profile') { showMobScreen('mobProfileScreen'); setTimeout(function(){ loadProfilePanel && loadProfilePanel(); }, 300); }
+    else if (hash === 'profile-payment') { openPaymentMethodsScreen(); }
+    else if (hash === 'profile-payment-add') { openPaymentMethodPickerScreen(); }
     else if (hash === 'orders') { showMobScreen('mobOrdersScreen'); }
   })();
 

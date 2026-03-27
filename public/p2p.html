@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Bitegit P2P | Buy &amp; Sell Crypto</title>
     <link rel="stylesheet" href="/mobile-nav.css" />
-    <link rel="stylesheet" href="/p2p.css?v=20260328g" />
+    <link rel="stylesheet" href="/p2p.css?v=20260328i" />
   </head>
   <body class="p2p-page p2p-theme-dark has-mobile-nav" data-mobile-tab="p2p" style="visibility:hidden;">
 
@@ -412,6 +412,92 @@
       <button id="profileDepositBtn" class="hidden"></button>
     </div>
 
+    <!-- Mobile Payment Methods Screen -->
+    <div id="mobPaymentMethodsScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" data-payment-back="profile" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Payment methods</h2>
+        <div style="width:34px;"></div>
+      </div>
+      <div class="mob-payment-body">
+        <div id="mobPaymentMethodsEmpty" class="mob-payment-empty">
+          <div class="mob-payment-empty-icon">
+            <span></span>
+            <span></span>
+          </div>
+          <p>No data found.</p>
+        </div>
+        <div id="mobPaymentMethodsList" class="mob-payment-methods-list"></div>
+      </div>
+      <div class="mob-payment-footer">
+        <button id="mobPaymentAddBtn" type="button" class="mob-payment-primary-btn">Add</button>
+      </div>
+    </div>
+
+    <!-- Mobile Payment Method Picker -->
+    <div id="mobPaymentMethodTypesScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" data-payment-back="methods" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Add a payment method</h2>
+        <span class="mob-payment-currency">INR⇆</span>
+      </div>
+      <div class="mob-payment-body mob-payment-picker-body">
+        <div class="mob-payment-search-wrap">
+          <input id="paymentMethodSearchInput" type="search" class="mob-payment-search" placeholder="Search" autocomplete="off" />
+        </div>
+        <div id="paymentMethodTypeList" class="mob-payment-type-list"></div>
+      </div>
+    </div>
+
+    <!-- Mobile Payment Method Form -->
+    <div id="mobPaymentMethodFormScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" data-payment-back="types" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2 id="paymentMethodFormTitle">Add UPI</h2>
+        <div style="width:34px;"></div>
+      </div>
+      <div class="mob-payment-body mob-payment-form-body">
+        <label class="mob-payment-label" for="paymentMethodOwnerInput">Name <span>i</span></label>
+        <input id="paymentMethodOwnerInput" type="text" class="mob-payment-input" placeholder="Enter name" maxlength="48" autocomplete="name" />
+
+        <label id="paymentMethodIdentifierLabel" class="mob-payment-label" for="paymentMethodIdentifierInput">UPI ID</label>
+        <input id="paymentMethodIdentifierInput" type="text" class="mob-payment-input" placeholder="Enter UPI ID" autocomplete="off" />
+
+        <div class="mob-payment-upload-row">
+          <div>
+            <label class="mob-payment-label">QR Code</label>
+            <button id="paymentMethodQrBtn" type="button" class="mob-payment-qr-btn" aria-label="Upload QR code">
+              <span class="mob-payment-qr-plus">+</span>
+            </button>
+            <input id="paymentMethodQrCameraInput" type="file" accept="image/*" capture="environment" hidden />
+            <input id="paymentMethodQrAlbumInput" type="file" accept="image/*" hidden />
+          </div>
+          <div id="paymentMethodQrPreview" class="mob-payment-qr-preview hidden"></div>
+        </div>
+
+        <p id="paymentMethodFormMeta" class="mob-payment-meta"></p>
+      </div>
+      <div class="mob-payment-footer">
+        <button id="paymentMethodConfirmBtn" type="button" class="mob-payment-primary-btn">Confirm</button>
+      </div>
+    </div>
+
+    <!-- Payment QR Upload Sheet -->
+    <div id="mobPaymentQrSheet" class="mob-payment-sheet hidden" aria-hidden="true">
+      <div id="mobPaymentQrSheetBackdrop" class="mob-payment-sheet-backdrop"></div>
+      <div class="mob-payment-sheet-panel">
+        <button id="paymentMethodTakePhotoBtn" type="button" class="mob-payment-sheet-action">Take a photo</button>
+        <button id="paymentMethodSelectAlbumBtn" type="button" class="mob-payment-sheet-action">Select from album</button>
+        <button id="paymentMethodQrSheetCancelBtn" type="button" class="mob-payment-sheet-cancel">Cancel</button>
+      </div>
+    </div>
+
     <!-- Mobile Post Ad Screen -->
     <div id="mobPostAdScreen" class="mob-screen hidden">
       <div class="mob-screen-head">
@@ -784,7 +870,7 @@
       <button class="asset-chip active" data-asset="USDT" type="button">USDT</button>
     </div>
 
-    <script src="/p2p.js?v=20260328g"></script>
+    <script src="/p2p.js?v=20260328i"></script>
     <script>
     // Mobile tab switching
     (function() {

@@ -2105,6 +2105,14 @@ body.mob-screen-open .p2p-secondary-nav {
   display: none !important;
 }
 
+#mobPaymentMethodsScreen,
+#mobPaymentMethodTypesScreen,
+#mobPaymentMethodFormScreen {
+  inset: 0 0 calc(76px + env(safe-area-inset-bottom)) 0;
+  height: auto !important;
+  padding-bottom: 0;
+}
+
 .mob-screen-head {
   display: flex;
   align-items: center;
@@ -2137,6 +2145,351 @@ body.mob-screen-open .p2p-secondary-nav {
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
+}
+
+.mob-payment-currency {
+  min-width: 38px;
+  text-align: right;
+  color: rgba(255,255,255,0.78);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.mob-payment-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 0 1rem;
+  background: #000;
+}
+
+.mob-payment-picker-body,
+.mob-payment-form-body {
+  padding: 0.95rem 1rem 1.25rem;
+}
+
+.mob-payment-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  color: rgba(255,255,255,0.38);
+  padding: 1.5rem 1rem 3rem;
+}
+
+.mob-payment-empty p {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.mob-payment-empty-icon {
+  width: 78px;
+  height: 78px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+}
+
+.mob-payment-empty-icon span:first-child,
+.mob-payment-empty-icon span:last-child {
+  display: block;
+  background: rgba(255,255,255,0.2);
+  border-radius: 6px;
+}
+
+.mob-payment-empty-icon span:first-child {
+  width: 34px;
+  height: 8px;
+}
+
+.mob-payment-empty-icon span:last-child {
+  width: 42px;
+  height: 28px;
+  clip-path: polygon(8% 0, 92% 0, 100% 16%, 100% 100%, 0 100%, 0 16%);
+}
+
+.mob-payment-methods-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.mob-payment-method-card {
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.09);
+  background: linear-gradient(180deg, rgba(24,26,34,0.96), rgba(13,14,19,0.98));
+  box-shadow: 0 18px 34px rgba(0,0,0,0.28);
+  padding: 0.95rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.mob-payment-method-card:active {
+  transform: scale(0.995);
+}
+
+.mob-payment-method-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(135deg,#00c2b2,#4f8cff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.mob-payment-method-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.mob-payment-method-title {
+  color: #fff;
+  font-size: 0.94rem;
+  font-weight: 700;
+  margin: 0 0 0.18rem;
+}
+
+.mob-payment-method-subtitle {
+  color: rgba(255,255,255,0.55);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  margin: 0;
+  word-break: break-word;
+}
+
+.mob-payment-method-arrow {
+  color: rgba(255,255,255,0.28);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.mob-payment-footer {
+  padding: 0.75rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  background: #000;
+}
+
+.mob-payment-primary-btn {
+  width: 100%;
+  height: 54px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(96deg,#4f8cff,#55d4d1);
+  color: #fff;
+  font-size: 1.02rem;
+  font-weight: 800;
+  box-shadow: 0 12px 32px rgba(69,164,232,0.28);
+  font-family: 'Manrope', sans-serif;
+  cursor: pointer;
+}
+
+.mob-payment-primary-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mob-payment-search-wrap {
+  padding-bottom: 0.7rem;
+}
+
+.mob-payment-search {
+  width: 100%;
+  height: 46px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: #16181f;
+  color: #fff;
+  padding: 0 1rem;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.mob-payment-search::placeholder {
+  color: rgba(255,255,255,0.34);
+}
+
+.mob-payment-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.mob-payment-type-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 58px;
+  padding: 0 0.1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.mob-payment-type-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(79,140,255,0.2);
+  color: #78b7ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.mob-payment-type-label {
+  flex: 1;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.mob-payment-type-arrow {
+  color: rgba(255,255,255,0.32);
+  font-size: 1.2rem;
+}
+
+.mob-payment-label {
+  display: block;
+  color: rgba(255,255,255,0.76);
+  font-size: 0.84rem;
+  font-weight: 700;
+  margin: 0 0 0.48rem;
+}
+
+.mob-payment-label span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.16);
+  color: rgba(255,255,255,0.5);
+  font-size: 0.64rem;
+  margin-left: 0.18rem;
+}
+
+.mob-payment-input {
+  width: 100%;
+  height: 48px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: #191b22;
+  color: #fff;
+  padding: 0 0.95rem;
+  font-size: 0.94rem;
+  outline: none;
+  margin-bottom: 1.2rem;
+}
+
+.mob-payment-input::placeholder {
+  color: rgba(255,255,255,0.3);
+}
+
+.mob-payment-upload-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  margin-top: 0.2rem;
+}
+
+.mob-payment-qr-btn {
+  width: 106px;
+  height: 106px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: #1a1c23;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.mob-payment-qr-plus {
+  color: rgba(255,255,255,0.48);
+  font-size: 2.3rem;
+  line-height: 1;
+}
+
+.mob-payment-qr-preview {
+  width: 106px;
+  height: 106px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: #111;
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+.mob-payment-meta {
+  min-height: 18px;
+  margin: 1rem 0 0;
+  color: rgba(255,255,255,0.48);
+  font-size: 0.78rem;
+}
+
+.mob-payment-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 520;
+}
+
+.mob-payment-sheet.hidden {
+  display: none;
+}
+
+.mob-payment-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+}
+
+.mob-payment-sheet-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #121318;
+  border-radius: 18px 18px 0 0;
+  overflow: hidden;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 -16px 40px rgba(0,0,0,0.35);
+}
+
+.mob-payment-sheet-action,
+.mob-payment-sheet-cancel {
+  width: 100%;
+  min-height: 58px;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.mob-payment-sheet-panel > :first-child {
+  border-top: none;
+}
+
+.mob-payment-sheet-cancel {
+  color: rgba(255,255,255,0.9);
 }
 
 /* Orders tabs */
