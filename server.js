@@ -4445,13 +4445,46 @@ async function boot() {
     p2pExpirySweepTimer = setInterval(async () => {
       try {
         const result = await p2pOrderExpiryService.runExpirySweep();
+        if (result.warningCount > 0 && Array.isArray(result.warningOrders)) {
+          console.log(`P2P payment warning sent for ${result.warningCount} order(s).`);
+          for (const order of result.warningOrders) {
+            const normalizedOrder = safeNormalizeOrderState(order, {
+              route: 'expiry-warning-sweep',
+              userId: 'system'
+            });
+            if (!normalizedOrder) {
+              continue;
+            }
+            const normalizedMessages = toClientMessages(order.messages || []);
+            broadcastOrderEvent(order.id, 'message_update', { messages: normalizedMessages });
+            broadcastOrderParticipantEvent(order, 'order_updated', {
+              type: 'order_update',
+              orderId: order.id,
+              status: normalizedOrder.status,
+              order: normalizedOrder
+            });
+          }
+        }
         if (result.cancelledCount > 0) {
           console.log(`Auto-cancelled expired P2P orders: ${result.cancelledCount}`);
           // Broadcast real-time update to affected buyers and sellers
           if (Array.isArray(result.orders)) {
-            for (const o of result.orders) {
-              const payload = { orderId: o.id, status: ORDER_STATUS.EXPIRED };
-              broadcastOrderParticipantEvent(o, 'order_updated', payload);
+            for (const order of result.orders) {
+              const normalizedOrder = safeNormalizeOrderState(order, {
+                route: 'expiry-cancel-sweep',
+                userId: 'system'
+              });
+              if (!normalizedOrder) {
+                continue;
+              }
+              const normalizedMessages = toClientMessages(order.messages || []);
+              broadcastOrderEvent(order.id, 'message_update', { messages: normalizedMessages });
+              broadcastOrderParticipantEvent(order, 'order_updated', {
+                type: 'order_update',
+                orderId: order.id,
+                status: normalizedOrder.status,
+                order: normalizedOrder
+              });
             }
           }
         }

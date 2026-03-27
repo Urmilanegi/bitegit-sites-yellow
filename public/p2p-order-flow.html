@@ -1091,7 +1091,7 @@
   var _appealDraft = { images: [] };
   var _orderSseConnected = false;
   var _chatWarmPromise = null;
-  var ORDER_FLOW_PAGE_VERSION = '20260328a';
+  var ORDER_FLOW_PAGE_VERSION = '20260328b';
   var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
   var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
 
@@ -2270,9 +2270,48 @@
   }
 
   var _autoExpiredFired = false;
+  var _fiveMinuteWarningFired = false;
+  function _getFiveMinuteWarningMessageText() {
+    return isSeller
+      ? 'The order will be canceled in 5 minutes if the buyer does not complete payment. If the buyer has already paid, ask them to go to the order details and click "I\'ve paid" as soon as possible.'
+      : 'The order will be canceled in 5 minutes. If you\'ve already paid the seller, please go to the order details and click "I\'ve paid", or you may risk losing your assets.';
+  }
+  function _getExpiredAutoMessageText() {
+    return isSeller
+      ? 'The order has been canceled by the platform because the buyer did not complete payment in time. Do not release the assets for this order.'
+      : 'The order has been canceled by the platform due to your late payment. If you\'ve already made the payment, please contact the seller immediately.';
+  }
+  function _pushLocalSystemMessage(msg) {
+    if (!currentOrder || !currentOrder.id || !msg || !msg.id) return;
+    var msgs = _loadCachedChatMessages(currentOrder.id);
+    var exists = msgs.some(function(existing) {
+      return String(existing && existing.id || '') === String(msg.id || '');
+    });
+    if (!exists) {
+      msgs.push(msg);
+      _saveCachedChatMessages(currentOrder.id, msgs);
+    }
+    appendChatMessage(msg);
+  }
+  function _injectFiveMinuteWarningIfNeeded() {
+    if (_fiveMinuteWarningFired || !currentOrder || !currentOrder.id) return;
+    var orderStatus = String(currentOrder.status || '').toUpperCase();
+    if (!['CREATED', 'PENDING', ''].includes(orderStatus)) return;
+    _fiveMinuteWarningFired = true;
+    _pushLocalSystemMessage({
+      id: 'msg_' + currentOrder.id + '_warn5_' + (isSeller ? 's' : 'b'),
+      sender: 'System',
+      role: isSeller ? 'seller' : 'buyer',
+      messageType: 'system',
+      isSystem: true,
+      text: _getFiveMinuteWarningMessageText(),
+      createdAt: new Date().toISOString()
+    });
+  }
   function startTimerTick() {
     if (timerInterval) clearInterval(timerInterval);
     _autoExpiredFired = false;
+    _fiveMinuteWarningFired = false;
     timerInterval = setInterval(function() {
       timerSeconds = timerExpiresAt
         ? Math.max(0, Math.floor((timerExpiresAt - Date.now()) / 1000))
@@ -2281,6 +2320,9 @@
       setTextSafe('timer1', t);
       setTextSafe('timer2', t);
       setTextSafe('chatTimer', t);
+      if (timerSeconds > 0 && timerSeconds <= 300) {
+        _injectFiveMinuteWarningIfNeeded();
+      }
       if (timerSeconds === 0) {
         clearInterval(timerInterval);
         timerInterval = null;
@@ -2299,8 +2341,8 @@
     showScreen('screen-canceled');
     var h1 = document.querySelector('#screen-canceled .page-heading h1');
     var sub = document.querySelector('#screen-canceled .page-heading div');
-    if (h1) h1.textContent = 'Order Expired';
-    if (sub) sub.textContent = 'Payment was not completed in time. The order has been cancelled.';
+    if (h1) h1.textContent = 'Canceled';
+    if (sub) sub.textContent = 'Order is canceled. Do not initiate another payment.';
     var pnoBtn = document.getElementById('placeNewOrderBtn');
     if (pnoBtn) pnoBtn.style.display = '';
   }
@@ -2314,13 +2356,15 @@
 
     // Inject expiry auto-message into chat
     var expireMsg = {
-      id: 'auto_expired_' + Date.now(),
+      id: 'msg_' + currentOrder.id + '_expired_' + (isSeller ? 's' : 'b'),
       sender: 'System',
+      role: isSeller ? 'seller' : 'buyer',
       messageType: 'system',
-      text: 'Order cancelled automatically because the payment time expired.',
-      createdAt: Date.now()
+      isSystem: true,
+      text: _getExpiredAutoMessageText(),
+      createdAt: new Date().toISOString()
     };
-    appendChatMessage(expireMsg);
+    _pushLocalSystemMessage(expireMsg);
     try {
       var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/expire', {
         method: 'POST',
