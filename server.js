@@ -1796,11 +1796,7 @@ app.post('/api/p2p/login', async (req, res) => {
 
   try {
     const existingCredential = await repos.getP2PCredential(email);
-    const passwordMatches =
-      existingCredential && existingCredential.passwordHash
-        ? await verifyP2PPassword(password, existingCredential.passwordHash)
-        : false;
-    if (existingCredential && !passwordMatches) {
+    if (!existingCredential || !existingCredential.passwordHash) {
       safeP2PAuditLog({
         userId: '',
         action: 'login_failed',
@@ -1810,14 +1806,18 @@ app.post('/api/p2p/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
-    let userRole = tokenService.normalizeRole(existingCredential?.role || 'USER');
-    if (!existingCredential) {
-      const hash = await hashP2PPassword(password);
-      await repos.setP2PCredential(email, hash, {
-        role: 'USER'
+    const passwordMatches = await verifyP2PPassword(password, existingCredential.passwordHash);
+    if (!passwordMatches) {
+      safeP2PAuditLog({
+        userId: '',
+        action: 'login_failed',
+        ipAddress: requestIp,
+        metadata: { reason: 'invalid_credentials', route: '/api/p2p/login', email }
       });
-      userRole = 'USER';
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
+
+    const userRole = tokenService.normalizeRole(existingCredential?.role || 'USER');
 
     const { token, user } = await createP2PUserSession(email, userRole);
     const tokenPair = await issueAuthTokenPairForUser(user);
