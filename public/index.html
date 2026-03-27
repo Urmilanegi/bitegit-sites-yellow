@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Bitegit | Crypto Exchange</title>
     <link rel="stylesheet" href="/styles.css?v=20260303x" />
-    <link rel="stylesheet" href="/coinflare.css?v=20260327i" />
+    <link rel="stylesheet" href="/coinflare.css?v=20260327j" />
     <link rel="stylesheet" href="/mobile-nav.css?v=20260303x" />
   <script src="/app-nav.js" defer></script></head>
   <body class="coinflare-page has-mobile-nav">
@@ -494,43 +494,36 @@
         </div>
       </section>
 
-      <section class="cf-trading-exp cf-reveal">
-        <div class="cf-trading-exp-head">
-          <h2>New User Guide</h2>
-        </div>
-
-        <div class="cf-guide-grid" aria-label="New user guide">
-          <article class="cf-guide-card cf-reveal">
-            <div class="cf-guide-card-visual">
-              <img src="/assets/home-guide/new-user-guide-1.jpg" alt="Create account card" loading="lazy" />
-            </div>
-            <div class="cf-guide-card-copy">
-              <h3>Create Account</h3>
-              <p>After entering your email, you'll receive a 6-digit verification code. Input the code on the verification page to finish registration.</p>
-              <a href="/auth.html?mode=signup" class="cf-guide-cta">Register Now</a>
-            </div>
+      <section class="cf-trading-exp cf-reveal" aria-label="New user guide cards">
+        <div class="cf-guide-grid">
+          <article class="cf-guide-card cf-guide-card--register cf-reveal">
+            <a href="/auth.html?mode=signup" class="cf-guide-card-link" aria-label="Register now">
+              <div class="cf-guide-card-visual">
+                <img src="/assets/home-guide/guide-card-art-1.png" alt="Create account card" loading="lazy" />
+              </div>
+              <span class="cf-guide-button-mask" aria-hidden="true"></span>
+              <span class="cf-guide-cta">Register Now</span>
+            </a>
           </article>
 
-          <article class="cf-guide-card cf-reveal">
-            <div class="cf-guide-card-visual">
-              <img src="/assets/home-guide/new-user-guide-2.jpg" alt="Deposit funds card" loading="lazy" />
-            </div>
-            <div class="cf-guide-card-copy">
-              <h3>Deposit funds or buy coins</h3>
-              <p>Top up your account via MGBX's website or mobile app.</p>
-              <a href="/p2p" class="cf-guide-cta">Go to Buy Coins</a>
-            </div>
+          <article class="cf-guide-card cf-guide-card--funds cf-reveal">
+            <a href="/p2p" class="cf-guide-card-link" aria-label="Go to buy coins">
+              <div class="cf-guide-card-visual">
+                <img src="/assets/home-guide/guide-card-art-2.png" alt="Deposit funds card" loading="lazy" />
+              </div>
+              <span class="cf-guide-button-mask" aria-hidden="true"></span>
+              <span class="cf-guide-cta">Go to Buy Coins</span>
+            </a>
           </article>
 
-          <article class="cf-guide-card cf-reveal">
-            <div class="cf-guide-card-visual">
-              <img src="/assets/home-guide/new-user-guide-3.jpg" alt="Start trading card" loading="lazy" />
-            </div>
-            <div class="cf-guide-card-copy">
-              <h3>Start Trading</h3>
-              <p>Select your preferred spot pair or futures contract to begin!</p>
-              <a href="/trade/spot/BTCUSDT" class="cf-guide-cta">Go to Trading</a>
-            </div>
+          <article class="cf-guide-card cf-guide-card--trade cf-reveal">
+            <a href="/trade/spot/BTCUSDT" class="cf-guide-card-link" aria-label="Go to trading">
+              <div class="cf-guide-card-visual">
+                <img src="/assets/home-guide/guide-card-art-3.png" alt="Start trading card" loading="lazy" />
+              </div>
+              <span class="cf-guide-button-mask" aria-hidden="true"></span>
+              <span class="cf-guide-cta">Go to Trading</span>
+            </a>
           </article>
         </div>
       </section>
