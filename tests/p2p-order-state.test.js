@@ -94,6 +94,11 @@ test('release, dispute, cancel, and expire rules stay deterministic', () => {
     action: 'cancel',
     actor: { id: 'buyer-1', username: 'buyeruser' }
   });
+  const sellerCancelAfterPaid = canTransitionOrder({
+    order: paidOrder,
+    action: 'cancel',
+    actor: { id: 'seller-1', username: 'selleruser' }
+  });
   const buyerDisputeAfterPaid = canTransitionOrder({
     order: paidOrder,
     action: 'dispute',
@@ -108,8 +113,10 @@ test('release, dispute, cancel, and expire rules stay deterministic', () => {
 
   assert.equal(sellerRelease.allowed, true);
   assert.equal(sellerRelease.targetStatus, ORDER_STATUS.COMPLETED);
-  assert.equal(buyerCancelAfterPaid.allowed, false);
-  assert.equal(buyerCancelAfterPaid.code, 'INVALID_ORDER_STATUS');
+  assert.equal(buyerCancelAfterPaid.allowed, true);
+  assert.equal(buyerCancelAfterPaid.targetStatus, ORDER_STATUS.CANCELLED);
+  assert.equal(sellerCancelAfterPaid.allowed, false);
+  assert.equal(sellerCancelAfterPaid.code, 'FORBIDDEN');
   assert.equal(buyerDisputeAfterPaid.allowed, true);
   assert.equal(buyerDisputeAfterPaid.targetStatus, ORDER_STATUS.DISPUTED);
   assert.equal(systemExpire.allowed, true);

@@ -28,7 +28,9 @@ const p2pNavClose = document.getElementById('p2pNavClose');
 const p2pNavDrawer = document.getElementById('p2pNavDrawer');
 const p2pNavOverlay = document.getElementById('p2pNavOverlay');
 const mobileCurrencyBtn = document.getElementById('mobileCurrencyBtn');
-const p2pMobileBottomNav = document.querySelector('.mobile-app-nav');
+const p2pMobileBottomNav =
+  document.querySelector('.p2p-mobile-bottom-nav') ||
+  document.querySelector('.mobile-app-nav');
 const p2pBoardCard = document.querySelector('.p2p-board-card');
 const ordersSection = document.getElementById('orders');
 const adsSection = document.getElementById('ads');
@@ -883,13 +885,20 @@ function normalizeMobileTabName(value) {
   return 'p2p';
 }
 
+function getMobileNavTabValue(link) {
+  if (!link) {
+    return 'p2p';
+  }
+  return link.dataset.mobileTab || link.dataset.mob || 'p2p';
+}
+
 function setMobileNavActive(tab) {
   if (!p2pMobileBottomNav) {
     return;
   }
 
-  p2pMobileBottomNav.querySelectorAll('a[data-mobile-tab]').forEach((link) => {
-    const isActive = normalizeMobileTabName(link.dataset.mobileTab) === tab;
+  p2pMobileBottomNav.querySelectorAll('a[data-mobile-tab], a[data-mob]').forEach((link) => {
+    const isActive = normalizeMobileTabName(getMobileNavTabValue(link)) === tab;
     link.classList.toggle('active', isActive);
     if (isActive) {
       link.setAttribute('aria-current', 'page');
@@ -941,7 +950,9 @@ function storeOrderForMobile(order) {
     isParticipant:
       typeof order.isParticipant === 'boolean'
         ? order.isParticipant
-        : previous.isParticipant || Boolean(currentUserId && (order.buyerUserId === currentUserId || order.sellerUserId === currentUserId))
+        : previous.isParticipant ||
+          _ordBelongsToCurrentUser(order) ||
+          Boolean(currentUserId && (order.buyerUserId === currentUserId || order.sellerUserId === currentUserId))
   };
 
   mobileOrdersCache.set(order.id, next);
@@ -2417,7 +2428,7 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260328b';
+var _ORDER_FLOW_VERSION = '20260328c';
 
 function _buildOrderFlowUrl(params) {
   var qs = new URLSearchParams(params || {});
@@ -2722,7 +2733,8 @@ async function submitDealOrder() {
 function renderLiveOrders(orders) {
   const incomingOrders = Array.isArray(orders) ? orders : [];
   const currentUserId = String(currentUser?.id || '').trim();
-  const participantOrders = incomingOrders
+  const hydratedOrders = _ordMergeById(incomingOrders, _ordLoadSavedSnapshots({ activeOnly: true }));
+  const participantOrders = hydratedOrders
     .map((order) => {
       if (!order || typeof order !== 'object') {
         return null;
@@ -2731,7 +2743,8 @@ function renderLiveOrders(orders) {
       const buyerUserId = String(order.buyerUserId || '').trim();
       const sellerUserId = String(order.sellerUserId || '').trim();
       const inferredParticipant =
-        Boolean(currentUserId) && (buyerUserId === currentUserId || sellerUserId === currentUserId);
+        _ordBelongsToCurrentUser(order) ||
+        (Boolean(currentUserId) && (buyerUserId === currentUserId || sellerUserId === currentUserId));
 
       return {
         ...order,
@@ -2839,18 +2852,42 @@ async function loadLiveOrders() {
       throw new Error(data.message || 'Unable to load ongoing orders.');
     }
 
-    const orders = Array.isArray(data) ? data : (data.orders || []);
+    let orders = Array.isArray(data) ? data : (data.orders || []);
+    if (!orders.length) {
+      try {
+        const bootstrapResponse = await fetch('/api/p2p/orders/bootstrap?activeLimit=50&historyLimit=50', {
+          credentials: 'include',
+          headers: { 'Cache-Control': 'no-store' }
+        });
+        if (bootstrapResponse.ok) {
+          const bootstrapData = await bootstrapResponse.json().catch(function() { return null; });
+          const bootstrapOrders = _ordExtractBootstrapOrders(bootstrapData);
+          if (bootstrapOrders.length) {
+            orders = bootstrapOrders;
+          }
+        }
+      } catch (_) {}
+    }
+    if (!orders.length) {
+      orders = _ordLoadSavedSnapshots({ activeOnly: true });
+    }
     const visibleCount = renderLiveOrders(orders);
     liveOrdersMeta.textContent = `Ongoing Orders: ${visibleCount}`;
   } catch (error) {
-    if (liveOrdersRows) {
-      liveOrdersRows.innerHTML = '<tr><td colspan="6" class="empty-row">Unable to load ongoing orders.</td></tr>';
+    const snapshotOrders = _ordLoadSavedSnapshots({ activeOnly: true });
+    if (snapshotOrders.length) {
+      const visibleCount = renderLiveOrders(snapshotOrders);
+      liveOrdersMeta.textContent = `Ongoing Orders: ${visibleCount}`;
+    } else {
+      if (liveOrdersRows) {
+        liveOrdersRows.innerHTML = '<tr><td colspan="6" class="empty-row">Unable to load ongoing orders.</td></tr>';
+      }
+      if (liveOrdersCards) {
+        liveOrdersCards.innerHTML = '<article class="p2p-live-order-card"><p class="empty-row">Unable to load ongoing orders.</p></article>';
+      }
+      liveOrdersMeta.textContent = error.message;
+      renderMobileOrdersList();
     }
-    if (liveOrdersCards) {
-      liveOrdersCards.innerHTML = '<article class="p2p-live-order-card"><p class="empty-row">Unable to load ongoing orders.</p></article>';
-    }
-    liveOrdersMeta.textContent = error.message;
-    renderMobileOrdersList();
   }
 }
 
@@ -3290,7 +3327,10 @@ async function openOrderById(orderId) {
   }
 
   try {
-    const response = await fetch(`/api/p2p/orders/${orderId}`);
+    const response = await fetch(`/api/p2p/orders/${orderId}`, {
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-store' }
+    });
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.message || 'Unable to open order.');
@@ -3350,7 +3390,10 @@ async function updateOrderStatus(action, options = {}) {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       signal: ctrl.signal,
-      body: JSON.stringify({ action })
+      body: JSON.stringify({
+        action,
+        reason: String(options.reason || '').trim()
+      })
     });
     clearTimeout(tmr);
     console.log('[updateOrderStatus]', action, 'response', response.status);
@@ -4008,6 +4051,10 @@ function _ordRenderAll(allOrders, fromCache) {
   allOrders.forEach(function(o) { if (o && o.id) map[o.id] = o; });
   _ordAllOrders = Object.keys(map).map(function(k) { return map[k]; })
     .sort(function(a, b) { return (b.createdAt || 0) > (a.createdAt || 0) ? 1 : -1; });
+  _ordAllOrders.forEach(function(order) {
+    storeOrderForMobile(order);
+  });
+  pruneMobileOrdersCache();
   _ordPersistSnapshots(_ordAllOrders);
   if (!fromCache) _saveOrdCache(_ordAllOrders);
   _ordLoaded  = true;
@@ -4252,11 +4299,16 @@ function fetchOrdersSafe() {
     if (!data) return;
     if (myReqId !== _ordReqId) return; // race check after json parse
     var mergedOrders = _ordExtractBootstrapOrders(data);
+    var activeSnapshots = _ordLoadSavedSnapshots({ activeOnly: true });
     if (!mergedOrders.length) {
       var endedFromCache = _ordEndedOrders(_ordAllOrders);
-      _ordRenderAll(_ordMergeById([], endedFromCache), false);
+      var recoveredOrders = _ordMergeById(activeSnapshots, endedFromCache);
+      if (!recoveredOrders.length) {
+        recoveredOrders = _ordLoadSavedSnapshots({ activeOnly: false });
+      }
+      _ordRenderAll(recoveredOrders, false);
     } else {
-      _ordRenderAll(mergedOrders, false);
+      _ordRenderAll(_ordMergeById(mergedOrders, activeSnapshots), false);
     }
     _ordDrainQueuedRefresh();
   })
@@ -4772,13 +4824,13 @@ p2pNavDrawer?.addEventListener('click', (event) => {
 
 if (p2pMobileBottomNav) {
   p2pMobileBottomNav.addEventListener('click', (event) => {
-    const targetLink = event.target.closest('a[data-mobile-tab]');
+    const targetLink = event.target.closest('a[data-mobile-tab], a[data-mob]');
     if (!targetLink) {
       return;
     }
     if (isMobileViewport()) {
       event.preventDefault();
-      setMobileTab(targetLink.dataset.mobileTab);
+      setMobileTab(getMobileNavTabValue(targetLink));
     }
   });
 }
@@ -5398,13 +5450,21 @@ window.deleteMobAd = async function(offerId) {
     if (screenId === 'mobProfileScreen' || screenId === 'mobOrdersScreen' || screenId === 'mobPostAdScreen') {
       document.body.classList.add('mob-screen-open');
       if (screenId === 'mobProfileScreen') {
+        document.body.dataset.mobileTab = 'profile';
+        setMobileNavActive('profile');
         document.body.classList.add('mob-profile-open');
         history.replaceState(null,'','/p2p#profile');
       } else if (screenId === 'mobOrdersScreen') {
+        document.body.dataset.mobileTab = 'orders';
+        setMobileNavActive('orders');
         history.replaceState(null,'','/p2p#orders');
         // Keep any already-rendered data visible; background refresh still runs.
         switchOrdMain('pending');
         startOrdPolling();
+      } else if (screenId === 'mobPostAdScreen') {
+        document.body.dataset.mobileTab = 'post';
+        setMobileNavActive('post');
+        history.replaceState(null,'','/p2p#ads');
       }
     }
   }
@@ -5416,6 +5476,8 @@ window.deleteMobAd = async function(offerId) {
     var all = document.querySelectorAll('.mob-screen');
     all.forEach(function(s){ s.style.display = 'none'; });
     document.body.classList.remove('mob-screen-open', 'mob-profile-open');
+    document.body.dataset.mobileTab = 'p2p';
+    setMobileNavActive('p2p');
     ['kycBasicScreen','kycAdvanceScreen'].forEach(function(id){
       var el = document.getElementById(id);
       if(el) el.style.display = 'none';

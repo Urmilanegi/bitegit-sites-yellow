@@ -3158,7 +3158,10 @@ app.post('/api/p2p/orders/:orderId/expire', requiresP2PUser, async (req, res) =>
 // Convenience: cancel order
 app.post('/api/p2p/orders/:orderId/cancel', requiresP2PUser, async (req, res) => {
   try {
-    const updatedOrder = await walletService.cancelOrder(req.params.orderId, req.p2pUser, 'CANCELLED');
+    const actor = Object.assign({}, req.p2pUser, {
+      reason: String(req.body?.reason || '').trim()
+    });
+    const updatedOrder = await walletService.cancelOrder(req.params.orderId, actor, 'CANCELLED');
     const normalizedOrder = safeNormalizeOrderState(updatedOrder, {
       route: 'cancel-convenience',
       userId: req.p2pUser.id
@@ -3166,11 +3169,13 @@ app.post('/api/p2p/orders/:orderId/cancel', requiresP2PUser, async (req, res) =>
     if (!normalizedOrder) {
       return res.status(500).json({ message: 'Order data is invalid.' });
     }
+    const normalizedMessages = toClientMessages(updatedOrder.messages || []);
     broadcastOrderEvent(updatedOrder.id, 'order_update', { order: normalizedOrder });
+    broadcastOrderEvent(updatedOrder.id, 'message_update', { messages: normalizedMessages });
     // Push real-time status update to both buyer and seller (try both field names)
     const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: normalizeOrderStatus(updatedOrder.status) };
     broadcastOrderParticipantEvent(updatedOrder, 'order_updated', pushPayload);
-    return res.json({ success: true, order: normalizedOrder });
+    return res.json({ success: true, order: normalizedOrder, messages: normalizedMessages });
   } catch (error) {
     const statusCode = Number(error?.statusCode || error?.status || 500);
     return res.status(statusCode).json({ message: error.message || 'Server error.' });
@@ -3539,7 +3544,10 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
 
     let updatedOrder = null;
     if (action === 'cancel') {
-      updatedOrder = await walletService.cancelOrder(req.params.orderId, req.p2pUser, 'CANCELLED');
+      const actor = Object.assign({}, req.p2pUser, {
+        reason: String(req.body?.reason || '').trim()
+      });
+      updatedOrder = await walletService.cancelOrder(req.params.orderId, actor, 'CANCELLED');
     } else if (action === 'expire') {
       updatedOrder = await walletService.cancelOrder(req.params.orderId, req.p2pUser, 'EXPIRED');
     } else if (action === 'mark_paid') {

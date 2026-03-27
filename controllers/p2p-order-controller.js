@@ -334,7 +334,10 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
         return res.status(400).json({ success: false, message: 'Order id is required.' });
       }
 
-      const updatedOrder = await walletService.cancelOrder(orderId, req.p2pUser, 'CANCELLED');
+      const actor = Object.assign({}, req.p2pUser, {
+        reason: String(req.body?.reason || '').trim()
+      });
+      const updatedOrder = await walletService.cancelOrder(orderId, actor, 'CANCELLED');
 
       const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
       broadcastOrderParticipantEvent(broadcastUserEvent, updatedOrder, 'order_updated', pushPayload);
