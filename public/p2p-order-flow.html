@@ -288,6 +288,7 @@
       background: rgba(120, 75, 12, 0.38);
       border: 1px solid rgba(240, 185, 11, 0.15);
       color: rgba(255,255,255,0.86);
+      position: relative;
     }
     .chat-notice-dot {
       width: 16px;
@@ -308,6 +309,8 @@
       flex-direction: column;
       gap: 2px;
       line-height: 1.45;
+      flex: 1;
+      min-width: 0;
     }
     .chat-notice-copy strong {
       font-size: 13px;
@@ -318,6 +321,18 @@
       font-size: 12px;
       color: rgba(255,255,255,0.72);
     }
+    .chat-notice-close {
+      border: none;
+      background: transparent;
+      color: rgba(255,255,255,0.72);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    .chat-notice-close:active { transform: scale(0.94); }
 
     .chat-messages { flex: 1; padding: 12px 20px; overflow-y: auto; }
     .msg-time { text-align: center; font-size: 12px; color: #555; margin: 12px 0 8px; }
@@ -758,6 +773,7 @@
           <strong>Notice</strong>
           <span>Remember to click paid after you have transferred funds from your bank account.</span>
         </div>
+        <button id="chatNoticeCloseBtn" class="chat-notice-close" type="button" aria-label="Dismiss notice">×</button>
       </div>
       <!-- BUYER: pay bar + waiting bar -->
       <div id="chatPayBar" class="pay-bar">
@@ -1091,10 +1107,12 @@
   var _appealDraft = { images: [] };
   var _orderSseConnected = false;
   var _chatWarmPromise = null;
-  var ORDER_FLOW_PAGE_VERSION = '20260328e';
+  var ORDER_FLOW_PAGE_VERSION = '20260328f';
   var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
   var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
   var ORDERS_FOCUS_STATE_KEY = 'p2p_orders_focus_state';
+  var ORDERS_CACHE_KEY = 'p2p_orders_cache';
+  var NOTICE_DISMISS_KEY_PREFIX = 'p2p_notice_dismissed_';
 
   // ── Global click/navigation guards ─────────────────────────────
   var isProcessing = false;
@@ -1123,6 +1141,30 @@
         sub: String(subTab || 'inprogress').trim() || 'inprogress',
         ts: Date.now()
       }));
+    } catch (_) {}
+  }
+
+  function _noticeDismissKey(orderId) {
+    return NOTICE_DISMISS_KEY_PREFIX + String(orderId || 'global').trim();
+  }
+
+  function _isNoticeDismissed(orderId) {
+    try {
+      return localStorage.getItem(_noticeDismissKey(orderId)) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function _dismissNoticeForOrder(orderId) {
+    try {
+      localStorage.setItem(_noticeDismissKey(orderId), '1');
+    } catch (_) {}
+  }
+
+  function _restoreNoticeForOrder(orderId) {
+    try {
+      localStorage.removeItem(_noticeDismissKey(orderId));
     } catch (_) {}
   }
 
@@ -1167,6 +1209,30 @@
   function _cacheOrderMessagesFromOrder(order) {
     if (!order || !order.id || !Array.isArray(order.messages) || !order.messages.length) return;
     _saveCachedChatMessages(order.id, order.messages);
+  }
+
+  function _syncOrderIntoOrdersCache(order) {
+    if (!order || !order.id) return;
+    try {
+      var raw = JSON.parse(localStorage.getItem(ORDERS_CACHE_KEY) || '[]');
+      var list = Array.isArray(raw) ? raw : [];
+      var found = false;
+      list = list.map(function(item) {
+        if (item && item.id === order.id) {
+          found = true;
+          return Object.assign({}, item, order, {
+            status: String(order.status || item.status || '').toUpperCase()
+          });
+        }
+        return item;
+      });
+      if (!found) {
+        list.unshift(Object.assign({}, order, {
+          status: String(order.status || '').toUpperCase()
+        }));
+      }
+      localStorage.setItem(ORDERS_CACHE_KEY, JSON.stringify(list.slice(0, 80)));
+    } catch (_) {}
   }
 
   function _warmChatMessages(orderId) {
@@ -1409,8 +1475,11 @@
 
   function canCancelCurrentOrder(status) {
     var s = getCurrentOrderStatus(status);
+    if (isSeller) {
+      return false;
+    }
     if (['PAID', 'PAYMENT_SENT'].indexOf(s) !== -1) {
-      return !isSeller;
+      return true;
     }
     return ['CREATED', 'PENDING', 'OPEN', ''].indexOf(s) !== -1;
   }
@@ -1433,6 +1502,7 @@
     if (!currentOrder || !currentOrder.id) return;
     try { localStorage.setItem('p2p_order_' + currentOrder.id, JSON.stringify(currentOrder)); } catch (_) {}
     _cacheOrderMessagesFromOrder(currentOrder);
+    _syncOrderIntoOrdersCache(currentOrder);
   }
 
   function syncOrderUrl(screenId) {
@@ -1578,6 +1648,7 @@
   function applyOrderAndShow(order, forceOpenChat, requestedScreen) {
     currentOrder = order;
     _cacheOrderMessagesFromOrder(order);
+    _syncOrderIntoOrdersCache(order);
     syncOrderUrl(requestedScreen);
     isSeller = resolveCurrentUserRole(order) === 'seller';
     renderOrderDetails();
@@ -1669,6 +1740,7 @@
               applyOrderAndShow(fresh, forceOpenChat, requestedScreen);
             } else {
               currentOrder = fresh;
+              cacheCurrentOrder();
               syncOrderUrl(requestedScreen);
               startTimerFromOrder(fresh);
             }
@@ -1682,7 +1754,7 @@
       if (!res.ok) {
         hideLoading();
         if (res.status === 401) {
-          showLoginModal();
+          showToast('Session refresh in progress. Please reopen the order once.');
           return;
         }
         showToast('Order not found');
@@ -1954,6 +2026,11 @@
     // Login
     document.getElementById('doLoginBtn').addEventListener('click', mkDebounce(withLock(doLogin)));
     document.getElementById('login-password').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+    document.getElementById('chatNoticeCloseBtn').addEventListener('click', function() {
+      _dismissNoticeForOrder(currentOrder && currentOrder.id);
+      var bar = document.getElementById('chatNoticeBar');
+      if (bar) bar.style.display = 'none';
+    });
 
     // Copy icons
     document.addEventListener('click', function(e) {
@@ -1986,10 +2063,14 @@
         }
       }
     } catch (e) {}
-    showLoginModal();
+    hideLoginModal();
   }
 
-  function showLoginModal() {
+  function showLoginModal(forceInteractive) {
+    if (forceInteractive !== true) {
+      hideLoginModal();
+      return;
+    }
     var el = document.getElementById('login-overlay');
     el.style.display = 'flex';
   }
@@ -2027,8 +2108,9 @@
       var _params = new URLSearchParams(window.location.search);
       var _orderId = _params.get('orderId');
       var _openChat = _params.get('openChat') === '1';
+      var _requestedScreen = String(_params.get('screen') || '').trim();
       if (_orderId) {
-        loadExistingOrder(_orderId, _openChat);
+        loadExistingOrder(_orderId, _openChat, _requestedScreen);
       } else {
         loadAd();
       }
@@ -2134,7 +2216,7 @@
   // CREATE ORDER
   // ============================================================
   async function doCreateOrder() {
-    if (!currentUser) { showLoginModal(); return; }
+    if (!currentUser) { showLoginModal(true); return; }
     var btn = document.getElementById('buyBtn');
     if (btn && btn._creating) return;
 
@@ -2523,6 +2605,7 @@
     var s = String(status || '').toUpperCase();
     var isPaid = s === 'PAID' || s === 'PAYMENT_SENT';
     var isCompleted = s === 'RELEASED' || s === 'COMPLETED';
+    var isCancelled = s === 'CANCELLED' || s === 'EXPIRED';
 
     // Update chat title to show counterparty name
     var titleEl = document.getElementById('chatTitle');
@@ -2537,6 +2620,7 @@
     var sellerReleaseBar = document.getElementById('chatSellerReleaseBar');
     var completedBar = document.getElementById('chatCompletedBar');
     var noticeBar = document.getElementById('chatNoticeBar');
+    var noticeCloseBtn = document.getElementById('chatNoticeCloseBtn');
     var waitingTitle = document.getElementById('chatWaitingTitle');
     var waitingHelp = document.getElementById('chatWaitingHelp');
     var waitActionBtn = document.getElementById('chatCancelOrAppealBtn');
@@ -2557,8 +2641,13 @@
       payBtn.textContent = _paidActionPending ? 'Processing' : 'Pay';
     }
     _clearAppealBannerTimer();
+    if (noticeCloseBtn) noticeCloseBtn.style.display = '';
 
-    if (isCompleted) {
+    if (isCancelled) {
+      if (noticeBar) noticeBar.style.display = 'none';
+      var inputBarCancelled = document.querySelector('.chat-input-bar');
+      if (inputBarCancelled) inputBarCancelled.style.display = '';
+    } else if (isCompleted) {
       if (completedBar) completedBar.style.display = 'flex';
       var amtEl = document.getElementById('chatCompletedAmount');
       if (amtEl && currentOrder) {
@@ -2601,7 +2690,7 @@
             _scheduleAppealBanner();
           }
         } else {
-          if (noticeBar) noticeBar.style.display = 'flex';
+          if (noticeBar && !_isNoticeDismissed(currentOrder && currentOrder.id)) noticeBar.style.display = 'flex';
           if (payBar) payBar.style.display = 'flex';
         }
       }
@@ -2953,7 +3042,18 @@
       container.appendChild(sep);
     }
 
-    var isMe = currentUser && (msg.sender === currentUser.username || msg.sender === currentUser.id);
+    var senderRole = String(msg.senderRole || '').trim().toLowerCase();
+    var myRole = isSeller ? 'seller' : 'buyer';
+    var normalizedSender = normalizeAliasValue(msg.sender);
+    var isMe = Boolean(
+      (currentUser && (
+        String(msg.sender || '').trim() === String(currentUser.username || '').trim() ||
+        String(msg.sender || '').trim() === String(currentUser.id || '').trim() ||
+        normalizedSender === normalizeAliasValue(currentUser.email) ||
+        normalizedSender === normalizeAliasValue(currentUser.username)
+      )) ||
+      (senderRole && senderRole === myRole)
+    );
     var hasImage = msg.imageUrl || msg.imageBase64;
 
     var el = document.createElement('div');
@@ -2974,7 +3074,6 @@
           (timeStr ? '<div style="font-size:11px;color:#555;margin-top:3px;">' + timeStr + '</div>' : '');
       }
     } else {
-      var senderRole = String(msg.senderRole || '').trim().toLowerCase();
       var counterName = currentOrder
         ? senderRole === 'support' || senderRole === 'admin'
           ? 'Support'
@@ -3000,7 +3099,6 @@
       el.className = 'msg-item';
       el.innerHTML = '<div class="' + avatarClass + '">' + letter + '</div>' +
         '<div class="msg-bubble-wrap">' +
-        '<div class="msg-sender">' + escHtml(displayName || counterName) + '</div>' +
         bubbleContent +
         (timeStr ? '<div style="font-size:11px;color:#555;margin-top:2px;">' + timeStr + '</div>' : '') +
         '</div>';

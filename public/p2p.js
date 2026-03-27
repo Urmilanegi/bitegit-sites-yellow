@@ -2434,7 +2434,7 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260328e';
+var _ORDER_FLOW_VERSION = '20260328f';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
 
 function _consumeOrdersFocusState() {
@@ -3438,9 +3438,6 @@ async function updateOrderStatus(action, options = {}) {
     updateOrderUi(nextOrder || data.order);
     if (action === 'mark_paid' && !options.skipNotification) {
       await sendOrderMessage('Payment done from buyer side. Please verify and release crypto.');
-    }
-    if (action === 'cancel' && options.reason && !options.skipNotification) {
-      await sendOrderMessage(`Order cancelled. Reason: ${options.reason}`);
     }
     await fetchMessages();
     await loadLiveOrders();
