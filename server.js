@@ -3386,11 +3386,22 @@ app.get('/api/p2p/orders/bootstrap', requiresP2PUser, async (req, res) => {
 
   const activeLimit = Math.min(Math.max(Number(req.query.activeLimit || 50), 1), 50);
   const historyLimit = Math.min(Math.max(Number(req.query.historyLimit || 50), 1), 50);
+  const historyTimeoutMs = Math.min(Math.max(Number(req.query.historyTimeoutMs || 3500), 1000), 8000);
 
   try {
-    const [activeOrders, historyResult] = await Promise.all([
-      listActiveOrdersForUserResponse(req.p2pUser, { limit: activeLimit }),
-      repos.listP2POrderHistory(req.p2pUser, { limit: historyLimit, offset: 0 })
+    const activeOrders = await listActiveOrdersForUserResponse(req.p2pUser, { limit: activeLimit });
+    const historyResult = await Promise.race([
+      repos.listP2POrderHistory(req.p2pUser, { limit: historyLimit, offset: 0 }),
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({
+            total: 0,
+            hasMore: false,
+            orders: [],
+            timedOut: true
+          });
+        }, historyTimeoutMs);
+      })
     ]);
 
     const historyOrders = normalizeOrdersForClient(historyResult.orders, {
@@ -3405,7 +3416,8 @@ app.get('/api/p2p/orders/bootstrap', requiresP2PUser, async (req, res) => {
       historyOrders,
       orders: mergedOrders,
       activeTotal: activeOrders.length,
-      historyTotal: Number(historyResult.total || historyOrders.length || 0)
+      historyTotal: Number(historyResult.total || historyOrders.length || 0),
+      degradedHistory: historyResult.timedOut === true
     });
   } catch (error) {
     console.error('[p2p-orders/bootstrap] error:', error);

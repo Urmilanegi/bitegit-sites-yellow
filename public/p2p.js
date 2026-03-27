@@ -161,6 +161,10 @@ let currentUser = null;
 let activeDealOffer = null;
 let dealSyncLock = false;
 
+if (typeof window !== 'undefined') {
+  window.__P2P_NATIVE_NAV__ = true;
+}
+
 function normalizeCurrentUserPayload(user) {
   if (!user || typeof user !== 'object') {
     return null;
@@ -2842,6 +2846,13 @@ async function loadLiveOrders() {
   }
 
   try {
+    if (_ordLoaded && Array.isArray(_ordAllOrders) && _ordAllOrders.length) {
+      const warmVisibleCount = renderLiveOrders(_ordAllOrders);
+      if (warmVisibleCount > 0) {
+        liveOrdersMeta.textContent = `Ongoing Orders: ${warmVisibleCount}`;
+      }
+    }
+
     const response = await fetch('/api/p2p/orders/my-active', {
       credentials: 'include',
       headers: { 'Cache-Control': 'no-store' }
@@ -2853,21 +2864,6 @@ async function loadLiveOrders() {
     }
 
     let orders = Array.isArray(data) ? data : (data.orders || []);
-    if (!orders.length) {
-      try {
-        const bootstrapResponse = await fetch('/api/p2p/orders/bootstrap?activeLimit=50&historyLimit=50', {
-          credentials: 'include',
-          headers: { 'Cache-Control': 'no-store' }
-        });
-        if (bootstrapResponse.ok) {
-          const bootstrapData = await bootstrapResponse.json().catch(function() { return null; });
-          const bootstrapOrders = _ordExtractBootstrapOrders(bootstrapData);
-          if (bootstrapOrders.length) {
-            orders = bootstrapOrders;
-          }
-        }
-      } catch (_) {}
-    }
     if (!orders.length) {
       orders = _ordLoadSavedSnapshots({ activeOnly: true });
     }
@@ -4091,6 +4087,15 @@ function _ordEndedOrders(orders) {
   });
 }
 
+function _ordCachedEndedOrders() {
+  return _ordEndedOrders(
+    _ordMergeById(
+      _ordAllOrders,
+      _ordMergeById(_loadOrdCache(), _ordLoadSavedSnapshots({ activeOnly: false }))
+    )
+  );
+}
+
 function _ordFetchWithTimeout(url, fetchOpts, timeoutMs) {
   var timeoutId;
   var timeoutPromise = new Promise(function(_, reject) {
@@ -4139,6 +4144,31 @@ function _ordFetchActiveOrdersFallback(fetchOpts, parentReqId) {
       if (!data || parentReqId !== _ordReqId) return null;
       return {
         degraded: true,
+        orders: _ordFilterActiveOrders(_ordExtractOrders(data))
+      };
+    })
+    .catch(function(error) {
+      if (error && error.name === 'AbortError') return null;
+      return null;
+    });
+}
+
+function _ordFetchMyActive(fetchOpts, parentReqId) {
+  return _ordFetchWithTimeout('/api/p2p/orders/my-active', fetchOpts, 8000)
+    .then(function(response) {
+      if (parentReqId !== _ordReqId) return null;
+      if (!response) return null;
+      if (response.status === 401) {
+        _ordShowLogin();
+        return null;
+      }
+      if (!response.ok) return null;
+      return response.json().catch(function() { return null; });
+    })
+    .then(function(data) {
+      if (!data || parentReqId !== _ordReqId) return null;
+      return {
+        total: Number(data.total || 0),
         orders: _ordFilterActiveOrders(_ordExtractOrders(data))
       };
     })
@@ -4268,47 +4298,60 @@ function fetchOrdersSafe() {
   var fetchOpts = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
   if (ctrl) fetchOpts.signal = ctrl.signal;
 
-  _ordFetchWithTimeout('/api/p2p/orders/bootstrap?activeLimit=50&historyLimit=50', fetchOpts, 15000)
-  .then(function(r) {
-    if (myReqId !== _ordReqId) return null; // stale — newer request already running
+  _ordFetchMyActive(fetchOpts, myReqId)
+  .then(function(activeData) {
+    if (myReqId !== _ordReqId) return null;
     _ordAbort    = null;
     _ordFetching = false;
 
-    if (r.status === 401) { _ordShowLogin(); return null; }
-    if (!r.ok) {
-      return _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
-        if (fallbackData) {
-          _ordFailing = 0;
-          _ordDrainQueuedRefresh();
-          return fallbackData;
-        }
-        _ordFailing++;
-        if (_ordFailing <= 3) {
-          setTimeout(fetchOrdersSafe, _ordFailing * 2000); // 2s, 4s, 6s backoff
-        } else {
-          _ordShowRetry('Could not load orders — tap to retry');
-        }
-        _ordDrainQueuedRefresh();
-        return null;
-      });
+    if (activeData && activeData.orders && activeData.orders.length) {
+      _ordFailing = 0;
+      _ordRenderAll(_ordMergeById(activeData.orders, _ordCachedEndedOrders()), false);
+      _fetchOrderHistoryInBackground(myReqId);
+      _ordDrainQueuedRefresh();
+      return null;
     }
-    _ordFailing = 0;
-    return r.json().catch(function() { return null; });
+
+    return _ordFetchWithTimeout('/api/p2p/orders/bootstrap?activeLimit=50&historyLimit=50', fetchOpts, 12000)
+      .then(function(r) {
+        if (myReqId !== _ordReqId) return null;
+        if (r.status === 401) { _ordShowLogin(); return null; }
+        if (!r.ok) {
+          return _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
+            if (fallbackData) {
+              _ordFailing = 0;
+              _ordRenderAll(_ordMergeById(fallbackData.orders || [], _ordCachedEndedOrders()), false);
+              _fetchOrderHistoryInBackground(myReqId);
+              _ordDrainQueuedRefresh();
+              return null;
+            }
+            _ordFailing++;
+            if (_ordFailing <= 3) {
+              setTimeout(fetchOrdersSafe, _ordFailing * 2000);
+            } else {
+              _ordShowRetry('Could not load orders — tap to retry');
+            }
+            _ordDrainQueuedRefresh();
+            return null;
+          });
+        }
+        _ordFailing = 0;
+        return r.json().catch(function() { return null; });
+      });
   })
   .then(function(data) {
     if (!data) return;
     if (myReqId !== _ordReqId) return; // race check after json parse
     var mergedOrders = _ordExtractBootstrapOrders(data);
-    var activeSnapshots = _ordLoadSavedSnapshots({ activeOnly: true });
     if (!mergedOrders.length) {
-      var endedFromCache = _ordEndedOrders(_ordAllOrders);
-      var recoveredOrders = _ordMergeById(activeSnapshots, endedFromCache);
+      var recoveredOrders = _ordMergeById(_ordLoadSavedSnapshots({ activeOnly: true }), _ordCachedEndedOrders());
       if (!recoveredOrders.length) {
         recoveredOrders = _ordLoadSavedSnapshots({ activeOnly: false });
       }
       _ordRenderAll(recoveredOrders, false);
     } else {
-      _ordRenderAll(_ordMergeById(mergedOrders, activeSnapshots), false);
+      _ordRenderAll(_ordMergeById(mergedOrders, _ordLoadSavedSnapshots({ activeOnly: true })), false);
+      _fetchOrderHistoryInBackground(myReqId);
     }
     _ordDrainQueuedRefresh();
   })
@@ -4319,7 +4362,8 @@ function fetchOrdersSafe() {
     _ordFetching = false;
     _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
       if (fallbackData && myReqId === _ordReqId) {
-        _ordRenderAll(_ordMergeById(fallbackData.orders || [], _ordEndedOrders(_ordAllOrders)), false);
+        _ordRenderAll(_ordMergeById(fallbackData.orders || [], _ordCachedEndedOrders()), false);
+        _fetchOrderHistoryInBackground(myReqId);
         _ordDrainQueuedRefresh();
         return;
       }
