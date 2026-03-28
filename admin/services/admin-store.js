@@ -1,5 +1,10 @@
 const crypto = require('crypto');
 const { decryptText } = require('../../lib/crypto-utils');
+const {
+  ORDER_STATUS,
+  normalizeOrderStatus,
+  createOrderStatusHistoryEntry
+} = require('../../lib/p2p-order-state');
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN', 'COMPLIANCE_ADMIN'];
 const USER_STATUSES = ['ACTIVE', 'FROZEN', 'BANNED'];
@@ -246,6 +251,27 @@ function sanitizeAdmin(admin) {
     createdAt: admin.createdAt ? toDate(admin.createdAt).toISOString() : null,
     updatedAt: admin.updatedAt ? toDate(admin.updatedAt).toISOString() : null,
     lastLoginAt: admin.lastLoginAt ? toDate(admin.lastLoginAt).toISOString() : null
+  };
+}
+
+function normalizeAdminAppealDetails(rawAppeal = {}) {
+  const payload = rawAppeal && typeof rawAppeal === 'object' ? rawAppeal : {};
+  const attachments = Array.isArray(payload.attachments)
+    ? payload.attachments.map((item, index) => ({
+        id: String(item?.id || `appeal_file_${index}`),
+        name: String(item?.name || `Attachment ${index + 1}`),
+        dataUrl: String(item?.dataUrl || item?.imageUrl || item?.imageBase64 || '').trim(),
+        uploadedAt: item?.uploadedAt || null
+      }))
+    : [];
+
+  return {
+    type: String(payload.type || '').trim(),
+    reason: String(payload.reason || '').trim(),
+    attachments: attachments.filter((item) => item.dataUrl),
+    submittedAt: payload.submittedAt || null,
+    submittedBy: payload.submittedBy && typeof payload.submittedBy === 'object' ? payload.submittedBy : {},
+    orderSnapshot: payload.orderSnapshot && typeof payload.orderSnapshot === 'object' ? payload.orderSnapshot : {}
   };
 }
 
@@ -1499,7 +1525,412 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
       .limit(limit)
       .toArray();
     const total = await p2pOrders.countDocuments({ status: 'DISPUTED' });
-    return { page, limit, total, disputes: rows };
+    const disputes = await Promise.all(rows.map((row) => enrichP2POrder(row)));
+    return { page, limit, total, disputes };
+  }
+
+  async function resolveP2PParticipant(order, role) {
+    const normalizedRole = String(role || '').trim().toLowerCase() === 'seller' ? 'seller' : 'buyer';
+    const participant = Array.isArray(order?.participants)
+      ? order.participants.find((item) => String(item?.role || '').trim().toLowerCase() === normalizedRole)
+      : null;
+    const prefix = normalizedRole === 'seller' ? 'seller' : 'buyer';
+    const userId = String(order?.[`${prefix}UserId`] || order?.[`${prefix}Id`] || participant?.id || '').trim();
+    const rawEmail = String(order?.[`${prefix}Email`] || participant?.email || '').trim().toLowerCase();
+    const rawUsername = String(order?.[`${prefix}Username`] || participant?.username || '').trim();
+
+    let profile = null;
+    let credential = null;
+
+    if (userId) {
+      profile = await adminUserProfiles.findOne({ userId });
+    }
+
+    const profileEmail = String(profile?.email || '').trim().toLowerCase();
+    const email = rawEmail || profileEmail;
+
+    if (email) {
+      credential = await p2pCredentials.findOne({ email });
+    }
+
+    const username =
+      rawUsername ||
+      String(credential?.username || '').trim() ||
+      (email ? email.split('@')[0] : '') ||
+      userId;
+
+    return {
+      userId,
+      email,
+      username
+    };
+  }
+
+  function normalizeAdminP2PMessage(message = {}, index = 0) {
+    return {
+      id: String(message.id || `msg_${index}`),
+      sender: String(message.sender || '').trim(),
+      senderRole: '',
+      text: String(message.text || message.message || '').trim(),
+      message: String(message.message || message.text || '').trim(),
+      isSystem: Boolean(message.isSystem),
+      createdAt: message.timestamp || message.createdAt || message.at || null,
+      timestamp: message.timestamp || message.createdAt || message.at || null
+    };
+  }
+
+  function buildP2PMessageAliasSet(values = []) {
+    const aliases = new Set();
+    values.forEach((value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (!normalized) {
+        return;
+      }
+      aliases.add(normalized);
+      if (normalized.includes('@')) {
+        aliases.add(normalized.split('@')[0] || '');
+      }
+    });
+    aliases.delete('');
+    return aliases;
+  }
+
+  function inferAdminP2PMessageRole(message = {}, order = {}, buyer = {}, seller = {}) {
+    const explicitRole = String(message.senderRole || message.role || '').trim().toLowerCase();
+    if (['buyer', 'seller', 'support', 'admin', 'system'].includes(explicitRole)) {
+      return explicitRole;
+    }
+    if (message.isSystem) {
+      return 'system';
+    }
+
+    const sender = String(message.sender || '').trim();
+    if (/^support$/i.test(sender) || /^admin:/i.test(sender)) {
+      return /^support$/i.test(sender) ? 'support' : 'admin';
+    }
+
+    const senderAliases = buildP2PMessageAliasSet([
+      sender,
+      message.senderUserId,
+      message.userId,
+      message.senderEmail,
+      message.email
+    ]);
+    const buyerAliases = buildP2PMessageAliasSet([
+      buyer.userId,
+      buyer.email,
+      buyer.username,
+      order.buyerUserId,
+      order.buyerId,
+      order.buyerEmail,
+      order.buyerUsername
+    ]);
+    const sellerAliases = buildP2PMessageAliasSet([
+      seller.userId,
+      seller.email,
+      seller.username,
+      order.sellerUserId,
+      order.sellerId,
+      order.sellerEmail,
+      order.sellerUsername
+    ]);
+
+    for (const alias of senderAliases) {
+      if (sellerAliases.has(alias)) {
+        return 'seller';
+      }
+      if (buyerAliases.has(alias)) {
+        return 'buyer';
+      }
+    }
+
+    const fallbackSender = sender.toLowerCase();
+    if (fallbackSender.includes('seller')) {
+      return 'seller';
+    }
+    if (fallbackSender.includes('buyer')) {
+      return 'buyer';
+    }
+    if (fallbackSender.includes('support')) {
+      return 'support';
+    }
+
+    return '';
+  }
+
+  function normalizeAdminP2PMessageWithContext(message = {}, index = 0, order = {}, buyer = {}, seller = {}) {
+    const base = normalizeAdminP2PMessage(message, index);
+    const senderRole = inferAdminP2PMessageRole(message, order, buyer, seller);
+    const sender =
+      senderRole === 'support' || senderRole === 'admin'
+        ? 'Support'
+        : base.sender;
+
+    return {
+      ...base,
+      sender,
+      senderRole
+    };
+  }
+
+  async function enrichP2POrder(order) {
+    if (!order) {
+      return null;
+    }
+
+    const [buyer, seller] = await Promise.all([
+      resolveP2PParticipant(order, 'buyer'),
+      resolveP2PParticipant(order, 'seller')
+    ]);
+
+    const normalizedMessages = (Array.isArray(order.messages) ? order.messages : [])
+      .map((message, index) => normalizeAdminP2PMessageWithContext(message, index, order, buyer, seller));
+
+    return {
+      ...order,
+      buyerUserId: String(order.buyerUserId || order.buyerId || buyer.userId || '').trim(),
+      sellerUserId: String(order.sellerUserId || order.sellerId || seller.userId || '').trim(),
+      buyerEmail: buyer.email,
+      sellerEmail: seller.email,
+      buyerUsername: buyer.username,
+      sellerUsername: seller.username,
+      appealDetails: normalizeAdminAppealDetails(order.appealDetails),
+      messages: normalizedMessages,
+      chatMessages: normalizedMessages
+    };
+  }
+
+  async function getP2POrder(orderId) {
+    const normalizedOrderId = String(orderId || '').trim();
+    if (!normalizedOrderId) {
+      throw new Error('Order ID is required');
+    }
+
+    const row = await p2pOrders.findOne({ id: normalizedOrderId });
+    if (!row) {
+      throw new Error('P2P order not found');
+    }
+
+    return enrichP2POrder(row);
+  }
+
+  async function sendP2POrderMessage(orderId, actor, text) {
+    const normalizedOrderId = String(orderId || '').trim();
+    const normalizedText = String(text || '').trim();
+    if (!normalizedOrderId) {
+      throw new Error('Order ID is required');
+    }
+    if (!normalizedText) {
+      throw new Error('Support message is required');
+    }
+
+    const order = await p2pOrders.findOne({ id: normalizedOrderId });
+    if (!order) {
+      throw new Error('P2P order not found');
+    }
+
+    const now = Date.now();
+    await p2pOrders.updateOne(
+      { id: normalizedOrderId },
+      {
+        $set: { updatedAt: now },
+        $push: {
+          messages: {
+            id: `msg_${now}_support`,
+            sender: 'Support',
+            senderRole: 'support',
+            text: normalizedText,
+            createdAt: now
+          }
+        }
+      }
+    );
+
+    return getP2POrder(normalizedOrderId);
+  }
+
+  function buildSupportActor(actor = {}) {
+    return {
+      id: String(actor?.id || '').trim() || 'support_bulk_cancel',
+      email: String(actor?.email || '').trim().toLowerCase() || 'support@bitegit.com',
+      username: 'Support',
+      role: 'support',
+      isSystem: true
+    };
+  }
+
+  async function repairLegacyP2POrderParticipants(orderId) {
+    const order = await p2pOrders.findOne({ id: String(orderId || '').trim() });
+    if (!order) {
+      return null;
+    }
+
+    const buyerParticipant = Array.isArray(order?.participants)
+      ? order.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'buyer')
+      : null;
+    const sellerParticipant = Array.isArray(order?.participants)
+      ? order.participants.find((item) => String(item?.role || '').trim().toLowerCase() === 'seller')
+      : null;
+    const repairPatch = {};
+
+    if (!String(order?.buyerUserId || order?.buyerId || '').trim() && String(buyerParticipant?.id || '').trim()) {
+      repairPatch.buyerUserId = String(buyerParticipant.id).trim();
+      repairPatch.buyerId = String(buyerParticipant.id).trim();
+    }
+    if (!String(order?.buyerUsername || '').trim() && String(buyerParticipant?.username || '').trim()) {
+      repairPatch.buyerUsername = String(buyerParticipant.username).trim();
+    }
+    if (!String(order?.sellerUserId || order?.sellerId || '').trim() && String(sellerParticipant?.id || '').trim()) {
+      repairPatch.sellerUserId = String(sellerParticipant.id).trim();
+      repairPatch.sellerId = String(sellerParticipant.id).trim();
+    }
+    if (!String(order?.sellerUsername || '').trim() && String(sellerParticipant?.username || '').trim()) {
+      repairPatch.sellerUsername = String(sellerParticipant.username).trim();
+    }
+
+    if (Object.keys(repairPatch).length > 0) {
+      await p2pOrders.updateOne({ id: String(orderId || '').trim() }, { $set: repairPatch });
+      return p2pOrders.findOne({ id: String(orderId || '').trim() });
+    }
+
+    return order;
+  }
+
+  async function forceCloseP2POrderToCancelled(orderOrId, actor = {}) {
+    const supportActor = buildSupportActor(actor);
+    let order =
+      orderOrId && typeof orderOrId === 'object'
+        ? orderOrId
+        : await p2pOrders.findOne({ id: String(orderOrId || '').trim() });
+
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    const normalizedStatus = normalizeOrderStatus(order.status);
+    if (normalizedStatus === ORDER_STATUS.CANCELLED || normalizedStatus === ORDER_STATUS.EXPIRED) {
+      return getP2POrder(order.id);
+    }
+    if (normalizedStatus === ORDER_STATUS.COMPLETED) {
+      throw new Error('Completed order cannot be cancelled.');
+    }
+
+    if (normalizedStatus === ORDER_STATUS.CREATED) {
+      try {
+        return await walletService.cancelOrder(order.id, supportActor, 'CANCELLED');
+      } catch (_) {
+        order = await repairLegacyP2POrderParticipants(order.id);
+        return walletService.cancelOrder(order.id, supportActor, 'CANCELLED');
+      }
+    }
+
+    const now = Date.now();
+    const escrowAmount = Math.max(0, toNumber(order.escrowAmount ?? order.assetAmount, 0));
+    const offerId = String(order.adId || order.offerId || '').trim();
+    if (offerId && escrowAmount > 0) {
+      const offer = await p2pOffers.findOne({ id: offerId });
+      if (offer) {
+        const currentAvailable = toNumber(offer.availableAmount ?? offer.available, 0);
+        const restoredAvailable = toNumber(currentAvailable + escrowAmount, 8);
+        await p2pOffers.updateOne(
+          { _id: offer._id },
+          {
+            $set: {
+              availableAmount: restoredAvailable,
+              available: restoredAvailable,
+              updatedAt: new Date(now)
+            }
+          }
+        );
+      }
+    }
+
+    const buyerUserId = String(order.buyerUserId || order.buyerId || '').trim();
+    if (buyerUserId) {
+      await wallets.updateOne(
+        {
+          userId: buyerUserId,
+          activeP2POrderId: String(order.id || '').trim()
+        },
+        {
+          $set: {
+            activeP2POrderId: null,
+            activeP2POrderReleasedAt: new Date(now),
+            updatedAt: new Date(now)
+          }
+        }
+      );
+    }
+
+    await p2pOrders.updateOne(
+      { id: String(order.id || '').trim() },
+      {
+        $set: {
+          status: ORDER_STATUS.CANCELLED,
+          updatedAt: now,
+          cancelledAt: now,
+          disputeResolvedAt: normalizedStatus === ORDER_STATUS.DISPUTED ? now : order.disputeResolvedAt || null
+        },
+        $push: {
+          messages: {
+            id: `msg_${now}_support_force_cancel`,
+            sender: 'Support',
+            senderRole: 'support',
+            text: 'Support cancelled this order and moved it to the cancelled bucket.',
+            createdAt: now,
+            isSystem: true,
+            messageType: 'system'
+          },
+          statusHistory: createOrderStatusHistoryEntry({
+            status: ORDER_STATUS.CANCELLED,
+            actor: {
+              id: supportActor.id,
+              username: supportActor.username,
+              role: 'support'
+            },
+            reason: 'support_force_cancel',
+            at: now,
+            metadata: {
+              orderId: String(order.id || '').trim(),
+              previousStatus: normalizedStatus
+            }
+          })
+        }
+      }
+    );
+
+    return getP2POrder(order.id);
+  }
+
+  async function forceCancelPendingP2POrders(actor, params = {}) {
+    const limit = Math.min(500, Math.max(1, Number.parseInt(params.limit, 10) || 200));
+    const rows = await p2pOrders
+      .find({ status: { $in: ['OPEN', 'PENDING', 'CREATED', 'PAID', 'PAYMENT_SENT', 'DISPUTED'] } }, { projection: { id: 1 } })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .toArray();
+
+    let cancelledCount = 0;
+    const failed = [];
+
+    for (const row of rows) {
+      try {
+        await forceCloseP2POrderToCancelled(String(row.id || '').trim(), actor);
+        cancelledCount += 1;
+      } catch (error) {
+        const orderId = String(row.id || '').trim();
+        failed.push({
+          orderId,
+          message: String(error?.message || 'Unable to cancel order')
+        });
+      }
+    }
+
+    return {
+      matchedCount: rows.length,
+      cancelledCount,
+      failed
+    };
   }
 
   async function manualReleaseEscrow(orderId, actor) {
@@ -1521,11 +1952,7 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     if (!order) {
       throw new Error('Order not found');
     }
-    const cancelled = await walletService.cancelOrder(order.id, {
-      userId: String(order.sellerUserId || ''),
-      username: `admin:${actor.email}`
-    }, 'CANCELLED');
-    return cancelled;
+    return forceCloseP2POrderToCancelled(order, actor);
   }
 
   async function freezeEscrow(orderId, actor) {
@@ -2056,6 +2483,9 @@ function createAdminStore({ collections, repos, walletService, tokenService, isD
     listP2PAds,
     reviewP2PAd,
     listP2PDisputes,
+    getP2POrder,
+    sendP2POrderMessage,
+    forceCancelPendingP2POrders,
     manualReleaseEscrow,
     manualCancelOrder,
     freezeEscrow,

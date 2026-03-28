@@ -547,6 +547,58 @@ function createAdminControllers({
     return res.json(data);
   }
 
+  async function getP2POrder(req, res) {
+    const data = await adminStore.getP2POrder(req.params.orderId);
+    return res.json(data);
+  }
+
+  async function sendP2POrderMessage(req, res) {
+    const text = String(req.body?.text || req.body?.message || '').trim();
+    const data = await adminStore.sendP2POrderMessage(
+      req.params.orderId,
+      {
+        id: req.adminAuth.adminId,
+        email: req.adminAuth.adminEmail,
+        role: req.adminAuth.adminRole
+      },
+      text
+    );
+
+    await logAudit(req, {
+      module: 'p2p',
+      action: 'support_message',
+      entityType: 'p2p_order',
+      entityId: req.params.orderId,
+      meta: { textLength: text.length }
+    });
+
+    return res.json({ message: 'Support message sent.', order: data });
+  }
+
+  async function forceCancelPendingP2POrders(req, res) {
+    const data = await adminStore.forceCancelPendingP2POrders(
+      {
+        id: req.adminAuth.adminId,
+        email: req.adminAuth.adminEmail,
+        role: req.adminAuth.adminRole
+      },
+      req.body || req.query || {}
+    );
+
+    await logAudit(req, {
+      module: 'p2p',
+      action: 'force_cancel_pending_orders',
+      entityType: 'p2p_order',
+      entityId: 'bulk_pending',
+      meta: data
+    });
+
+    return res.json({
+      message: `Force-cancel completed. ${data.cancelledCount}/${data.matchedCount} orders cancelled.`,
+      ...data
+    });
+  }
+
   async function manualReleaseP2POrder(req, res) {
     const data = await adminStore.manualReleaseEscrow(req.params.orderId, {
       id: req.adminAuth.adminId,
@@ -804,6 +856,9 @@ function createAdminControllers({
     listP2PAds,
     reviewP2PAd,
     listP2PDisputes,
+    getP2POrder,
+    sendP2POrderMessage,
+    forceCancelPendingP2POrders,
     manualReleaseP2POrder,
     manualCancelP2POrder,
     freezeEscrow,

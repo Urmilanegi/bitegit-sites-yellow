@@ -1,5 +1,9 @@
 const { buildP2POrderDocument, toOrderResponse } = require('../models/P2POrder');
 const { makeSeedUserId } = require('../lib/wallet-service');
+const {
+  normalizeOrderStatus,
+  isExpirableOrderStatus
+} = require('../lib/p2p-order-state');
 
 function createOrderReference() {
   const randomPart = Math.floor(1000 + Math.random() * 9000);
@@ -50,9 +54,52 @@ function normalizeP2PKycStatus(rawStatus) {
   return 'NOT_SUBMITTED';
 }
 
+function broadcastOrderParticipantEvent(broadcastUserEvent, order, eventName, payload) {
+  if (typeof broadcastUserEvent !== 'function' || !order) {
+    return;
+  }
+
+  const sellerTarget = {
+    id: String(order.sellerUserId || order.sellerId || '').trim(),
+    username: String(order.sellerUsername || '').trim(),
+    email: String(order.sellerEmail || '').trim().toLowerCase()
+  };
+  const buyerTarget = {
+    id: String(order.buyerUserId || order.buyerId || '').trim(),
+    username: String(order.buyerUsername || '').trim(),
+    email: String(order.buyerEmail || '').trim().toLowerCase()
+  };
+
+  if (sellerTarget.id || sellerTarget.username || sellerTarget.email) {
+    broadcastUserEvent(sellerTarget, eventName, payload);
+  }
+  const sellerFingerprint = `${sellerTarget.id}|${sellerTarget.username}|${sellerTarget.email}`;
+  const buyerFingerprint = `${buyerTarget.id}|${buyerTarget.username}|${buyerTarget.email}`;
+  if ((buyerTarget.id || buyerTarget.username || buyerTarget.email) && buyerFingerprint !== sellerFingerprint) {
+    broadcastUserEvent(buyerTarget, eventName, payload);
+  }
+}
+
 function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 * 1000, p2pEmailService = null, broadcastUserEvent = null }) {
   if (!repos || !walletService) {
     throw new Error('P2P order controller requires repos and walletService.');
+  }
+
+  function buildControllerOrderResponse(order) {
+    const normalizedStatus = normalizeOrderStatus(order?.status);
+    const remainingSeconds =
+      isExpirableOrderStatus(normalizedStatus) && Number(order?.expiresAt || 0) > Date.now()
+        ? Math.max(0, Math.floor((Number(order.expiresAt) - Date.now()) / 1000))
+        : 0;
+
+    return {
+      ...toOrderResponse(order),
+      order: {
+        ...order,
+        status: normalizedStatus,
+        remainingSeconds
+      }
+    };
   }
 
   async function createOrder(req, res) {
@@ -206,11 +253,8 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       const savedOrder = await walletService.createEscrowOrder(orderDoc);
 
       // Push real-time notification to seller and buyer via SSE
-      if (typeof broadcastUserEvent === 'function') {
-        const pushPayload = { orderId: savedOrder.id, reference: savedOrder.reference };
-        if (savedOrder.sellerId) broadcastUserEvent(savedOrder.sellerId, 'new_order', pushPayload);
-        if (savedOrder.buyerId) broadcastUserEvent(savedOrder.buyerId, 'new_order', pushPayload);
-      }
+      const pushPayload = { orderId: savedOrder.id, reference: savedOrder.reference };
+      broadcastOrderParticipantEvent(broadcastUserEvent, savedOrder, 'new_order', pushPayload);
 
       // Notify seller AND buyer via email (non-blocking)
       if (p2pEmailService) {
@@ -234,18 +278,19 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       }
 
       // Compute remainingSeconds so the client timer starts correctly
-      const activeStatuses = ['CREATED', 'PENDING', 'PAID', 'PAYMENT_SENT', 'DISPUTED'];
-      const remainingSeconds = activeStatuses.includes(savedOrder.status) && Number(savedOrder.expiresAt) > Date.now()
-        ? Math.max(0, Math.floor((Number(savedOrder.expiresAt) - Date.now()) / 1000))
-        : 0;
-      const orderForClient = { ...savedOrder, remainingSeconds };
-
-      return res.status(201).json({
-        ...toOrderResponse(savedOrder),
-        order: orderForClient
-      });
+      return res.status(201).json(buildControllerOrderResponse(savedOrder));
     } catch (error) {
       const knownStatus = Number(error?.status || 0);
+      if (String(error?.code || '').trim().toUpperCase() === 'ACTIVE_ORDER_EXISTS' && error?.existingOrder) {
+        const existingOrder = { ...error.existingOrder };
+        delete existingOrder._id;
+        return res.status(200).json({
+          success: true,
+          existingOrder: true,
+          message: String(error.message || 'You already have an active order.'),
+          ...buildControllerOrderResponse(existingOrder)
+        });
+      }
       if (knownStatus >= 400 && knownStatus < 500) {
         return res.status(knownStatus).json({
           success: false,
@@ -266,15 +311,11 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
       const updatedOrder = await walletService.markOrderPaid(orderId, req.p2pUser);
 
-      if (typeof broadcastUserEvent === 'function') {
-        const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
-        if (updatedOrder.sellerId) broadcastUserEvent(updatedOrder.sellerId, 'order_updated', pushPayload);
-        if (updatedOrder.buyerId) broadcastUserEvent(updatedOrder.buyerId, 'order_updated', pushPayload);
-      }
+      const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+      broadcastOrderParticipantEvent(broadcastUserEvent, updatedOrder, 'order_updated', pushPayload);
 
       return res.json({
-        ...toOrderResponse(updatedOrder),
-        order: updatedOrder
+        ...buildControllerOrderResponse(updatedOrder)
       });
     } catch (error) {
       const knownStatus = Number(error?.status || 0);
@@ -298,15 +339,11 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
       const updatedOrder = await walletService.releaseOrder(orderId, req.p2pUser);
 
-      if (typeof broadcastUserEvent === 'function') {
-        const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
-        if (updatedOrder.sellerId) broadcastUserEvent(updatedOrder.sellerId, 'order_updated', pushPayload);
-        if (updatedOrder.buyerId) broadcastUserEvent(updatedOrder.buyerId, 'order_updated', pushPayload);
-      }
+      const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+      broadcastOrderParticipantEvent(broadcastUserEvent, updatedOrder, 'order_updated', pushPayload);
 
       return res.json({
-        ...toOrderResponse(updatedOrder),
-        order: updatedOrder
+        ...buildControllerOrderResponse(updatedOrder)
       });
     } catch (error) {
       const knownStatus = Number(error?.status || 0);
@@ -328,17 +365,16 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
         return res.status(400).json({ success: false, message: 'Order id is required.' });
       }
 
-      const updatedOrder = await walletService.cancelOrder(orderId, req.p2pUser, 'CANCELLED');
+      const actor = Object.assign({}, req.p2pUser, {
+        reason: String(req.body?.reason || '').trim()
+      });
+      const updatedOrder = await walletService.cancelOrder(orderId, actor, 'CANCELLED');
 
-      if (typeof broadcastUserEvent === 'function') {
-        const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
-        if (updatedOrder.sellerId) broadcastUserEvent(updatedOrder.sellerId, 'order_updated', pushPayload);
-        if (updatedOrder.buyerId) broadcastUserEvent(updatedOrder.buyerId, 'order_updated', pushPayload);
-      }
+      const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+      broadcastOrderParticipantEvent(broadcastUserEvent, updatedOrder, 'order_updated', pushPayload);
 
       return res.json({
-        ...toOrderResponse(updatedOrder),
-        order: updatedOrder
+        ...buildControllerOrderResponse(updatedOrder)
       });
     } catch (error) {
       const knownStatus = Number(error?.status || 0);
@@ -353,11 +389,40 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
     }
   }
 
+  async function raiseDispute(req, res) {
+    try {
+      const orderId = String(req.params.id || req.params.orderId || '').trim();
+      if (!orderId) {
+        return res.status(400).json({ success: false, message: 'Order id is required.' });
+      }
+
+      const updatedOrder = await walletService.setOrderDisputed(orderId, req.p2pUser, req.body || {});
+
+      const pushPayload = { orderId: updatedOrder.id, reference: updatedOrder.reference, status: updatedOrder.status };
+      broadcastOrderParticipantEvent(broadcastUserEvent, updatedOrder, 'order_updated', pushPayload);
+
+      return res.json({
+        ...buildControllerOrderResponse(updatedOrder)
+      });
+    } catch (error) {
+      const knownStatus = Number(error?.status || 0);
+      if (knownStatus >= 400 && knownStatus < 500) {
+        return res.status(knownStatus).json({
+          success: false,
+          message: String(error.message || 'Unable to dispute order.'),
+          code: String(error.code || 'P2P_DISPUTE_FAILED')
+        });
+      }
+      return res.status(500).json({ success: false, message: 'Server error while disputing order.' });
+    }
+  }
+
   return {
     createOrder,
     markPaymentSent,
     releaseCrypto,
-    cancelOrder
+    cancelOrder,
+    raiseDispute
   };
 }
 

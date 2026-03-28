@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Bitegit | Crypto Exchange</title>
     <link rel="stylesheet" href="/styles.css?v=20260303x" />
-    <link rel="stylesheet" href="/coinflare.css?v=20260304e" />
+    <link rel="stylesheet" href="/coinflare.css?v=20260327k" />
     <link rel="stylesheet" href="/mobile-nav.css?v=20260303x" />
   <script src="/app-nav.js" defer></script></head>
   <body class="coinflare-page has-mobile-nav">
@@ -14,7 +14,6 @@
     <header class="cf-header" id="homeHeader">
       <div class="cf-header-inner">
         <a href="/" class="cf-brand">
-          <span class="cf-brand-mark" aria-hidden="true"></span>
           <span class="cf-brand-word">Bitegit</span>
         </a>
 
@@ -46,7 +45,6 @@
     <aside id="homeNavDrawer" class="cf-nav-drawer" aria-hidden="true">
       <div class="cf-nav-drawer-head">
         <strong class="cf-drawer-brand">
-          <span class="cf-brand-mark" aria-hidden="true"></span>
           <span>Bitegit</span>
         </strong>
         <button id="homeNavClose" type="button" aria-label="Close navigation">✕</button>
@@ -496,36 +494,34 @@
         </div>
       </section>
 
-      <section class="cf-trading-exp cf-reveal">
-        <h2>Choose your <span>trading experience</span></h2>
-        <div class="cf-mode-switch" role="group" aria-label="Mode switch">
-          <button type="button" class="active">Flash</button>
-          <button type="button">Pro</button>
-        </div>
+      <section class="cf-trading-exp cf-reveal" aria-label="New user guide cards">
+        <div class="cf-guide-grid">
+          <article class="cf-guide-card cf-guide-card--register cf-reveal">
+            <a href="/auth.html?mode=signup" class="cf-guide-card-link" aria-label="Register now">
+              <div class="cf-guide-card-visual">
+                <img src="/assets/home-guide/guide-card-art-1.png" alt="Create account card" loading="lazy" />
+              </div>
+              <span class="cf-guide-cta">Register Now</span>
+            </a>
+          </article>
 
-        <div class="cf-terminal">
-          <div class="cf-terminal-top">
-            <p>BTCUSDT Perpetual</p>
-            <span>+4.50%</span>
-          </div>
-          <div class="cf-terminal-body">
-            <div class="cf-chart-mock">
-              <svg viewBox="0 0 680 280" preserveAspectRatio="none" aria-hidden="true">
-                <polyline
-                  fill="none"
-                  stroke="#84ff1f"
-                  stroke-width="3"
-                  points="0,230 40,210 80,220 120,180 160,195 200,150 240,172 280,120 320,152 360,100 400,125 440,80 480,120 520,92 560,70 600,90 640,40 680,64"
-                />
-              </svg>
-            </div>
-            <aside class="cf-order-box">
-              <h4>Long / Short</h4>
-              <p>Market Order</p>
-              <input type="text" value="100.00 USDT" readonly />
-              <button type="button">Long</button>
-            </aside>
-          </div>
+          <article class="cf-guide-card cf-guide-card--funds cf-reveal">
+            <a href="/p2p" class="cf-guide-card-link" aria-label="Go to buy coins">
+              <div class="cf-guide-card-visual">
+                <img src="/assets/home-guide/guide-card-art-2.png" alt="Deposit funds card" loading="lazy" />
+              </div>
+              <span class="cf-guide-cta">Go to Buy Coins</span>
+            </a>
+          </article>
+
+          <article class="cf-guide-card cf-guide-card--trade cf-reveal">
+            <a href="/trade/spot/BTCUSDT" class="cf-guide-card-link" aria-label="Go to trading">
+              <div class="cf-guide-card-visual">
+                <img src="/assets/home-guide/guide-card-art-3.png" alt="Start trading card" loading="lazy" />
+              </div>
+              <span class="cf-guide-cta">Go to Trading</span>
+            </a>
+          </article>
         </div>
       </section>
 

@@ -28,7 +28,9 @@ const p2pNavClose = document.getElementById('p2pNavClose');
 const p2pNavDrawer = document.getElementById('p2pNavDrawer');
 const p2pNavOverlay = document.getElementById('p2pNavOverlay');
 const mobileCurrencyBtn = document.getElementById('mobileCurrencyBtn');
-const p2pMobileBottomNav = document.querySelector('.mobile-app-nav');
+const p2pMobileBottomNav =
+  document.querySelector('.p2p-mobile-bottom-nav') ||
+  document.querySelector('.mobile-app-nav');
 const p2pBoardCard = document.querySelector('.p2p-board-card');
 const ordersSection = document.getElementById('orders');
 const adsSection = document.getElementById('ads');
@@ -151,6 +153,19 @@ const profileCancelledOrders = document.getElementById('profileCancelledOrders')
 const profileAvgReleaseTime = document.getElementById('profileAvgReleaseTime');
 const profileAvgPaymentTime = document.getElementById('profileAvgPaymentTime');
 const profileMeta = document.getElementById('profileMeta');
+const profileEditBtn = document.getElementById('profileEditBtn');
+const profileAvatarMobile = document.getElementById('profileAvatarMobile');
+const profileNameMobile = document.getElementById('profileNameMobile');
+const profileSignupTimeMobile = document.getElementById('profileSignupTimeMobile');
+const profileIdentityTagMobile = document.getElementById('profileIdentityTagMobile');
+const profileTotalTradesMobile = document.getElementById('profileTotalTradesMobile');
+const profileThirtyDayTradesMobile = document.getElementById('profileThirtyDayTradesMobile');
+const profileCompletionRateMobile = document.getElementById('profileCompletionRateMobile');
+const profileAvgReleaseTimeMobile = document.getElementById('profileAvgReleaseTimeMobile');
+const profileAvgPaymentTimeMobile = document.getElementById('profileAvgPaymentTimeMobile');
+const profileCancelledTradesMobile = document.getElementById('profileCancelledTradesMobile');
+const profileDepositMobile = document.getElementById('profileDepositMobile');
+const profileKycMobile = document.getElementById('profileKycMobile');
 
 let currentSide = 'buy';
 let currentAsset = 'USDT';
@@ -158,6 +173,33 @@ let offersMap = new Map();
 let currentUser = null;
 let activeDealOffer = null;
 let dealSyncLock = false;
+
+if (typeof window !== 'undefined') {
+  window.__P2P_NATIVE_NAV__ = true;
+}
+
+function normalizeCurrentUserPayload(user) {
+  if (!user || typeof user !== 'object') {
+    return null;
+  }
+  var email = String(user.email || '').trim().toLowerCase();
+  var username = String(user.username || '').trim();
+  var id = String(user.id || user.userId || email || username || '').trim();
+  if (!id) {
+    return null;
+  }
+  return {
+    ...user,
+    id: id,
+    userId: id,
+    email: email,
+    username: username
+  };
+}
+
+function getCurrentUserId() {
+  return currentUser ? String(currentUser.id || currentUser.userId || '').trim() : '';
+}
 
 // ── Global per-action locks — prevent duplicate API calls ──────────────────
 var _loginInFlight     = false; // login button
@@ -180,6 +222,16 @@ const mobileOrdersCache = new Map();
 let profileWalletBalance = 0;
 let profileWalletLocked = 0;
 let profileWalletSyncedAt = 0;
+let paymentMethodsCache = [];
+let paymentMethodFormState = {
+  methodId: '',
+  provider: 'UPI',
+  category: 'UPI',
+  qrCode: '',
+  mode: 'create',
+  backScreen: 'methods'
+};
+let profileEditAvatarDraft = '';
 const chatMessageMap = new Map();
 const chatMessageNodes = new Map();
 const CHAT_IMAGE_MAX_SIZE = 3 * 1024 * 1024;
@@ -192,6 +244,16 @@ const KYC_REQUIRED_CODES = new Set(['KYC_REQUIRED', 'KYC_PENDING', 'KYC_REJECTED
 const KYC_ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const KYC_MAX_FILE_SIZE = 6 * 1024 * 1024;
 const KYC_TARGET_IMAGE_BYTES = 320 * 1024;
+const PAYMENT_METHOD_OPTIONS = [
+  { key: 'UPI', label: 'UPI', category: 'UPI', chip: 'UP' },
+  { key: 'Bank Transfer(India)', label: 'Bank Transfer(India)', category: 'BANK', chip: 'BK' },
+  { key: 'Paytm', label: 'Paytm', category: 'UPI', chip: 'PT' },
+  { key: 'PhonePe', label: 'PhonePe', category: 'UPI', chip: 'PP' },
+  { key: 'Google Pay', label: 'Google Pay', category: 'UPI', chip: 'GP' },
+  { key: 'Bank Transfer(Union Bank)', label: 'Bank Transfer(Union Bank)', category: 'BANK', chip: 'UB' },
+  { key: 'Digital eRupee', label: 'Digital eRupee', category: 'UPI', chip: '₹' },
+  { key: 'Western Union', label: 'Western Union', category: 'OTHER', chip: 'WU' }
+];
 
 function maskEmail(s) {
   var str = String(s || '');
@@ -264,14 +326,21 @@ function syncBodyInteractionState() {
 }
 
 function normalizeStatusForUi(status) {
-  if (status === 'PENDING' || status === 'OPEN') {
+  var normalized = String(status || '').trim().toUpperCase();
+  if (normalized === 'PENDING' || normalized === 'OPEN') {
     return 'CREATED';
   }
   // PAYMENT_SENT = buyer confirmed payment → treat as PAID in UI (seller needs to release)
-  if (status === 'PAYMENT_SENT') {
+  if (normalized === 'PAYMENT_SENT') {
     return 'PAID';
   }
-  return String(status || '').toUpperCase();
+  if (normalized === 'COMPLETED') {
+    return 'RELEASED';
+  }
+  if (normalized === 'CANCELED') {
+    return 'CANCELLED';
+  }
+  return normalized;
 }
 
 function statusLabel(status) {
@@ -853,13 +922,20 @@ function normalizeMobileTabName(value) {
   return 'p2p';
 }
 
+function getMobileNavTabValue(link) {
+  if (!link) {
+    return 'p2p';
+  }
+  return link.dataset.mobileTab || link.dataset.mob || 'p2p';
+}
+
 function setMobileNavActive(tab) {
   if (!p2pMobileBottomNav) {
     return;
   }
 
-  p2pMobileBottomNav.querySelectorAll('a[data-mobile-tab]').forEach((link) => {
-    const isActive = normalizeMobileTabName(link.dataset.mobileTab) === tab;
+  p2pMobileBottomNav.querySelectorAll('a[data-mobile-tab], a[data-mob]').forEach((link) => {
+    const isActive = normalizeMobileTabName(getMobileNavTabValue(link)) === tab;
     link.classList.toggle('active', isActive);
     if (isActive) {
       link.setAttribute('aria-current', 'page');
@@ -891,6 +967,7 @@ function storeOrderForMobile(order) {
   }
 
   const previous = mobileOrdersCache.get(order.id) || {};
+  const currentUserId = getCurrentUserId();
   const next = {
     ...previous,
     ...order,
@@ -910,7 +987,9 @@ function storeOrderForMobile(order) {
     isParticipant:
       typeof order.isParticipant === 'boolean'
         ? order.isParticipant
-        : previous.isParticipant || Boolean(currentUser && (order.buyerUserId === currentUser.id || order.sellerUserId === currentUser.id))
+        : previous.isParticipant ||
+          _ordBelongsToCurrentUser(order) ||
+          Boolean(currentUserId && (order.buyerUserId === currentUserId || order.sellerUserId === currentUserId))
   };
 
   mobileOrdersCache.set(order.id, next);
@@ -939,7 +1018,21 @@ function getMobileOrdersSnapshot() {
 }
 
 function getProfileOrdersSnapshot() {
-  return getAllCachedParticipantOrders();
+  var orders = getAllCachedParticipantOrders();
+  if (orders.length) {
+    return orders;
+  }
+
+  var merged = _ordMergeById(
+    _loadOrdCache(),
+    _ordLoadSavedSnapshots({ activeOnly: false })
+  );
+
+  return merged
+    .filter(function(order) { return _ordBelongsToCurrentUser(order); })
+    .sort(function(a, b) {
+      return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+    });
 }
 
 function filteredMobileOrders() {
@@ -970,7 +1063,7 @@ function renderMobileOrdersList() {
             <span class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</span>
           </div>
           <div class="mobile-order-grid">
-            <p>Type<strong>${escapeHtml(String(order.side || '').toUpperCase())} ${escapeHtml(order.asset || '')}</strong></p>
+            <p>Type<strong>${escapeHtml(getOrderDisplaySide(order))} ${escapeHtml(order.asset || '')}</strong></p>
             <p>Amount<strong>₹${formatNumber(order.amountInr || 0)}</strong></p>
             <p>Price<strong>₹${formatNumber(order.price || 0)}</strong></p>
             <p>Payment<strong>${escapeHtml(order.paymentMethod || '--')}</strong></p>
@@ -994,6 +1087,42 @@ function formatDurationLabel(ms) {
   }
   const hours = (mins / 60).toFixed(1);
   return `${hours}h`;
+}
+
+function setNodeText(node, value) {
+  if (node) {
+    node.textContent = value;
+  }
+}
+
+function applyProfileAvatarToNode(node, user, fallbackText) {
+  if (!node) {
+    return;
+  }
+  const avatarUrl = String(user?.avatar || '').trim();
+  const initial = String(fallbackText || 'U').trim().slice(0, 1).toUpperCase() || 'U';
+  if (avatarUrl) {
+    node.classList.add('has-image');
+    node.style.backgroundImage = 'url("' + avatarUrl.replace(/"/g, '%22') + '")';
+    node.textContent = initial;
+    node.setAttribute('aria-label', 'Profile photo');
+  } else {
+    node.classList.remove('has-image');
+    node.style.backgroundImage = '';
+    node.textContent = initial;
+    node.removeAttribute('aria-label');
+  }
+}
+
+function formatSignupTimeLabel(value) {
+  const date = new Date(value || 0);
+  if (Number.isNaN(date.getTime())) {
+    return 'Signup Time: --';
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `Signup Time: ${year}/${month}/${day}`;
 }
 
 function setAdCreateMeta(text, type = '') {
@@ -1329,16 +1458,18 @@ window.confirmEmailOtp = async function() {
 };
 
 async function loadProfilePanel(options = {}) {
-  if (!profileSection) {
+  if (!profileSection && !document.getElementById('mobProfileScreen')) {
     return;
   }
 
   const setIdentityTag = (label, verified = false) => {
-    if (!profileIdentityTag) {
-      return;
-    }
-    profileIdentityTag.textContent = label;
-    profileIdentityTag.classList.toggle('verified', Boolean(verified));
+    [profileIdentityTag, profileIdentityTagMobile].forEach((node) => {
+      if (!node) {
+        return;
+      }
+      node.textContent = label;
+      node.classList.toggle('verified', Boolean(verified));
+    });
   };
 
   const readTimestampMs = (order, keys) => {
@@ -1357,52 +1488,33 @@ async function loadProfilePanel(options = {}) {
     profileWalletLocked = 0;
     profileWalletSyncedAt = 0;
     mobileOrdersCache.clear();
-    if (profileAvatar) {
-      profileAvatar.textContent = 'U';
-    }
-    if (profileName) {
-      profileName.textContent = 'Guest User';
-    }
-    if (profileEmail) {
-      profileEmail.textContent = 'Login required';
-    }
+    applyProfileAvatarToNode(profileAvatar, null, 'U');
+    applyProfileAvatarToNode(profileAvatarMobile, null, 'U');
+    setNodeText(profileName, 'Guest User');
+    setNodeText(profileNameMobile, 'Guest User');
+    setNodeText(profileEmail, 'Login required');
+    setNodeText(profileSignupTimeMobile, 'Signup Time: --');
     setIdentityTag('Identity Not Submitted', false);
-    if (profileKyc) {
-      profileKyc.textContent = 'Not Submitted';
-    }
-    if (profileSecurity) {
-      profileSecurity.textContent = 'Basic';
-    }
-    if (profileTotalOrders) {
-      profileTotalOrders.textContent = '0';
-    }
-    if (profileCompletionRate) {
-      profileCompletionRate.textContent = '0%';
-    }
-    if (profileCompletionRate30d) {
-      profileCompletionRate30d.textContent = '0%';
-    }
-    if (profileDeposit) {
-      profileDeposit.textContent = '₹0';
-    }
-    if (profileCompletedOrders) {
-      profileCompletedOrders.textContent = '0';
-    }
-    if (profileCompletedOrders30d) {
-      profileCompletedOrders30d.textContent = '0';
-    }
-    if (profileCancelledOrders) {
-      profileCancelledOrders.textContent = '0';
-    }
-    if (profileAvgReleaseTime) {
-      profileAvgReleaseTime.textContent = '--';
-    }
-    if (profileAvgPaymentTime) {
-      profileAvgPaymentTime.textContent = '--';
-    }
-    if (profileMeta) {
-      profileMeta.textContent = 'Login to view profile analytics.';
-    }
+    setNodeText(profileKyc, 'Not Submitted');
+    setNodeText(profileKycMobile, 'Not Submitted');
+    setNodeText(profileSecurity, 'Basic');
+    setNodeText(profileTotalOrders, '0');
+    setNodeText(profileTotalTradesMobile, '0');
+    setNodeText(profileCompletionRate, '0%');
+    setNodeText(profileCompletionRate30d, '0%');
+    setNodeText(profileCompletionRateMobile, '0%');
+    setNodeText(profileDeposit, '₹0');
+    setNodeText(profileDepositMobile, '₹0');
+    setNodeText(profileCompletedOrders, '0');
+    setNodeText(profileCompletedOrders30d, '0');
+    setNodeText(profileThirtyDayTradesMobile, '0');
+    setNodeText(profileCancelledOrders, '0');
+    setNodeText(profileCancelledTradesMobile, '0');
+    setNodeText(profileAvgReleaseTime, '--');
+    setNodeText(profileAvgReleaseTimeMobile, '--');
+    setNodeText(profileAvgPaymentTime, '--');
+    setNodeText(profileAvgPaymentTimeMobile, '--');
+    setNodeText(profileMeta, 'Login to view profile analytics.');
     return;
   }
 
@@ -1411,21 +1523,17 @@ async function loadProfilePanel(options = {}) {
     .slice(0, 1)
     .toUpperCase();
 
-  if (profileAvatar) {
-    profileAvatar.textContent = initial || 'U';
-  }
-  if (profileName) {
-    profileName.textContent = currentUser.username || 'P2P User';
-  }
-  if (profileEmail) {
-    profileEmail.textContent = currentUser.email || '--';
-  }
+  applyProfileAvatarToNode(profileAvatar, currentUser, initial || 'U');
+  applyProfileAvatarToNode(profileAvatarMobile, currentUser, initial || 'U');
+  setNodeText(profileName, currentUser.username || 'P2P User');
+  setNodeText(profileNameMobile, currentUser.username || 'P2P User');
+  setNodeText(profileEmail, currentUser.email || '--');
+  setNodeText(profileSignupTimeMobile, formatSignupTimeLabel(currentUser.createdAt));
   const currentKycStatus = normalizeKycStatus(currentUser?.kyc?.status);
   const isKycVerified = currentKycStatus === 'VERIFIED';
   setIdentityTag(isKycVerified ? 'Identity Verified' : `Identity ${getKycStatusLabel(currentKycStatus)}`, isKycVerified);
-  if (profileKyc) {
-    profileKyc.textContent = getKycStatusLabel(currentKycStatus);
-  }
+  setNodeText(profileKyc, getKycStatusLabel(currentKycStatus));
+  setNodeText(profileKycMobile, getKycStatusLabel(currentKycStatus));
   // Update KYC badge in profile menu
   var kycBadge = document.getElementById('kycStatusBadge');
   if (kycBadge) {
@@ -1454,9 +1562,7 @@ async function loadProfilePanel(options = {}) {
       kycBadge.style.cssText = 'font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(246,70,93,0.15);border:1px solid rgba(246,70,93,0.3);color:#f6465d;margin-left:6px;';
     }
   }
-  if (profileSecurity) {
-    profileSecurity.textContent = currentKycStatus === 'VERIFIED' ? 'KYC + Email Protected' : 'KYC Required';
-  }
+  setNodeText(profileSecurity, currentKycStatus === 'VERIFIED' ? 'KYC + Email Protected' : 'KYC Required');
 
   const shouldRefreshWallet =
     Boolean(options.refreshWallet) || Date.now() - profileWalletSyncedAt > 30 * 1000;
@@ -1483,14 +1589,20 @@ async function loadProfilePanel(options = {}) {
     return createdMs > 0 && createdMs >= nowMs - thirtyDaysMs;
   });
 
-  const completedOrders = orders30d.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
-  const cancelledOrders = orders30d.filter((order) =>
+  const completedOrdersAll = orders.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
+  const completedOrders30d = orders30d.filter((order) => normalizeStatusForUi(order.status) === 'RELEASED');
+  const cancelledOrdersAll = orders.filter((order) =>
     ['CANCELLED', 'EXPIRED'].includes(normalizeStatusForUi(order.status))
   );
-  const totalOrders = orders30d.length;
-  const completionRateValue = totalOrders ? (completedOrders.length / totalOrders) * 100 : 0;
+  const cancelledOrders30d = orders30d.filter((order) =>
+    ['CANCELLED', 'EXPIRED'].includes(normalizeStatusForUi(order.status))
+  );
+  const totalOrdersAll = orders.length;
+  const totalOrders30d = orders30d.length;
+  const completionRateValueAll = totalOrdersAll ? (completedOrdersAll.length / totalOrdersAll) * 100 : 0;
+  const completionRateValue30d = totalOrders30d ? (completedOrders30d.length / totalOrders30d) * 100 : 0;
 
-  const releaseDurations = completedOrders
+  const releaseDurations = completedOrdersAll
     .map((order) => {
       const createdAtMs = readTimestampMs(order, ['createdAt']);
       const releasedAtMs = readTimestampMs(order, ['releasedAt', 'completedAt', 'updatedAt']);
@@ -1505,7 +1617,7 @@ async function loadProfilePanel(options = {}) {
       ? releaseDurations.reduce((sum, value) => sum + value, 0) / releaseDurations.length
       : 0;
 
-  const paymentDurations = orders30d
+  const paymentDurations = orders
     .map((order) => {
       const createdAtMs = readTimestampMs(order, ['createdAt']);
       if (!createdAtMs) {
@@ -1533,37 +1645,167 @@ async function loadProfilePanel(options = {}) {
       ? paymentDurations.reduce((sum, value) => sum + value, 0) / paymentDurations.length
       : 0;
 
-  if (profileTotalOrders) {
-    profileTotalOrders.textContent = String(totalOrders);
+  const walletLabel = `₹${formatNumber(profileWalletBalance + profileWalletLocked)}`;
+  const avgReleaseLabel = formatDurationLabel(avgReleaseMs);
+  const avgPaymentLabel = formatDurationLabel(avgPaymentMs);
+
+  setNodeText(profileTotalOrders, String(totalOrdersAll));
+  setNodeText(profileTotalTradesMobile, String(totalOrdersAll));
+  setNodeText(profileCompletionRate, `${completionRateValueAll.toFixed(1)}%`);
+  setNodeText(profileCompletionRate30d, `${completionRateValue30d.toFixed(1)}%`);
+  setNodeText(profileCompletionRateMobile, `${completionRateValueAll.toFixed(1)}%`);
+  setNodeText(profileDeposit, walletLabel);
+  setNodeText(profileDepositMobile, walletLabel);
+  setNodeText(profileCompletedOrders, String(completedOrdersAll.length));
+  setNodeText(profileCompletedOrders30d, String(completedOrders30d.length));
+  setNodeText(profileThirtyDayTradesMobile, String(totalOrders30d));
+  setNodeText(profileCancelledOrders, String(cancelledOrdersAll.length));
+  setNodeText(profileCancelledTradesMobile, String(cancelledOrdersAll.length));
+  setNodeText(profileAvgReleaseTime, avgReleaseLabel);
+  setNodeText(profileAvgReleaseTimeMobile, avgReleaseLabel);
+  setNodeText(profileAvgPaymentTime, avgPaymentLabel);
+  setNodeText(profileAvgPaymentTimeMobile, avgPaymentLabel);
+  setNodeText(
+    profileMeta,
+    `All trades: ${totalOrdersAll} | 30D trades: ${totalOrders30d} | Cancelled: ${cancelledOrders30d.length} | Wallet: ${formatNumber(profileWalletBalance)}`
+  );
+}
+
+function compressImageFileToDataUrl(file, options = {}) {
+  const maxEdge = Math.max(320, Number(options.maxEdge || 720));
+  const quality = Math.min(0.92, Math.max(0.5, Number(options.quality || 0.8)));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (event) => {
+      const image = new Image();
+      image.onerror = reject;
+      image.onload = () => {
+        let width = image.width;
+        let height = image.height;
+        if (width > maxEdge || height > maxEdge) {
+          if (width >= height) {
+            height = Math.round((height * maxEdge) / width);
+            width = maxEdge;
+          } else {
+            width = Math.round((width * maxEdge) / height);
+            height = maxEdge;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      image.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function closeProfileEditModal() {
+  const modal = document.getElementById('profileEditModal');
+  if (modal) {
+    modal.remove();
   }
-  if (profileCompletionRate) {
-    profileCompletionRate.textContent = `${completionRateValue.toFixed(1)}%`;
+  profileEditAvatarDraft = '';
+}
+
+function renderProfileEditAvatarPreview(avatarUrl) {
+  const preview = document.getElementById('profileEditAvatarPreview');
+  if (!preview) {
+    return;
   }
-  if (profileCompletionRate30d) {
-    profileCompletionRate30d.textContent = `${completionRateValue.toFixed(1)}%`;
+  const initial = String((document.getElementById('profileEditNameInput') || {}).value || currentUser?.username || currentUser?.email || 'U')
+    .trim()
+    .slice(0, 1)
+    .toUpperCase() || 'U';
+  if (avatarUrl) {
+    preview.classList.add('has-image');
+    preview.style.backgroundImage = 'url("' + String(avatarUrl).replace(/"/g, '%22') + '")';
+    preview.textContent = initial;
+  } else {
+    preview.classList.remove('has-image');
+    preview.style.backgroundImage = '';
+    preview.textContent = initial;
   }
-  if (profileDeposit) {
-    profileDeposit.textContent = `₹${formatNumber(profileWalletBalance + profileWalletLocked)}`;
+}
+
+async function submitProfileEdit() {
+  const nameInput = document.getElementById('profileEditNameInput');
+  const saveBtn = document.getElementById('profileEditSaveBtn');
+  const meta = document.getElementById('profileEditMeta');
+  const nickname = String(nameInput?.value || '').trim();
+
+  if (!nickname || nickname.length < 2) {
+    if (meta) {
+      meta.textContent = 'Enter at least 2 characters for your display name.';
+      meta.style.color = '#f6465d';
+    }
+    return;
   }
-  if (profileCompletedOrders) {
-    profileCompletedOrders.textContent = String(completedOrders.length);
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
   }
-  if (profileCompletedOrders30d) {
-    profileCompletedOrders30d.textContent = String(completedOrders.length);
+
+  try {
+    const response = await fetch('/api/p2p/profile', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nickname,
+        avatar: profileEditAvatarDraft || String(currentUser?.avatar || '').trim()
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Unable to update profile right now.');
+    }
+
+    const nextProfile = data.profile || {};
+    currentUser = normalizeCurrentUserPayload({
+      ...currentUser,
+      username: nextProfile.username || nickname,
+      avatar: nextProfile.avatar || profileEditAvatarDraft || '',
+      createdAt: nextProfile.createdAt || currentUser?.createdAt || null
+    });
+
+    try {
+      localStorage.setItem('_p2p_hint', JSON.stringify({
+        id: getCurrentUserId(),
+        username: currentUser.username,
+        email: currentUser.email,
+        role: currentUser.role,
+        avatar: currentUser.avatar || '',
+        createdAt: currentUser.createdAt || null
+      }));
+    } catch (_) {}
+
+    updateUserUi();
+    closeProfileEditModal();
+    showToast('Profile updated');
+  } catch (error) {
+    if (meta) {
+      meta.textContent = error.message || 'Unable to update profile right now.';
+      meta.style.color = '#f6465d';
+    }
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Changes';
+    }
   }
-  if (profileCancelledOrders) {
-    profileCancelledOrders.textContent = String(cancelledOrders.length);
-  }
-  if (profileAvgReleaseTime) {
-    profileAvgReleaseTime.textContent = formatDurationLabel(avgReleaseMs);
-  }
-  if (profileAvgPaymentTime) {
-    profileAvgPaymentTime.textContent = formatDurationLabel(avgPaymentMs);
-  }
-  if (profileMeta) {
-    profileMeta.textContent = `30D orders: ${totalOrders} | Cancelled: ${cancelledOrders.length} | Wallet: ${formatNumber(
-      profileWalletBalance
-    )}`;
+}
+
+function openProfileEditModal() {
+  if (!currentUser) {
+    requireLoginNotice();
+    return;
   }
 
   // Fetch reputation (includes avgStars from ratings)
@@ -1593,6 +1835,7 @@ function syncMobileTabFromHash(options = {}) {
   }
 
   if (resolvedTab === 'orders') {
+    _applyOrdersFocusState();
     renderMobileOrdersList();
     loadLiveOrders();
   } else if (resolvedTab === 'ads') {
@@ -1619,6 +1862,7 @@ function setMobileTab(tab, options = {}) {
     }
 
     if (normalized === 'orders') {
+      _applyOrdersFocusState();
       renderMobileOrdersList();
       loadLiveOrders();
     } else if (normalized === 'ads') {
@@ -2078,10 +2322,11 @@ function getOrderRole(order) {
     return '';
   }
 
-  if (currentUser.id && currentUser.id === order.buyerUserId) {
+  var currentUserId = getCurrentUserId();
+  if (currentUserId && currentUserId === order.buyerUserId) {
     return 'buyer';
   }
-  if (currentUser.id && currentUser.id === order.sellerUserId) {
+  if (currentUserId && currentUserId === order.sellerUserId) {
     return 'seller';
   }
   if (currentUser.username && currentUser.username === order.buyerUsername) {
@@ -2091,6 +2336,19 @@ function getOrderRole(order) {
     return 'seller';
   }
   return '';
+}
+
+function getOrderDisplaySide(order) {
+  var rawSide = String(order && order.side || '').trim().toUpperCase();
+  if (!rawSide) {
+    return 'BUY';
+  }
+  var role = getOrderRole(order);
+  if (role === 'seller') {
+    if (rawSide === 'BUY') return 'SELL';
+    if (rawSide === 'SELL') return 'BUY';
+  }
+  return rawSide;
 }
 
 function resetOrderWatch() {
@@ -2139,8 +2397,8 @@ async function loadCurrentUser() {
   try {
     const hint = localStorage.getItem('_p2p_hint');
     if (hint) {
-      const hintUser = JSON.parse(hint);
-      if (hintUser && hintUser.id) {
+      const hintUser = normalizeCurrentUserPayload(JSON.parse(hint));
+      if (hintUser) {
         currentUser = hintUser;
         updateUserUi(); // show logged-in UI immediately, no waiting
         // Show cached orders instantly — no network fetch yet to avoid aborting the confirmed fetch below
@@ -2154,21 +2412,22 @@ async function loadCurrentUser() {
   try {
     const response = await fetch('/api/p2p/me', { credentials: 'include' });
     const data = await response.json();
-    if (data.loggedIn && data.user) {
-      var _prevId = currentUser && currentUser.id;
-      if (_prevId !== data.user.id) {
-        _clearOrdersCache(); // different user → wipe all stale state immediately
+    var normalizedUser = normalizeCurrentUserPayload(data.user);
+    if (data.loggedIn && normalizedUser) {
+      var _prevId = getCurrentUserId();
+      if (_prevId !== normalizedUser.id) {
+        _clearOrdersCache({ preserveSnapshots: true }); // keep per-order snapshots for instant reloads
       }
-      currentUser = data.user;
+      currentUser = normalizedUser;
       updateCurrentUserKyc(currentUser.kyc || {});
-      try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: currentUser.id, username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
+      try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role, avatar: currentUser.avatar || '', createdAt: currentUser.createdAt || null })); } catch(_) {}
       // Single call — fetchOrdersSafe shows cache instantly then fetches fresh
       fetchOrdersSafe();
       _startFallbackPoll(); // 15s fallback poll in case SSE is down
     } else {
       currentUser = null;
       try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
-      _clearOrdersCache();
+      _clearOrdersCache({ preserveSnapshots: true });
       fetchOrdersSafe(); // session expired — replace stuck skeleton with login prompt
     }
   } catch (error) {
@@ -2184,8 +2443,9 @@ async function loadCurrentUser() {
       try {
         const r = await fetch('/api/p2p/me', { credentials: 'include' });
         const d = await r.json();
-        if (d.loggedIn && d.user) {
-          currentUser = d.user;
+        var retryUser = normalizeCurrentUserPayload(d.user);
+        if (d.loggedIn && retryUser) {
+          currentUser = retryUser;
           updateCurrentUserKyc(currentUser.kyc || {});
           updateUserUi();
           // Re-run user-specific loads now that we have a valid session
@@ -2237,12 +2497,15 @@ async function loginUser() {
     }
 
     // Always wipe all order state on login — guarantees zero cross-user contamination
-    _clearOrdersCache();
+    _clearOrdersCache({ preserveSnapshots: true });
 
-    currentUser = data.user;
+    currentUser = normalizeCurrentUserPayload(data.user);
+    if (!currentUser) {
+      throw new Error('Login session payload is incomplete.');
+    }
     updateCurrentUserKyc(currentUser?.kyc || {});
     // Persist a session hint so refresh shows logged-in UI instantly (no flicker)
-    try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: currentUser.id, username: currentUser.username, email: currentUser.email, role: currentUser.role })); } catch(_) {}
+    try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role, avatar: currentUser.avatar || '', createdAt: currentUser.createdAt || null })); } catch(_) {}
     updateUserUi();
     setAuthModalOpen(false);
     setP2PNavOpen(false);
@@ -2267,25 +2530,33 @@ async function loginUser() {
   }
 }
 
-function _clearOrdersCache() {
+function _clearOrdersCache(options) {
+  options = options || {};
+  var preserveSnapshots = options.preserveSnapshots === true;
   // Cancel any in-flight request immediately
   if (typeof _ordAbort !== 'undefined' && _ordAbort) {
     try { _ordAbort.abort(); } catch(_) {}
     _ordAbort = null;
+  }
+  if (typeof _ordHistoryAbort !== 'undefined' && _ordHistoryAbort) {
+    try { _ordHistoryAbort.abort(); } catch(_) {}
+    _ordHistoryAbort = null;
   }
   if (typeof _ordPollTimer !== 'undefined' && _ordPollTimer) {
     clearInterval(_ordPollTimer); _ordPollTimer = null;
   }
   // Wipe localStorage
   try { localStorage.removeItem(_ORD_CACHE_KEY || 'p2p_orders_cache'); } catch(_) {}
-  try {
-    var toRemove = [];
-    for (var i = 0; i < localStorage.length; i++) {
-      var k = localStorage.key(i);
-      if (k && k.startsWith('p2p_order_')) toRemove.push(k);
-    }
-    toRemove.forEach(function(k) { localStorage.removeItem(k); });
-  } catch(_) {}
+  if (!preserveSnapshots) {
+    try {
+      var toRemove = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.startsWith('p2p_order_')) toRemove.push(k);
+      }
+      toRemove.forEach(function(k) { localStorage.removeItem(k); });
+    } catch(_) {}
+  }
   // Reset all order state
   _ordAllOrders = [];
   _ordLoaded    = false;
@@ -2364,7 +2635,7 @@ function renderOffers(data, append) {
     offersMap.set(offer.id, offer);
 
     const actionLabel = data.side === 'buy' ? 'Buy' : 'Sell';
-    const isOwnAd = currentUser && offer.createdByUserId === currentUser.id;
+    const isOwnAd = currentUser && offer.createdByUserId === getCurrentUserId();
     const payments = offer.payments
       .map((method, paymentIndex) => `<span class="pay-chip pay-chip-${paymentIndex % 4}">${escapeHtml(method)}</span>`)
       .join(' ');
@@ -2492,6 +2763,102 @@ function getDummyOffers(side) {
 var _offersOffset = 0;
 var _offersHasMore = false;
 var _offersFetching = false; // in-flight lock — prevents stacked parallel calls
+var _offersResponseCache = new Map();
+var _OFFERS_CACHE_TTL_MS = 25 * 1000;
+var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
+var _orderFlowWarmPromise = null;
+var _ORDER_FLOW_VERSION = '20260328i';
+var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
+
+function _consumeOrdersFocusState() {
+  try {
+    var raw = sessionStorage.getItem(_P2P_ORDERS_FOCUS_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(_P2P_ORDERS_FOCUS_KEY);
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      main: String(parsed.main || '').trim().toLowerCase() || 'pending',
+      sub: String(parsed.sub || '').trim().toLowerCase() || 'inprogress'
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function _applyOrdersFocusState() {
+  var focus = _consumeOrdersFocusState();
+  if (!focus) return false;
+  var main = focus.main === 'ended' ? 'ended' : 'pending';
+  var sub = focus.sub;
+  switchOrdMain(main);
+  if (main === 'ended') {
+    switchOrdSub(sub === 'canceled' ? 'canceled' : 'completed');
+  } else {
+    switchOrdSub(sub === 'dispute' ? 'dispute' : 'inprogress');
+  }
+  return true;
+}
+
+function _buildOrderFlowUrl(params) {
+  var qs = new URLSearchParams(params || {});
+  qs.set('v', _ORDER_FLOW_VERSION);
+  return '/p2p-order-flow.html?' + qs.toString();
+}
+
+function _buildOffersCacheKey(params) {
+  return params ? params.toString() : '';
+}
+
+function _readOffersCache(cacheKey) {
+  if (!cacheKey || !_offersResponseCache.has(cacheKey)) {
+    return null;
+  }
+  var entry = _offersResponseCache.get(cacheKey);
+  if (!entry || !entry.ts || (Date.now() - entry.ts) > _OFFERS_CACHE_TTL_MS) {
+    _offersResponseCache.delete(cacheKey);
+    return null;
+  }
+  return entry.data || null;
+}
+
+function _writeOffersCache(cacheKey, data) {
+  if (!cacheKey || !data || !Array.isArray(data.offers)) {
+    return;
+  }
+  _offersResponseCache.set(cacheKey, {
+    ts: Date.now(),
+    data: {
+      ...data,
+      offers: data.offers.map(function(offer) { return { ...offer }; })
+    }
+  });
+}
+
+function cacheSelectedOffer(offer) {
+  if (!offer || !offer.id) {
+    return;
+  }
+  try {
+    localStorage.setItem(_P2P_SELECTED_AD_CACHE_KEY, JSON.stringify({
+      ts: Date.now(),
+      offer: offer
+    }));
+  } catch (_) {}
+}
+
+function prefetchOrderFlowAssets() {
+  if (_orderFlowWarmPromise) {
+    return _orderFlowWarmPromise;
+  }
+  _orderFlowWarmPromise = Promise.allSettled([
+    fetch(_buildOrderFlowUrl({}), { credentials: 'include', cache: 'force-cache' }),
+    fetch(_buildOrderFlowUrl({ warm: '1' }), { credentials: 'include', cache: 'force-cache' })
+  ]).catch(function() {
+    return null;
+  });
+  return _orderFlowWarmPromise;
+}
 
 async function loadOffers(append) {
   // Prevent parallel non-append calls (append = "load more" button, always allow)
@@ -2512,8 +2879,23 @@ async function loadOffers(append) {
   if (paymentFilter?.value) params.set('payment', paymentFilter.value);
   if (amountFilter?.value) params.set('amount', amountFilter.value);
   if (advertiserFilter?.value.trim()) params.set('advertiser', advertiserFilter.value.trim());
+  const cacheKey = append ? '' : _buildOffersCacheKey(params);
+  const cachedResponse = !append ? _readOffersCache(cacheKey) : null;
 
-  if (!append && metaEl) metaEl.textContent = 'Loading offers...';
+  if (!append && cachedResponse) {
+    renderOffers(cachedResponse, false);
+    _offersOffset = Array.isArray(cachedResponse.offers) ? cachedResponse.offers.length : 0;
+    _offersHasMore = Boolean(cachedResponse.hasMore);
+    if (loadMoreBtn) {
+      loadMoreBtn.style.display = _offersHasMore ? 'inline-block' : 'none';
+      loadMoreBtn.textContent = 'Load More Ads';
+    }
+    if (metaEl) {
+      metaEl.textContent = `${cachedResponse.side.toUpperCase()} ${cachedResponse.asset} offers: ${cachedResponse.total} | Updated ${new Date(cachedResponse.updatedAt).toLocaleTimeString()}`;
+    }
+  }
+
+  if (!append && metaEl && !cachedResponse) metaEl.textContent = 'Loading offers...';
   if (loadMoreBtn) loadMoreBtn.textContent = 'Loading...';
   if (!append) _offersFetching = true;
 
@@ -2543,6 +2925,7 @@ async function loadOffers(append) {
     }
 
     if (!append) _offersFetching = false;
+    if (!append) _writeOffersCache(cacheKey, data);
     console.log('[loadOffers] rendered', data.offers ? data.offers.length : 0, 'offers');
     renderOffers(data, append);
     _offersOffset += data.offers.length;
@@ -2627,6 +3010,10 @@ async function createOrder(offerId, options = {}) {
       throw new Error('Server returned success but no order object. Please contact support.');
     }
 
+    if (data.existingOrder && metaEl) {
+      metaEl.textContent = data.message || 'You already have an active order. Opening it now.';
+    }
+
     if (openAfterCreate) {
       openOrder(data.order);
     }
@@ -2639,6 +3026,7 @@ async function createOrder(offerId, options = {}) {
     } else {
       _ordAllOrders = _ordAllOrders.map(function(o) { return o.id === newOrd.id ? newOrd : o; });
     }
+    try { localStorage.setItem('p2p_order_' + newOrd.id, JSON.stringify(newOrd)); } catch(_) {}
     _ordLoaded = true;
     _saveOrdCache(_ordAllOrders);
 
@@ -2702,8 +3090,6 @@ async function submitDealOrder() {
     setDealHint('Order created! Ref: ' + data.order.reference, 'success');
     closeDealModal();
     openOrder(data.order);
-    // Ensure orders screen shows fresh data immediately (SSE will also trigger this)
-    _ordLoaded = false;
   } catch (error) {
     console.warn('[submitDealOrder] FAILED:', error.message, 'code=' + (error.code || 'none'));
     if (error.code === 'EMAIL_NOT_VERIFIED') {
@@ -2721,7 +3107,27 @@ async function submitDealOrder() {
 
 function renderLiveOrders(orders) {
   const incomingOrders = Array.isArray(orders) ? orders : [];
-  const participantOrders = incomingOrders.filter((order) => Boolean(order?.isParticipant));
+  const currentUserId = String(currentUser?.id || '').trim();
+  const hydratedOrders = _ordMergeById(incomingOrders, _ordLoadSavedSnapshots({ activeOnly: true }));
+  const participantOrders = hydratedOrders
+    .map((order) => {
+      if (!order || typeof order !== 'object') {
+        return null;
+      }
+
+      const buyerUserId = String(order.buyerUserId || '').trim();
+      const sellerUserId = String(order.sellerUserId || '').trim();
+      const inferredParticipant =
+        _ordBelongsToCurrentUser(order) ||
+        (Boolean(currentUserId) && (buyerUserId === currentUserId || sellerUserId === currentUserId));
+
+      return {
+        ...order,
+        isParticipant:
+          typeof order.isParticipant === 'boolean' ? order.isParticipant : inferredParticipant
+      };
+    })
+    .filter((order) => Boolean(order?.isParticipant));
   participantOrders.forEach((order) => storeOrderForMobile(order));
   pruneMobileOrdersCache();
   const visibleOrders = participantOrders.filter((order) => isOngoingOrderStatus(order.status));
@@ -2744,7 +3150,7 @@ function renderLiveOrders(orders) {
         return `
           <tr>
             <td>${order.reference}</td>
-            <td>${order.side.toUpperCase()} ${order.asset}</td>
+            <td>${getOrderDisplaySide(order)} ${order.asset}</td>
             <td>₹${formatNumber(order.amountInr)}</td>
             <td><span class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</span></td>
             <td>${escapeHtml(order.participantsLabel)}</td>
@@ -2769,7 +3175,7 @@ function renderLiveOrders(orders) {
               <span class="status-pill ${statusClass(order.status)}">${statusLabel(order.status)}</span>
             </div>
             <div class="p2p-card-grid">
-              <p>Type<strong>${order.side.toUpperCase()} ${order.asset}</strong></p>
+              <p>Type<strong>${getOrderDisplaySide(order)} ${order.asset}</strong></p>
               <p>Amount<strong>₹${formatNumber(order.amountInr)}</strong></p>
               <p>Participants<strong>${escapeHtml(order.participantsLabel)}</strong></p>
               <p>Counterparty<strong>${escapeHtml(order.advertiser || '--')}</strong></p>
@@ -2811,28 +3217,44 @@ async function loadLiveOrders() {
   }
 
   try {
-    const params = new URLSearchParams({
-      side: currentSide,
-      asset: currentAsset
+    if (_ordLoaded && Array.isArray(_ordAllOrders) && _ordAllOrders.length) {
+      const warmVisibleCount = renderLiveOrders(_ordAllOrders);
+      if (warmVisibleCount > 0) {
+        liveOrdersMeta.textContent = `Ongoing Orders: ${warmVisibleCount}`;
+      }
+    }
+
+    const response = await fetch('/api/p2p/orders/my-active', {
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-store' }
     });
-    const response = await fetch(`/api/p2p/orders/live?${params.toString()}`);
     const data = await response.json();
 
     if (!response.ok) {
       throw new Error(data.message || 'Unable to load ongoing orders.');
     }
 
-    const visibleCount = renderLiveOrders(data.orders);
+    let orders = Array.isArray(data) ? data : (data.orders || []);
+    if (!orders.length) {
+      orders = _ordLoadSavedSnapshots({ activeOnly: true });
+    }
+    const visibleCount = renderLiveOrders(orders);
     liveOrdersMeta.textContent = `Ongoing Orders: ${visibleCount}`;
   } catch (error) {
-    if (liveOrdersRows) {
-      liveOrdersRows.innerHTML = '<tr><td colspan="6" class="empty-row">Unable to load ongoing orders.</td></tr>';
+    const snapshotOrders = _ordLoadSavedSnapshots({ activeOnly: true });
+    if (snapshotOrders.length) {
+      const visibleCount = renderLiveOrders(snapshotOrders);
+      liveOrdersMeta.textContent = `Ongoing Orders: ${visibleCount}`;
+    } else {
+      if (liveOrdersRows) {
+        liveOrdersRows.innerHTML = '<tr><td colspan="6" class="empty-row">Unable to load ongoing orders.</td></tr>';
+      }
+      if (liveOrdersCards) {
+        liveOrdersCards.innerHTML = '<article class="p2p-live-order-card"><p class="empty-row">Unable to load ongoing orders.</p></article>';
+      }
+      liveOrdersMeta.textContent = error.message;
+      renderMobileOrdersList();
     }
-    if (liveOrdersCards) {
-      liveOrdersCards.innerHTML = '<article class="p2p-live-order-card"><p class="empty-row">Unable to load ongoing orders.</p></article>';
-    }
-    liveOrdersMeta.textContent = error.message;
-    renderMobileOrdersList();
   }
 }
 
@@ -2842,7 +3264,7 @@ function updateOrderUi(order) {
   }
 
   activeOrderSnapshot = order;
-  storeOrderForMobile(order);
+  _ordSyncSingleOrder(order);
   renderMobileOrdersList();
   loadProfilePanel();
   activeOrderRole = getOrderRole(order);
@@ -2941,8 +3363,7 @@ function updateOrderUi(order) {
   }
 
   if (cancelOrderBtn) {
-    // Allow cancel when: order created (either side) OR buyer already paid but wants to cancel
-    const canCancel = isCreated || (isPaid && activeOrderRole === 'buyer');
+    const canCancel = isCreated;
     cancelOrderBtn.disabled = !canCancel;
     cancelOrderBtn.style.opacity = canCancel ? '1' : '0.4';
   }
@@ -3243,12 +3664,8 @@ function openOrder(order) {
     try {
       const payload = JSON.parse(event.data || '{}');
       if (payload.order) {
-        updateOrderUi(payload.order);
-        // Update orders screen cache with latest status
-        if (_ordAllOrders.length) {
-          _ordAllOrders = _ordAllOrders.map(function(o) { return o.id === payload.order.id ? Object.assign({}, o, payload.order) : o; });
-          _saveOrdCache(_ordAllOrders);
-        }
+        var nextOrder = _ordSyncSingleOrder(payload.order, { seedOrderList: true });
+        updateOrderUi(nextOrder || payload.order);
       }
     } catch(e) { console.error('[orderStream] order_update error:', e); _ordFetching = false; }
   });
@@ -3277,7 +3694,10 @@ async function openOrderById(orderId) {
   }
 
   try {
-    const response = await fetch(`/api/p2p/orders/${orderId}`);
+    const response = await fetch(`/api/p2p/orders/${orderId}`, {
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-store' }
+    });
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.message || 'Unable to open order.');
@@ -3337,7 +3757,10 @@ async function updateOrderStatus(action, options = {}) {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       signal: ctrl.signal,
-      body: JSON.stringify({ action })
+      body: JSON.stringify({
+        action,
+        reason: String(options.reason || '').trim()
+      })
     });
     clearTimeout(tmr);
     console.log('[updateOrderStatus]', action, 'response', response.status);
@@ -3346,16 +3769,20 @@ async function updateOrderStatus(action, options = {}) {
       throw new Error(data.message || 'Unable to update order.');
     }
 
-    updateOrderUi(data.order);
+    var nextOrder = _ordSyncSingleOrder(data.order, {
+      seedOrderList: true,
+      focusBucket: action === 'cancel' || action === 'expire' || action === 'release'
+    });
+    updateOrderUi(nextOrder || data.order);
     if (action === 'mark_paid' && !options.skipNotification) {
       await sendOrderMessage('Payment done from buyer side. Please verify and release crypto.');
-    }
-    if (action === 'cancel' && options.reason && !options.skipNotification) {
-      await sendOrderMessage(`Order cancelled. Reason: ${options.reason}`);
     }
     await fetchMessages();
     await loadLiveOrders();
     await loadProfilePanel({ refreshWallet: true });
+    if (action === 'cancel' || action === 'expire' || action === 'release') {
+      fetchOrdersSafe();
+    }
   } catch (error) {
     console.warn('[updateOrderStatus] error:', error.message);
     if (chatState) chatState.textContent = error.name === 'AbortError' ? 'Request timed out. Try again.' : error.message;
@@ -3371,6 +3798,20 @@ async function updateOrderStatus(action, options = {}) {
 function bindOfferActionDelegation(container) {
   if (!container) return;
 
+  function primeOfferNavigation(event) {
+    const actionBtn = event.target.closest('.offer-action-btn, .gt-btn[data-offer-id]');
+    if (!actionBtn) return;
+    const offer = offersMap.get(String(actionBtn.dataset.offerId || '').trim());
+    if (offer) {
+      cacheSelectedOffer(offer);
+    }
+    prefetchOrderFlowAssets();
+  }
+
+  container.addEventListener('mouseenter', primeOfferNavigation, true);
+  container.addEventListener('touchstart', primeOfferNavigation, { passive: true });
+  container.addEventListener('pointerdown', primeOfferNavigation);
+
   container.addEventListener('click', (event) => {
     const actionBtn = event.target.closest('.offer-action-btn, .gt-btn[data-offer-id]');
     if (!actionBtn || actionBtn.disabled) return;
@@ -3379,6 +3820,11 @@ function bindOfferActionDelegation(container) {
     actionBtn.style.transform = 'scale(0.93)';
     actionBtn.style.transition = 'transform 0.1s ease';
     setTimeout(function() { actionBtn.style.transform = ''; }, 160);
+
+    const offer = offersMap.get(String(actionBtn.dataset.offerId || '').trim());
+    if (offer) {
+      cacheSelectedOffer(offer);
+    }
 
     openDealForOffer(actionBtn.dataset.offerId);
   });
@@ -3559,7 +4005,7 @@ var _ORD_STATUS_MAP = {
 };
 
 function _ordCard(order) {
-  var side = (order.side || '').toUpperCase();
+  var side = getOrderDisplaySide(order);
   var sideColor = side === 'BUY' ? '#2ebd85' : '#f6465d';
   var d = order.createdAt ? new Date(order.createdAt) : null;
   var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
@@ -3568,7 +4014,7 @@ function _ordCard(order) {
   var qtyStr = qty % 1 === 0 ? qty.toString() : parseFloat(qty.toFixed(4)).toString();
   var fmt = function(n) { return formatNumber ? formatNumber(n) : n; };
   // Show only the OTHER person's name — not both participants
-  var _myId = currentUser && currentUser.id;
+  var _myId = getCurrentUserId();
   var _myName = currentUser && currentUser.username;
   var _isBuyer = (_myId && (order.buyerUserId === _myId || order.buyerId === _myId)) ||
                  (_myName && order.buyerUsername === _myName);
@@ -3577,6 +4023,7 @@ function _ordCard(order) {
     : (order.buyerUsername || 'Buyer');
   var counterparty = escapeHtml ? escapeHtml(_rawCounterparty) : _rawCounterparty;
   var rawId = order.id || '';
+  var rawIdAttr = escapeHtml ? escapeHtml(rawId) : rawId;
   var ordId = encodeURIComponent(rawId);
   // store order in localStorage so order-flow page can show instantly
   // only write if status changed to avoid redundant writes on every poll cycle
@@ -3588,11 +4035,11 @@ function _ordCard(order) {
       localStorage.setItem(_lsKey, JSON.stringify(order));
     }
   } catch(e){}
-  var orderUrl = '/p2p-order-flow.html?orderId=' + ordId;
-  var chatUrl  = '/p2p-order-flow.html?orderId=' + ordId + '&openChat=1';
+  var orderUrl = _buildOrderFlowUrl({ orderId: ordId, source: 'orders' });
+  var chatUrl  = _buildOrderFlowUrl({ orderId: ordId, source: 'orders', openChat: '1' });
   var status = String(order.status || '').toUpperCase();
   var isEnded = ['RELEASED','COMPLETED','CANCELLED','CANCELED','EXPIRED'].indexOf(status) !== -1;
-  var chatBtn = '<a href="'+chatUrl+'" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
+  var chatBtn = '<a href="'+chatUrl+'" class="ord-open-link" data-order-id="'+rawIdAttr+'" data-open-chat="1" data-url="'+chatUrl+'" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</a>';
   // Amount + chat row:
   // Active: left=info cols, right=amount. Below: left=counterparty, right=Chat
@@ -3609,7 +4056,7 @@ function _ordCard(order) {
         '<span style="font-size:13px;color:rgba(255,255,255,0.65);">'+counterparty+'</span>'+
         chatBtn+
       '</div>';
-  return '<a href="'+orderUrl+'" style="display:block;text-decoration:none;color:inherit;padding:16px;border-bottom:1px solid rgba(255,255,255,0.06);-webkit-tap-highlight-color:rgba(255,255,255,0.04);">'+
+  return '<article class="ord-open-link" data-order-id="'+rawIdAttr+'" data-open-chat="0" data-url="'+orderUrl+'" role="button" tabindex="0" style="display:block;text-decoration:none;color:inherit;padding:16px;border-bottom:1px solid rgba(255,255,255,0.06);-webkit-tap-highlight-color:rgba(255,255,255,0.04);cursor:pointer;">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">'+
       '<span style="font-size:15px;font-weight:700;"><span style="color:'+sideColor+';">'+side+'</span> '+(order.asset||'USDT')+'</span>'+
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'+
@@ -3624,7 +4071,7 @@ function _ordCard(order) {
       amountAndActionHtml+
     '</div>'+
     bottomRowHtml+
-  '</a>';
+  '</article>';
 }
 
 function _ordEmpty(msg) {
@@ -3737,27 +4184,31 @@ function switchOrdSub(sub) {
 // ── state ──────────────────────────────────────────────────────────────────
 var _ordReqId     = 0;      // incremented each call; stale responses are discarded
 var _ordAbort     = null;   // AbortController for the in-flight request
+var _ordHistoryAbort = null; // background history request controller
 var _ordFailing   = 0;      // consecutive failure count (reset on success / user change)
 var _ordPollTimer = null;   // single fallback-poll timer (only when SSE is down)
 var _ordFetching  = false;  // legacy compat flag — mirrors !!_ordAbort
+var _ordRefreshQueued = false; // another refresh was requested while one was in progress
 
 // ── cache ──────────────────────────────────────────────────────────────────
 var _ORD_CACHE_KEY    = 'p2p_orders_cache';
 var _ORD_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function _saveOrdCache(orders) {
-  if (!currentUser || !currentUser.id) return;
+  var currentUserId = getCurrentUserId();
+  if (!currentUserId) return;
   try {
     localStorage.setItem(_ORD_CACHE_KEY, JSON.stringify({
-      ts: Date.now(), userId: currentUser.id, orders: orders
+      ts: Date.now(), userId: currentUserId, orders: orders
     }));
   } catch(_) {}
 }
 function _loadOrdCache() {
   try {
     var raw = JSON.parse(localStorage.getItem(_ORD_CACHE_KEY) || 'null');
+    var currentUserId = getCurrentUserId();
     if (!raw) return [];
-    if (!currentUser || !currentUser.id || raw.userId !== currentUser.id) {
+    if (!currentUserId || raw.userId !== currentUserId) {
       localStorage.removeItem(_ORD_CACHE_KEY);
       return [];
     }
@@ -3769,12 +4220,206 @@ function _loadOrdCache() {
   } catch(_) { return []; }
 }
 
+function _ordPersistSnapshots(orders) {
+  try {
+    (Array.isArray(orders) ? orders : []).forEach(function(order) {
+      if (!order || !order.id) return;
+      localStorage.setItem('p2p_order_' + order.id, JSON.stringify(order));
+    });
+  } catch (_) {}
+}
+
+function _ordBelongsToCurrentUser(order) {
+  if (!order || !currentUser) {
+    return false;
+  }
+
+  var currentUserId = getCurrentUserId();
+  var currentUserEmail = String(currentUser.email || '').trim().toLowerCase();
+  var currentUserName = String(currentUser.username || '').trim().toLowerCase();
+  var hasMatch = false;
+
+  function normalized(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function checkId(value) {
+    return Boolean(currentUserId) && String(value || '').trim() === currentUserId;
+  }
+
+  function checkName(value) {
+    return Boolean(currentUserName) && normalized(value) === currentUserName;
+  }
+
+  function checkEmail(value) {
+    return Boolean(currentUserEmail) && normalized(value) === currentUserEmail;
+  }
+
+  [
+    order.buyerUserId,
+    order.buyerId,
+    order.sellerUserId,
+    order.sellerId
+  ].forEach(function(value) {
+    if (!hasMatch && checkId(value)) {
+      hasMatch = true;
+    }
+  });
+
+  if (hasMatch) {
+    return true;
+  }
+
+  [
+    order.buyerUsername,
+    order.sellerUsername
+  ].forEach(function(value) {
+    if (!hasMatch && checkName(value)) {
+      hasMatch = true;
+    }
+  });
+
+  if (hasMatch) {
+    return true;
+  }
+
+  [
+    order.buyerEmail,
+    order.sellerEmail
+  ].forEach(function(value) {
+    if (!hasMatch && checkEmail(value)) {
+      hasMatch = true;
+    }
+  });
+
+  if (hasMatch) {
+    return true;
+  }
+
+  if (Array.isArray(order.participants)) {
+    order.participants.forEach(function(participant) {
+      if (hasMatch) return;
+      if (checkId(participant && participant.id)) hasMatch = true;
+      else if (checkName(participant && participant.username)) hasMatch = true;
+      else if (checkEmail(participant && participant.email)) hasMatch = true;
+    });
+  }
+
+  return hasMatch;
+}
+
+function _ordLoadSavedSnapshots(options) {
+  options = options || {};
+  var activeOnly = options.activeOnly !== false;
+  if (!currentUser || !window.localStorage) {
+    return [];
+  }
+
+  var orders = [];
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (!key || key.indexOf('p2p_order_') !== 0) continue;
+      var raw = localStorage.getItem(key);
+      if (!raw) continue;
+      var order = JSON.parse(raw);
+      if (!order || !order.id || !_ordBelongsToCurrentUser(order)) continue;
+      if (activeOnly && !isOngoingOrderStatus(order.status)) continue;
+      orders.push(order);
+    }
+  } catch (_) {
+    return [];
+  }
+
+  return orders.sort(function(a, b) {
+    var left = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    var right = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return right - left;
+  });
+}
+
+function _ordPrimeOrderOpen(orderId) {
+  if (!orderId) {
+    return;
+  }
+  try {
+    var match = (_ordAllOrders || []).find(function(order) {
+      return order && String(order.id || '').trim() === String(orderId || '').trim();
+    });
+    if (match) {
+      localStorage.setItem('p2p_order_' + match.id, JSON.stringify(match));
+    }
+  } catch (_) {}
+}
+
+function _ordFocusBucketForStatus(status) {
+  var normalizedStatus = normalizeStatusForUi(status);
+  if (normalizedStatus === 'RELEASED') {
+    switchOrdMain('ended');
+    switchOrdSub('completed');
+    return;
+  }
+  if (normalizedStatus === 'CANCELLED' || normalizedStatus === 'EXPIRED') {
+    switchOrdMain('ended');
+    switchOrdSub('canceled');
+  }
+}
+
+function _ordSyncSingleOrder(order, options) {
+  options = options || {};
+  if (!order || !order.id) {
+    return null;
+  }
+
+  var normalizedOrder = Object.assign({}, order, {
+    status: normalizeStatusForUi(order.status),
+    updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(),
+    createdAt: order.createdAt || order.updatedAt || new Date().toISOString()
+  });
+
+  storeOrderForMobile(normalizedOrder);
+  try {
+    localStorage.setItem('p2p_order_' + normalizedOrder.id, JSON.stringify(normalizedOrder));
+  } catch (_) {}
+
+  var found = false;
+  _ordAllOrders = (Array.isArray(_ordAllOrders) ? _ordAllOrders : []).map(function(existing) {
+    if (existing && existing.id === normalizedOrder.id) {
+      found = true;
+      return Object.assign({}, existing, normalizedOrder);
+    }
+    return existing;
+  });
+
+  if (!found) {
+    _ordAllOrders = _ordMergeById([normalizedOrder], _ordAllOrders);
+  }
+
+  if (_ordLoaded || options.seedOrderList) {
+    _ordLoaded = true;
+    _ordRenderAll(_ordAllOrders, false);
+  } else {
+    _saveOrdCache(_ordAllOrders);
+  }
+
+  if (options.focusBucket) {
+    _ordFocusBucketForStatus(normalizedOrder.status);
+  }
+
+  return normalizedOrder;
+}
+
 // ── UI helpers ─────────────────────────────────────────────────────────────
 function _ordRenderAll(allOrders, fromCache) {
   var map = {};
   allOrders.forEach(function(o) { if (o && o.id) map[o.id] = o; });
   _ordAllOrders = Object.keys(map).map(function(k) { return map[k]; })
     .sort(function(a, b) { return (b.createdAt || 0) > (a.createdAt || 0) ? 1 : -1; });
+  _ordAllOrders.forEach(function(order) {
+    storeOrderForMobile(order);
+  });
+  pruneMobileOrdersCache();
+  _ordPersistSnapshots(_ordAllOrders);
   if (!fromCache) _saveOrdCache(_ordAllOrders);
   _ordLoaded  = true;
   _ordFetching = false;
@@ -3793,6 +4438,144 @@ function _ordRenderAll(allOrders, fromCache) {
   var activeEl = document.getElementById(_ORD_LIST_IDS[_ordSubTab]);
   if (activeEl) activeEl.style.display = 'block';
 }
+
+function _ordMergeById(primaryOrders, secondaryOrders) {
+  var map = {};
+  [].concat(primaryOrders || [], secondaryOrders || []).forEach(function(order) {
+    if (!order || !order.id) return;
+    map[order.id] = Object.assign({}, map[order.id] || {}, order);
+  });
+  return Object.keys(map).map(function(id) { return map[id]; });
+}
+
+function _ordEndedOrders(orders) {
+  return (Array.isArray(orders) ? orders : []).filter(function(order) {
+    var status = String(order && order.status || '').toUpperCase();
+    return ['RELEASED', 'COMPLETED', 'CANCELLED', 'CANCELED', 'EXPIRED'].indexOf(status) !== -1;
+  });
+}
+
+function _ordCachedEndedOrders() {
+  return _ordEndedOrders(
+    _ordMergeById(
+      _ordAllOrders,
+      _ordMergeById(_loadOrdCache(), _ordLoadSavedSnapshots({ activeOnly: false }))
+    )
+  );
+}
+
+function _ordFetchWithTimeout(url, fetchOpts, timeoutMs) {
+  var timeoutId;
+  var timeoutPromise = new Promise(function(_, reject) {
+    timeoutId = setTimeout(function() { reject(new Error('timeout')); }, timeoutMs || 15000);
+  });
+  return Promise.race([fetch(url, fetchOpts), timeoutPromise]).then(
+    function(result) {
+      clearTimeout(timeoutId);
+      return result;
+    },
+    function(error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  );
+}
+
+function _ordExtractOrders(data) {
+  return Array.isArray(data) ? data : (data && (data.orders || data.data) || []);
+}
+
+function _ordExtractBootstrapOrders(data) {
+  if (!data || typeof data !== 'object') {
+    return [];
+  }
+  if (Array.isArray(data.orders) && data.orders.length) {
+    return data.orders;
+  }
+  return _ordMergeById(data.activeOrders || [], data.historyOrders || []);
+}
+
+function _ordFilterActiveOrders(orders) {
+  return (Array.isArray(orders) ? orders : []).filter(function(order) {
+    return isOngoingOrderStatus(order && order.status);
+  });
+}
+
+function _ordFetchActiveOrdersFallback(fetchOpts, parentReqId) {
+  return _ordFetchWithTimeout('/api/p2p/orders/history?limit=50&offset=0', fetchOpts, 20000)
+    .then(function(response) {
+      if (parentReqId !== _ordReqId) return null;
+      if (!response || !response.ok) return null;
+      return response.json().catch(function() { return null; });
+    })
+    .then(function(data) {
+      if (!data || parentReqId !== _ordReqId) return null;
+      return {
+        degraded: true,
+        orders: _ordFilterActiveOrders(_ordExtractOrders(data))
+      };
+    })
+    .catch(function(error) {
+      if (error && error.name === 'AbortError') return null;
+      return null;
+    });
+}
+
+function _ordFetchMyActive(fetchOpts, parentReqId) {
+  return _ordFetchWithTimeout('/api/p2p/orders/my-active', fetchOpts, 8000)
+    .then(function(response) {
+      if (parentReqId !== _ordReqId) return null;
+      if (!response) return null;
+      if (response.status === 401) {
+        _ordShowLogin();
+        return null;
+      }
+      if (!response.ok) return null;
+      return response.json().catch(function() { return null; });
+    })
+    .then(function(data) {
+      if (!data || parentReqId !== _ordReqId) return null;
+      return {
+        total: Number(data.total || 0),
+        orders: _ordFilterActiveOrders(_ordExtractOrders(data))
+      };
+    })
+    .catch(function(error) {
+      if (error && error.name === 'AbortError') return null;
+      return null;
+    });
+}
+
+function _fetchOrderHistoryInBackground(parentReqId) {
+  if (!getCurrentUserId()) return;
+  if (_ordHistoryAbort) { try { _ordHistoryAbort.abort(); } catch(_) {} }
+
+  var historyCtrl = window.AbortController ? new AbortController() : null;
+  _ordHistoryAbort = historyCtrl;
+  var historyFetchOpts = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
+  if (historyCtrl) historyFetchOpts.signal = historyCtrl.signal;
+
+  _ordFetchWithTimeout('/api/p2p/orders/history?limit=50&offset=0', historyFetchOpts, 20000)
+    .then(function(response) {
+      if (parentReqId !== _ordReqId) return null;
+      if (!response || !response.ok) return null;
+      return response.json().catch(function() { return null; });
+    })
+    .then(function(data) {
+      if (!data || parentReqId !== _ordReqId) return;
+      var historyOrders = Array.isArray(data) ? data : (data.orders || []);
+      _ordRenderAll(_ordMergeById(_ordAllOrders, historyOrders), false);
+    })
+    .catch(function(error) {
+      if (error && error.name === 'AbortError') return;
+    })
+    .finally(function() {
+      if (_ordHistoryAbort === historyCtrl) {
+        _ordHistoryAbort = null;
+      }
+    });
+}
+
 function _ordShowSkeleton() {
   Object.keys(_ORD_LIST_IDS).forEach(function(sub) {
     var el = document.getElementById(_ORD_LIST_IDS[sub]);
@@ -3832,76 +4615,134 @@ function _ordShowLogin() {
     '</div>';
 }
 
+function _ordDrainQueuedRefresh() {
+  if (!_ordRefreshQueued || !getCurrentUserId()) {
+    return;
+  }
+  _ordRefreshQueued = false;
+  setTimeout(function() {
+    if (getCurrentUserId()) {
+      fetchOrdersSafe();
+    }
+  }, 80);
+}
+
 // ── SINGLE ENTRY POINT ─────────────────────────────────────────────────────
 // fetchOrdersSafe() — race-protected, abort-controller guarded, retry-capped
 function fetchOrdersSafe() {
-  if (!currentUser || !currentUser.id) { _ordShowLogin(); return; }
+  if (!getCurrentUserId()) { _ordShowLogin(); return; }
 
-  // Show cache instantly (zero delay UX) before any network call
-  var cached = _loadOrdCache();
-  if (cached.length) {
-    _ordRenderAll(cached, true);
-  } else {
-    _ordShowSkeleton();
+  if (_ordFetching) {
+    _ordRefreshQueued = true;
+    return;
   }
 
-  // Abort any in-flight request — prevents stale responses from overwriting fresh data
-  if (_ordAbort) { try { _ordAbort.abort(); } catch(_) {} }
+  // Show cache/skeleton only for the initial unresolved load.
+  if (!_ordLoaded) {
+    var cached = _loadOrdCache();
+    if (cached.length) {
+      _ordRenderAll(cached, true);
+    } else {
+      var snapshots = _ordLoadSavedSnapshots({ activeOnly: true });
+      if (!snapshots.length) {
+        snapshots = _ordLoadSavedSnapshots({ activeOnly: false });
+      }
+      if (snapshots.length) {
+        _ordRenderAll(snapshots, false);
+      } else {
+        _ordShowSkeleton();
+      }
+    }
+  }
+
+  // Keep only one background history request active.
+  if (_ordHistoryAbort) { try { _ordHistoryAbort.abort(); } catch(_) {} }
   var ctrl = window.AbortController ? new AbortController() : null;
   _ordAbort    = ctrl;
   _ordFetching = true;
+  _ordRefreshQueued = false;
   var myReqId  = ++_ordReqId;
 
   var fetchOpts = { credentials: 'include', headers: { 'Cache-Control': 'no-store' } };
   if (ctrl) fetchOpts.signal = ctrl.signal;
 
-  // 8-second timeout wrapper
-  var timeoutId;
-  var timeoutP = new Promise(function(_, reject) {
-    timeoutId = setTimeout(function() { reject(new Error('timeout')); }, 15000);
-  });
-
-  Promise.race([
-    fetch('/api/p2p/orders?limit=50', fetchOpts),
-    timeoutP
-  ])
-  .then(function(r) {
-    clearTimeout(timeoutId);
-    if (myReqId !== _ordReqId) return null; // stale — newer request already running
+  _ordFetchMyActive(fetchOpts, myReqId)
+  .then(function(activeData) {
+    if (myReqId !== _ordReqId) return null;
     _ordAbort    = null;
     _ordFetching = false;
 
-    if (r.status === 401) { _ordShowLogin(); return null; }
-    if (!r.ok) {
-      _ordFailing++;
-      if (_ordFailing <= 3) {
-        setTimeout(fetchOrdersSafe, _ordFailing * 2000); // 2s, 4s, 6s backoff
-      } else {
-        _ordShowRetry('Could not load orders — tap to retry');
-      }
+    if (activeData && activeData.orders && activeData.orders.length) {
+      _ordFailing = 0;
+      _ordRenderAll(_ordMergeById(activeData.orders, _ordCachedEndedOrders()), false);
+      _fetchOrderHistoryInBackground(myReqId);
+      _ordDrainQueuedRefresh();
       return null;
     }
-    _ordFailing = 0;
-    return r.json().catch(function() { return null; });
+
+    return _ordFetchWithTimeout('/api/p2p/orders/bootstrap?activeLimit=50&historyLimit=50', fetchOpts, 12000)
+      .then(function(r) {
+        if (myReqId !== _ordReqId) return null;
+        if (r.status === 401) { _ordShowLogin(); return null; }
+        if (!r.ok) {
+          return _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
+            if (fallbackData) {
+              _ordFailing = 0;
+              _ordRenderAll(_ordMergeById(fallbackData.orders || [], _ordCachedEndedOrders()), false);
+              _fetchOrderHistoryInBackground(myReqId);
+              _ordDrainQueuedRefresh();
+              return null;
+            }
+            _ordFailing++;
+            if (_ordFailing <= 3) {
+              setTimeout(fetchOrdersSafe, _ordFailing * 2000);
+            } else {
+              _ordShowRetry('Could not load orders — tap to retry');
+            }
+            _ordDrainQueuedRefresh();
+            return null;
+          });
+        }
+        _ordFailing = 0;
+        return r.json().catch(function() { return null; });
+      });
   })
   .then(function(data) {
     if (!data) return;
     if (myReqId !== _ordReqId) return; // race check after json parse
-    var orders = Array.isArray(data) ? data : (data.orders || data.data || []);
-    _ordRenderAll(orders, false);
+    var mergedOrders = _ordExtractBootstrapOrders(data);
+    if (!mergedOrders.length) {
+      var recoveredOrders = _ordMergeById(_ordLoadSavedSnapshots({ activeOnly: true }), _ordCachedEndedOrders());
+      if (!recoveredOrders.length) {
+        recoveredOrders = _ordLoadSavedSnapshots({ activeOnly: false });
+      }
+      _ordRenderAll(recoveredOrders, false);
+    } else {
+      _ordRenderAll(_ordMergeById(mergedOrders, _ordLoadSavedSnapshots({ activeOnly: true })), false);
+      _fetchOrderHistoryInBackground(myReqId);
+    }
+    _ordDrainQueuedRefresh();
   })
   .catch(function(e) {
-    clearTimeout(timeoutId);
     if (e && e.name === 'AbortError') return; // intentionally cancelled — ignore
     if (myReqId !== _ordReqId) return;
     _ordAbort    = null;
     _ordFetching = false;
-    _ordFailing++;
-    if (_ordFailing <= 3) {
-      setTimeout(fetchOrdersSafe, _ordFailing * 2000);
-    } else {
-      _ordShowRetry('Connection error — tap to retry');
-    }
+    _ordFetchActiveOrdersFallback(fetchOpts, myReqId).then(function(fallbackData) {
+      if (fallbackData && myReqId === _ordReqId) {
+        _ordRenderAll(_ordMergeById(fallbackData.orders || [], _ordCachedEndedOrders()), false);
+        _fetchOrderHistoryInBackground(myReqId);
+        _ordDrainQueuedRefresh();
+        return;
+      }
+      _ordFailing++;
+      if (_ordFailing <= 3) {
+        setTimeout(fetchOrdersSafe, _ordFailing * 2000);
+      } else {
+        _ordShowRetry('Connection error — tap to retry');
+      }
+      _ordDrainQueuedRefresh();
+    });
   });
 }
 
@@ -3913,21 +4754,29 @@ function _startFallbackPoll() {
   if (_ordPollTimer) return; // already running
   _ordPollTimer = setInterval(function() {
     if (currentUser && !_ordAbort) fetchOrdersSafe();
-  }, 3000);
+  }, 15000);
 }
 function _stopFallbackPoll() {
   if (_ordPollTimer) { clearInterval(_ordPollTimer); _ordPollTimer = null; }
 }
 
 // ── KEPT for call-site compatibility (showMobScreen calls startOrdPolling) ─
-function startOrdPolling()   { fetchOrdersSafe(); }
+function startOrdPolling()   {
+  if (!_ordLoaded) {
+    var snapshots = _ordLoadSavedSnapshots({ activeOnly: false });
+    if (snapshots.length) {
+      _ordRenderAll(snapshots, false);
+    }
+  }
+  fetchOrdersSafe();
+}
 function stopOrdPolling()    { /* no-op — SSE handles real-time */ }
 function startBgOrdPolling() { _startFallbackPoll(); }
 function stopBgOrdPolling()  { _stopFallbackPoll(); }
 
 // ── VISIBILITY — refresh when tab/app comes back into focus ────────────────
 document.addEventListener('visibilitychange', function() {
-  if (!document.hidden && currentUser) fetchOrdersSafe();
+  if (!document.hidden && currentUser && !_ordFetching) fetchOrdersSafe();
 });
 
 // Wire orders screen tab buttons (click + touchend for iOS)
@@ -4374,6 +5223,12 @@ if (profileDepositBtn) {
   });
 }
 
+if (profileEditBtn) {
+  profileEditBtn.addEventListener('click', () => {
+    openProfileEditModal();
+  });
+}
+
 p2pMenuToggle?.addEventListener('click', () => setP2PNavOpen(true));
 p2pNavClose?.addEventListener('click', () => setP2PNavOpen(false));
 p2pNavOverlay?.addEventListener('click', () => setP2PNavOpen(false));
@@ -4387,13 +5242,13 @@ p2pNavDrawer?.addEventListener('click', (event) => {
 
 if (p2pMobileBottomNav) {
   p2pMobileBottomNav.addEventListener('click', (event) => {
-    const targetLink = event.target.closest('a[data-mobile-tab]');
+    const targetLink = event.target.closest('a[data-mobile-tab], a[data-mob]');
     if (!targetLink) {
       return;
     }
     if (isMobileViewport()) {
       event.preventDefault();
-      setMobileTab(targetLink.dataset.mobileTab);
+      setMobileTab(getMobileNavTabValue(targetLink));
     }
   });
 }
@@ -4508,186 +5363,497 @@ setInterval(() => {
 // ===== KYC FULL-PAGE SCREENS =====
 // ===== PAYMENT METHODS =====
 function openPaymentMethodsScreen() {
-  var old = document.getElementById('pmScreen');
-  if (old) old.remove();
-  var wrap = document.createElement('div');
-  wrap.id = 'pmScreen';
-  wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;';
-
-  var header = document.createElement('div');
-  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:1rem;border-bottom:1px solid rgba(255,255,255,0.07);position:sticky;top:0;background:#000;z-index:1;';
-
-  var backBtn = document.createElement('button');
-  backBtn.textContent = '‹';
-  backBtn.style.cssText = 'background:none;border:none;color:#fff;font-size:1.6rem;cursor:pointer;padding:4px 12px;line-height:1;';
-  backBtn.addEventListener('touchend', function(e){ e.stopPropagation(); e.preventDefault(); window._pmJustClosed = Date.now(); var s = document.getElementById('pmScreen'); if(s) s.remove(); });
-  backBtn.addEventListener('click', function(e){ e.stopPropagation(); window._pmJustClosed = Date.now(); var s = document.getElementById('pmScreen'); if(s) s.remove(); });
-
-  var title = document.createElement('span');
-  title.textContent = 'Payment Methods';
-  title.style.cssText = 'font-size:0.95rem;font-weight:700;color:#fff;';
-
-  var addBtnTop = document.createElement('button');
-  addBtnTop.textContent = '+';
-  addBtnTop.style.cssText = 'background:none;border:none;color:#00c2b2;font-size:1.6rem;cursor:pointer;padding:4px 12px;line-height:1;';
-  addBtnTop.addEventListener('click', function(){ openAddPaymentModal(); });
-
-  header.appendChild(backBtn); header.appendChild(title); header.appendChild(addBtnTop);
-
-  var body = document.createElement('div');
-  body.style.cssText = 'padding:0.8rem 1rem 5rem;';
-
-  var hint = document.createElement('p');
-  hint.textContent = 'Add UPI, Bank Transfer or other payment methods.';
-  hint.style.cssText = 'font-size:0.75rem;color:#6b7690;margin:0 0 1rem;';
-
-  var listDiv = document.createElement('div');
-  listDiv.id = 'pmList';
-  listDiv.innerHTML = '<p style="color:#6b7690;font-size:0.82rem;text-align:center;padding:2rem 0;">Loading...</p>';
-
-  var addBtnBottom = document.createElement('button');
-  addBtnBottom.textContent = '+ Add Payment Method';
-  addBtnBottom.style.cssText = 'width:100%;height:44px;border:none;border-radius:10px;background:linear-gradient(96deg,#00c2b2,#0099a8);color:#fff;font-size:0.88rem;font-weight:700;cursor:pointer;margin-top:1rem;font-family:Manrope,sans-serif;';
-  addBtnBottom.addEventListener('click', function(){ openAddPaymentModal(); });
-
-  body.appendChild(hint); body.appendChild(listDiv); body.appendChild(addBtnBottom);
-  wrap.appendChild(header); wrap.appendChild(body);
-  document.body.appendChild(wrap);
+  var legacy = document.getElementById('pmScreen');
+  if (legacy) legacy.remove();
+  if (!currentUser) {
+    requireLoginNotice();
+    return;
+  }
+  if (typeof showMobScreen === 'function') {
+    showMobScreen('mobPaymentMethodsScreen');
+  }
+  renderPaymentMethodsList([]);
   loadPaymentMethods();
 }
 
-async function loadPaymentMethods() {
-  var list = document.getElementById('pmList');
-  if (!list) return;
-  if (!currentUser) { list.innerHTML = '<p style="color:#6b7690;text-align:center;padding:2rem 0;">Login required.</p>'; return; }
-  try {
-    var res = await fetch('/api/p2p/payment-methods');
-    var data = await res.json();
-    var methods = data.methods || [];
-    if (!methods.length) {
-      list.innerHTML = '<p style="color:#6b7690;font-size:0.82rem;text-align:center;padding:2rem 0;">No payment methods added yet.<br>Tap + to add one.</p>';
-      return;
-    }
-    list.innerHTML = '';
-    methods.forEach(function(m) {
-      var icon = m.type === 'UPI' ? '📱' : m.type === 'Bank' ? '🏦' : '💳';
-      var detail = m.type === 'UPI' ? (m.upiId || '--') : (m.type === 'Bank' || m.type === 'IMPS') ? ((m.bankName || '') + (m.accountNumber ? ' ••' + m.accountNumber.slice(-4) : '')) : (m.details || '--');
+function getPaymentMethodOptionConfig(input) {
+  var key = String(input || '').trim().toLowerCase();
+  var direct = PAYMENT_METHOD_OPTIONS.find(function(option) {
+    return String(option.key || '').trim().toLowerCase() === key || String(option.label || '').trim().toLowerCase() === key;
+  });
+  if (direct) {
+    return direct;
+  }
+  if (key === 'bank' || key === 'imps') {
+    return { key: 'Bank Transfer(India)', label: 'Bank Transfer(India)', category: 'BANK', chip: 'BK' };
+  }
+  if (!key || key === 'upi') {
+    return PAYMENT_METHOD_OPTIONS[0];
+  }
+  return { key: input, label: String(input || 'Payment method').trim(), category: 'OTHER', chip: String(input || 'PM').trim().slice(0, 2).toUpperCase() || 'PM' };
+}
 
-      var card = document.createElement('div');
-      card.style.cssText = 'display:flex;justify-content:space-between;align-items:center;background:#111;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:0.85rem 1rem;margin-bottom:0.65rem;';
+function getPaymentMethodDisplayLabel(method) {
+  if (!method) {
+    return 'Payment method';
+  }
+  return String(method.provider || method.nickname || method.type || 'Payment method').trim() || 'Payment method';
+}
 
-      var left = document.createElement('div');
-      left.style.cssText = 'display:flex;align-items:center;gap:0.75rem;';
-      left.innerHTML = '<span style="font-size:1.5rem;">' + icon + '</span><div><div style="font-size:0.85rem;font-weight:700;color:#fff;">' + escapeHtml(m.nickname || m.type) + '</div><div style="font-size:0.73rem;color:#6b7690;margin-top:2px;">' + escapeHtml(detail) + '</div></div>';
+function getPaymentMethodDetailText(method) {
+  if (!method) {
+    return '--';
+  }
+  var owner = String(method.accountHolder || '').trim();
+  var identifier = String(method.upiId || method.accountNumber || method.details || '').trim();
+  if (owner && identifier) {
+    return owner + ' • ' + identifier;
+  }
+  if (identifier) {
+    return identifier;
+  }
+  if (owner) {
+    return owner;
+  }
+  return '--';
+}
 
-      var actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;gap:0.4rem;flex-shrink:0;';
-
-      var editBtn = document.createElement('button');
-      editBtn.textContent = 'Edit';
-      editBtn.style.cssText = 'height:28px;padding:0 0.7rem;border:none;border-radius:6px;font-size:0.72rem;font-weight:700;cursor:pointer;background:rgba(0,194,178,0.15);color:#00c2b2;font-family:Manrope,sans-serif;';
-      editBtn.addEventListener('click', function(){ openEditPaymentModal(m.id); });
-
-      var delBtn = document.createElement('button');
-      delBtn.textContent = 'Delete';
-      delBtn.style.cssText = 'height:28px;padding:0 0.7rem;border:none;border-radius:6px;font-size:0.72rem;font-weight:700;cursor:pointer;background:rgba(246,70,93,0.12);color:#f6465d;font-family:Manrope,sans-serif;';
-      delBtn.addEventListener('click', function(){ deletePaymentMethod(m.id); });
-
-      actions.appendChild(editBtn); actions.appendChild(delBtn);
-      card.appendChild(left); card.appendChild(actions);
-      list.appendChild(card);
+function showProfileFlowScreen(screenId, hashValue) {
+  if (typeof showMobScreen === 'function') {
+    showMobScreen(screenId);
+  } else {
+    document.querySelectorAll('.mob-screen').forEach(function(screen) {
+      screen.style.display = 'none';
     });
-  } catch(e) {
-    list.innerHTML = '<p style="color:#f6465d;text-align:center;padding:2rem 0;">Failed to load. Try again.</p>';
+    var target = document.getElementById(screenId);
+    if (target) {
+      target.style.setProperty('display', 'flex', 'important');
+      target.style.flexDirection = 'column';
+    }
+    document.body.classList.add('mob-screen-open', 'mob-profile-open');
+    document.body.dataset.mobileTab = 'profile';
+    setMobileNavActive('profile');
+  }
+  if (hashValue) {
+    history.replaceState(null, '', '/p2p#' + hashValue);
   }
 }
 
-function openAddPaymentModal() { _openPaymentModal(null); }
-function openEditPaymentModal(pmId) { _openPaymentModal(pmId); }
-
-function _openPaymentModal(pmId) {
-  var existing = document.getElementById('pmModal');
-  if (existing) existing.remove();
-  var modal = document.createElement('div');
-  modal.id = 'pmModal';
-  modal.className = 'edit-ad-modal-overlay';
-  modal.innerHTML =
-    '<div class="edit-ad-modal">' +
-      '<div class="edit-ad-head">' +
-        '<h3>' + (pmId ? 'Edit' : 'Add') + ' Payment Method</h3>' +
-        '<button onclick="document.getElementById(\'pmModal\').remove()" class="edit-ad-close">✕</button>' +
-      '</div>' +
-      '<div class="edit-ad-body">' +
-        '<label class="edit-ad-label">Type</label>' +
-        '<select id="pmType" class="edit-ad-input" onchange="renderPmFields()">' +
-          '<option value="UPI">UPI / GPay / PhonePe</option>' +
-          '<option value="Bank">Bank Transfer</option>' +
-          '<option value="IMPS">IMPS</option>' +
-          '<option value="Other">Other</option>' +
-        '</select>' +
-        '<label class="edit-ad-label">Nickname (optional)</label>' +
-        '<input id="pmNickname" type="text" class="edit-ad-input" placeholder="e.g. My SBI Account"/>' +
-        '<div id="pmDynamicFields"></div>' +
-      '</div>' +
-      '<button class="mob-kyc-fp-btn" style="background:linear-gradient(96deg,#00c2b2,#0099a8);margin:0 1rem 1rem;" onclick="submitPaymentMethod(\'' + (pmId || '') + '\')">' + (pmId ? 'Save Changes' : 'Add Method') + '</button>' +
-    '</div>';
-  document.body.appendChild(modal);
-  renderPmFields();
+function renderPaymentMethodsList(methods) {
+  var list = document.getElementById('mobPaymentMethodsList');
+  var empty = document.getElementById('mobPaymentMethodsEmpty');
+  if (!list || !empty) {
+    return;
+  }
+  list.innerHTML = '';
+  if (!Array.isArray(methods) || !methods.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  methods.forEach(function(method) {
+    var option = getPaymentMethodOptionConfig(method.provider || method.type);
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mob-payment-method-card';
+    button.setAttribute('data-payment-edit', String(method.id || ''));
+    button.innerHTML =
+      '<span class="mob-payment-method-icon">' + escapeHtml(option.chip || 'PM') + '</span>' +
+      '<span class="mob-payment-method-copy">' +
+        '<span class="mob-payment-method-title">' + escapeHtml(getPaymentMethodDisplayLabel(method)) + '</span>' +
+        '<span class="mob-payment-method-subtitle">' + escapeHtml(getPaymentMethodDetailText(method)) + '</span>' +
+      '</span>' +
+      '<span class="mob-payment-method-arrow">›</span>';
+    list.appendChild(button);
+  });
 }
 
-function renderPmFields() {
-  var type = document.getElementById('pmType') && document.getElementById('pmType').value;
-  var container = document.getElementById('pmDynamicFields');
-  if (!container) return;
-  if (type === 'UPI') {
-    container.innerHTML = '<label class="edit-ad-label">UPI ID</label><input id="pmUpiId" type="text" class="edit-ad-input" placeholder="yourname@upi"/>';
-  } else if (type === 'Bank' || type === 'IMPS') {
-    container.innerHTML =
-      '<label class="edit-ad-label">Bank Name</label><input id="pmBankName" type="text" class="edit-ad-input" placeholder="State Bank of India"/>' +
-      '<label class="edit-ad-label">Account Holder</label><input id="pmHolder" type="text" class="edit-ad-input" placeholder="Full name"/>' +
-      '<label class="edit-ad-label">Account Number</label><input id="pmAccNo" type="text" class="edit-ad-input" placeholder="Account number"/>' +
-      '<label class="edit-ad-label">IFSC Code</label><input id="pmIfsc" type="text" class="edit-ad-input" placeholder="SBIN0001234"/>';
+async function loadPaymentMethods() {
+  var list = document.getElementById('mobPaymentMethodsList');
+  var empty = document.getElementById('mobPaymentMethodsEmpty');
+  if (!list || !empty) return;
+  if (!currentUser) {
+    renderPaymentMethodsList([]);
+    empty.classList.remove('hidden');
+    empty.querySelector('p').textContent = 'Login required.';
+    return;
+  }
+  list.innerHTML = '<div class="mob-payment-empty"><p>Loading...</p></div>';
+  try {
+    var res = await fetch('/api/p2p/payment-methods', { credentials: 'include' });
+    var data = await res.json();
+    var methods = data.methods || [];
+    paymentMethodsCache = methods.slice();
+    empty.querySelector('p').textContent = 'No data found.';
+    renderPaymentMethodsList(methods);
+  } catch(e) {
+    renderPaymentMethodsList([]);
+    empty.classList.remove('hidden');
+    empty.querySelector('p').textContent = 'Failed to load. Try again.';
+  }
+}
+
+function renderPaymentMethodTypes(query) {
+  var container = document.getElementById('paymentMethodTypeList');
+  if (!container) {
+    return;
+  }
+  var needle = String(query || '').trim().toLowerCase();
+  var filtered = PAYMENT_METHOD_OPTIONS.filter(function(option) {
+    return !needle || String(option.label || '').toLowerCase().indexOf(needle) !== -1;
+  });
+  if (!filtered.length) {
+    container.innerHTML = '<div class="mob-payment-empty" style="padding-top:3rem;"><p>No payment methods found.</p></div>';
+    return;
+  }
+  container.innerHTML = filtered.map(function(option) {
+    return (
+      '<button type="button" class="mob-payment-type-row" data-payment-type="' + escapeHtml(option.key) + '">' +
+        '<span class="mob-payment-type-chip">' + escapeHtml(option.chip || 'PM') + '</span>' +
+        '<span class="mob-payment-type-label">' + escapeHtml(option.label) + '</span>' +
+        '<span class="mob-payment-type-arrow">›</span>' +
+      '</button>'
+    );
+  }).join('');
+}
+
+function openPaymentMethodPickerScreen() {
+  showProfileFlowScreen('mobPaymentMethodTypesScreen', 'profile-payment-add');
+  var searchInput = document.getElementById('paymentMethodSearchInput');
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  renderPaymentMethodTypes('');
+}
+
+function openAddPaymentModal() {
+  openPaymentMethodPickerScreen();
+}
+
+function getPaymentFormCopy(option) {
+  if (!option) {
+    return {
+      title: 'Add payment method',
+      identifierLabel: 'Payment ID',
+      identifierPlaceholder: 'Enter payment ID'
+    };
+  }
+  if (option.category === 'BANK') {
+    return {
+      title: 'Add ' + option.label,
+      identifierLabel: 'Account / Payment ID',
+      identifierPlaceholder: 'Enter account or payment ID'
+    };
+  }
+  if (option.category === 'UPI') {
+    return {
+      title: 'Add ' + option.label,
+      identifierLabel: 'UPI ID',
+      identifierPlaceholder: 'Enter UPI ID'
+    };
+  }
+  return {
+    title: 'Add ' + option.label,
+    identifierLabel: 'Payment ID',
+    identifierPlaceholder: 'Enter payment ID'
+  };
+}
+
+function renderPaymentQrPreview(dataUrl) {
+  var preview = document.getElementById('paymentMethodQrPreview');
+  var addBtn = document.getElementById('paymentMethodQrBtn');
+  if (!preview || !addBtn) {
+    return;
+  }
+  if (dataUrl) {
+    preview.classList.remove('hidden');
+    preview.style.backgroundImage = 'url("' + String(dataUrl).replace(/"/g, '%22') + '")';
+    addBtn.querySelector('.mob-payment-qr-plus').textContent = '✓';
   } else {
-    container.innerHTML = '<label class="edit-ad-label">Details</label><input id="pmDetails" type="text" class="edit-ad-input" placeholder="Payment details"/>';
+    preview.classList.add('hidden');
+    preview.style.backgroundImage = '';
+    addBtn.querySelector('.mob-payment-qr-plus').textContent = '+';
+  }
+}
+
+function openPaymentMethodFormFor(methodOrKey) {
+  var editingMethod = methodOrKey && typeof methodOrKey === 'object' && methodOrKey.id ? methodOrKey : null;
+  var option = getPaymentMethodOptionConfig(editingMethod ? (editingMethod.provider || editingMethod.type) : methodOrKey);
+  var copy = getPaymentFormCopy(option);
+  paymentMethodFormState = {
+    methodId: editingMethod ? String(editingMethod.id || '') : '',
+    provider: option.label,
+    category: option.category,
+    qrCode: editingMethod ? String(editingMethod.qrCode || '').trim() : '',
+    mode: editingMethod ? 'edit' : 'create',
+    backScreen: editingMethod ? 'methods' : 'types'
+  };
+
+  var title = document.getElementById('paymentMethodFormTitle');
+  var label = document.getElementById('paymentMethodIdentifierLabel');
+  var input = document.getElementById('paymentMethodIdentifierInput');
+  var ownerInput = document.getElementById('paymentMethodOwnerInput');
+  var meta = document.getElementById('paymentMethodFormMeta');
+  var confirmBtn = document.getElementById('paymentMethodConfirmBtn');
+  var backBtn = document.querySelector('#mobPaymentMethodFormScreen [data-payment-back]');
+  if (title) title.textContent = editingMethod ? ('Edit ' + option.label) : copy.title;
+  if (label) label.textContent = copy.identifierLabel;
+  if (input) {
+    input.placeholder = copy.identifierPlaceholder;
+    input.value = editingMethod ? String(editingMethod.upiId || editingMethod.accountNumber || editingMethod.details || '').trim() : '';
+  }
+  if (ownerInput) {
+    ownerInput.value = editingMethod ? String(editingMethod.accountHolder || '').trim() : String(currentUser?.username || '').trim();
+  }
+  if (meta) {
+    meta.textContent = '';
+  }
+  if (confirmBtn) {
+    confirmBtn.textContent = editingMethod ? 'Save Changes' : 'Confirm';
+    confirmBtn.disabled = false;
+  }
+  if (backBtn) {
+    backBtn.setAttribute('data-payment-back', paymentMethodFormState.backScreen);
+  }
+  renderPaymentQrPreview(paymentMethodFormState.qrCode);
+  showProfileFlowScreen('mobPaymentMethodFormScreen', editingMethod ? 'profile-payment-edit' : 'profile-payment-form');
+}
+
+function openEditPaymentModal(pmId) {
+  var editingMethod = paymentMethodsCache.find(function(item) {
+    return item && String(item.id || '') === String(pmId || '');
+  }) || null;
+  if (!editingMethod) {
+    showToast('Payment method not found');
+    return;
+  }
+  openPaymentMethodFormFor(editingMethod);
+}
+
+function openPaymentQrSheet() {
+  var sheet = document.getElementById('mobPaymentQrSheet');
+  if (sheet) {
+    sheet.classList.remove('hidden');
+    sheet.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closePaymentQrSheet() {
+  var sheet = document.getElementById('mobPaymentQrSheet');
+  if (sheet) {
+    sheet.classList.add('hidden');
+    sheet.setAttribute('aria-hidden', 'true');
+  }
+}
+
+async function handlePaymentQrSelection(file) {
+  if (!file) {
+    return;
+  }
+  var meta = document.getElementById('paymentMethodFormMeta');
+  try {
+    paymentMethodFormState.qrCode = await compressImageFileToDataUrl(file, { maxEdge: 680, quality: 0.8 });
+    renderPaymentQrPreview(paymentMethodFormState.qrCode);
+    if (meta) {
+      meta.textContent = 'QR code added.';
+      meta.style.color = 'rgba(255,255,255,0.48)';
+    }
+  } catch (error) {
+    if (meta) {
+      meta.textContent = 'Unable to read that image. Try another file.';
+      meta.style.color = '#f6465d';
+    }
+  } finally {
+    closePaymentQrSheet();
   }
 }
 
 async function submitPaymentMethod(pmId) {
-  var type = document.getElementById('pmType') && document.getElementById('pmType').value;
-  var nickname = document.getElementById('pmNickname') && document.getElementById('pmNickname').value.trim();
-  var body = { type: type, nickname: nickname };
-  if (type === 'UPI') {
-    body.upiId = document.getElementById('pmUpiId') && document.getElementById('pmUpiId').value.trim();
-    if (!body.upiId) { alert('UPI ID is required.'); return; }
-  } else if (type === 'Bank' || type === 'IMPS') {
-    body.bankName = document.getElementById('pmBankName') && document.getElementById('pmBankName').value.trim();
-    body.accountHolder = document.getElementById('pmHolder') && document.getElementById('pmHolder').value.trim();
-    body.accountNumber = document.getElementById('pmAccNo') && document.getElementById('pmAccNo').value.trim();
-    body.ifsc = document.getElementById('pmIfsc') && document.getElementById('pmIfsc').value.trim();
-    if (!body.accountNumber) { alert('Account number is required.'); return; }
+  var methodId = pmId || paymentMethodFormState.methodId;
+  var ownerInput = document.getElementById('paymentMethodOwnerInput');
+  var idInput = document.getElementById('paymentMethodIdentifierInput');
+  var confirmBtn = document.getElementById('paymentMethodConfirmBtn');
+  var meta = document.getElementById('paymentMethodFormMeta');
+  var owner = String(ownerInput && ownerInput.value || '').trim();
+  var identifier = String(idInput && idInput.value || '').trim();
+
+  if (!owner || owner.length < 2) {
+    if (meta) {
+      meta.textContent = 'Enter the account holder name.';
+      meta.style.color = '#f6465d';
+    }
+    return;
+  }
+  if (!identifier) {
+    if (meta) {
+      meta.textContent = paymentMethodFormState.category === 'UPI' ? 'UPI ID is required.' : 'Payment ID is required.';
+      meta.style.color = '#f6465d';
+    }
+    return;
+  }
+
+  var body = {
+    type: paymentMethodFormState.category,
+    provider: paymentMethodFormState.provider,
+    nickname: paymentMethodFormState.provider,
+    accountHolder: owner,
+    qrCode: paymentMethodFormState.qrCode || ''
+  };
+  if (paymentMethodFormState.category === 'UPI') {
+    body.upiId = identifier;
+  } else if (paymentMethodFormState.category === 'BANK') {
+    body.bankName = paymentMethodFormState.provider;
+    body.accountNumber = identifier;
+    body.details = identifier;
   } else {
-    body.details = document.getElementById('pmDetails') && document.getElementById('pmDetails').value.trim();
+    body.details = identifier;
+  }
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = methodId ? 'Saving...' : 'Adding...';
   }
   try {
-    var url = pmId ? '/api/p2p/payment-methods/' + pmId : '/api/p2p/payment-methods';
-    var method = pmId ? 'PATCH' : 'POST';
-    var res = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var url = methodId ? '/api/p2p/payment-methods/' + methodId : '/api/p2p/payment-methods';
+    var method = methodId ? 'PATCH' : 'POST';
+    var res = await fetch(url, { method: method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     var data = await res.json();
-    if (!res.ok) { alert(data.message || 'Failed.'); return; }
-    document.getElementById('pmModal') && document.getElementById('pmModal').remove();
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to save payment method.');
+    }
+    paymentMethodFormState = {
+      methodId: '',
+      provider: 'UPI',
+      category: 'UPI',
+      qrCode: '',
+      mode: 'create',
+      backScreen: 'methods'
+    };
     await loadPaymentMethods();
-  } catch(e) { alert('Network error.'); }
+    showProfileFlowScreen('mobPaymentMethodsScreen', 'profile-payment');
+    showToast(methodId ? 'Payment method updated' : 'Payment method added');
+  } catch(e) {
+    if (meta) {
+      meta.textContent = e.message || 'Network error.';
+      meta.style.color = '#f6465d';
+    }
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = methodId ? 'Save Changes' : 'Confirm';
+    }
+  }
 }
 
 async function deletePaymentMethod(pmId) {
   if (!confirm('Delete this payment method?')) return;
   try {
-    var res = await fetch('/api/p2p/payment-methods/' + pmId, { method: 'DELETE' });
+    var res = await fetch('/api/p2p/payment-methods/' + pmId, { method: 'DELETE', credentials: 'include' });
     var data = await res.json();
     if (!res.ok) { alert(data.message || 'Failed.'); return; }
     await loadPaymentMethods();
   } catch(e) { alert('Network error.'); }
 }
+
+(function initPaymentMethodUi() {
+  var addBtn = document.getElementById('mobPaymentAddBtn');
+  if (addBtn) {
+    addBtn.addEventListener('click', function() {
+      openPaymentMethodPickerScreen();
+    });
+  }
+
+  var searchInput = document.getElementById('paymentMethodSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      renderPaymentMethodTypes(searchInput.value || '');
+    });
+  }
+
+  var qrBtn = document.getElementById('paymentMethodQrBtn');
+  if (qrBtn) {
+    qrBtn.addEventListener('click', function() {
+      openPaymentQrSheet();
+    });
+  }
+
+  var confirmBtn = document.getElementById('paymentMethodConfirmBtn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', function() {
+      submitPaymentMethod();
+    });
+  }
+
+  var cameraInput = document.getElementById('paymentMethodQrCameraInput');
+  if (cameraInput) {
+    cameraInput.addEventListener('change', function() {
+      handlePaymentQrSelection(cameraInput.files && cameraInput.files[0]);
+      cameraInput.value = '';
+    });
+  }
+
+  var albumInput = document.getElementById('paymentMethodQrAlbumInput');
+  if (albumInput) {
+    albumInput.addEventListener('change', function() {
+      handlePaymentQrSelection(albumInput.files && albumInput.files[0]);
+      albumInput.value = '';
+    });
+  }
+
+  var takePhotoBtn = document.getElementById('paymentMethodTakePhotoBtn');
+  if (takePhotoBtn && cameraInput) {
+    takePhotoBtn.addEventListener('click', function() {
+      cameraInput.click();
+    });
+  }
+
+  var selectAlbumBtn = document.getElementById('paymentMethodSelectAlbumBtn');
+  if (selectAlbumBtn && albumInput) {
+    selectAlbumBtn.addEventListener('click', function() {
+      albumInput.click();
+    });
+  }
+
+  var sheetBackdrop = document.getElementById('mobPaymentQrSheetBackdrop');
+  if (sheetBackdrop) {
+    sheetBackdrop.addEventListener('click', closePaymentQrSheet);
+  }
+
+  var sheetCancelBtn = document.getElementById('paymentMethodQrSheetCancelBtn');
+  if (sheetCancelBtn) {
+    sheetCancelBtn.addEventListener('click', closePaymentQrSheet);
+  }
+
+  document.addEventListener('click', function(event) {
+    var typeRow = event.target.closest('[data-payment-type]');
+    if (typeRow) {
+      event.preventDefault();
+      openPaymentMethodFormFor(typeRow.getAttribute('data-payment-type'));
+      return;
+    }
+    var editRow = event.target.closest('[data-payment-edit]');
+    if (editRow) {
+      event.preventDefault();
+      openEditPaymentModal(editRow.getAttribute('data-payment-edit'));
+      return;
+    }
+    var paymentBack = event.target.closest('[data-payment-back]');
+    if (paymentBack) {
+      event.preventDefault();
+      var target = paymentBack.getAttribute('data-payment-back');
+      if (target === 'profile') {
+        showProfileFlowScreen('mobProfileScreen', 'profile');
+        if (typeof loadProfilePanel === 'function') {
+          loadProfilePanel();
+        }
+      } else if (target === 'methods') {
+        openPaymentMethodsScreen();
+      } else {
+        openPaymentMethodPickerScreen();
+      }
+    }
+  });
+})();
 // ===== END PAYMENT METHODS =====
 
 // ===== 3-DOT MENU =====
@@ -4868,10 +6034,23 @@ function submitKycAdvance() {
   }).then(function(result) {
     if (result.ok) {
       _kycHint('kycAdvHint','✅ Documents submitted! Review takes 24–48 hrs.','success');
+      if (currentUser) {
+        currentUser.kyc = Object.assign({}, currentUser.kyc || {}, {
+          status: 'PENDING_REVIEW'
+        });
+      }
       var badge = document.getElementById('kycStatusBadge');
       if(badge){ badge.textContent='Under Review'; badge.style.cssText='font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(240,185,11,0.12);border:1px solid rgba(240,185,11,0.3);color:#f0b90b;margin-left:6px;'; }
       if(btn){ btn.textContent='Submitted for Review ✓'; }
-      setTimeout(closeKycScreens, 2500);
+      loadProfilePanel({ refreshWallet: true });
+      setTimeout(function() {
+        closeKycScreens();
+        var reviewScreen = document.getElementById('kycUnderReviewScreen');
+        if (reviewScreen) {
+          reviewScreen.style.setProperty('display','flex','important');
+          reviewScreen.style.flexDirection = 'column';
+        }
+      }, 450);
     } else {
       var msg = (result.data && result.data.message) || 'Submission failed. Please try again.';
       _kycHint('kycAdvHint', msg, 'error');
@@ -5005,22 +6184,34 @@ window.deleteMobAd = async function(offerId) {
 
 // ===== MOB-SCREEN NAV (profile / orders screens) =====
 (function initMobScreenNav() {
+  var profileFlowScreens = new Set(['mobProfileScreen', 'mobPaymentMethodsScreen', 'mobPaymentMethodTypesScreen', 'mobPaymentMethodFormScreen']);
   function showMobScreen(screenId) {
     var all = document.querySelectorAll('.mob-screen');
     all.forEach(function(s){ s.style.display = 'none'; });
     var el = document.getElementById(screenId);
     if (el) { el.style.setProperty('display','flex','important'); el.style.flexDirection = 'column'; }
-    if (screenId === 'mobProfileScreen' || screenId === 'mobOrdersScreen' || screenId === 'mobPostAdScreen') {
+    if (profileFlowScreens.has(screenId) || screenId === 'mobOrdersScreen' || screenId === 'mobPostAdScreen') {
       document.body.classList.add('mob-screen-open');
-      if (screenId === 'mobProfileScreen') {
+      if (profileFlowScreens.has(screenId)) {
+        document.body.dataset.mobileTab = 'profile';
+        setMobileNavActive('profile');
         document.body.classList.add('mob-profile-open');
-        history.replaceState(null,'','/p2p#profile');
+        if (screenId === 'mobProfileScreen') {
+          history.replaceState(null,'','/p2p#profile');
+        }
       } else if (screenId === 'mobOrdersScreen') {
+        document.body.dataset.mobileTab = 'orders';
+        setMobileNavActive('orders');
         history.replaceState(null,'','/p2p#orders');
-        _ordLoaded = false; // always fetch fresh when screen opens
-        // Show cache immediately (no delay); startOrdPolling kicks off background refresh
-        switchOrdMain('pending');
+        // Keep any already-rendered data visible; background refresh still runs.
+        if (!_applyOrdersFocusState()) {
+          switchOrdMain(_ordMainTab || 'pending');
+        }
         startOrdPolling();
+      } else if (screenId === 'mobPostAdScreen') {
+        document.body.dataset.mobileTab = 'post';
+        setMobileNavActive('post');
+        history.replaceState(null,'','/p2p#ads');
       }
     }
   }
@@ -5032,6 +6223,8 @@ window.deleteMobAd = async function(offerId) {
     var all = document.querySelectorAll('.mob-screen');
     all.forEach(function(s){ s.style.display = 'none'; });
     document.body.classList.remove('mob-screen-open', 'mob-profile-open');
+    document.body.dataset.mobileTab = 'p2p';
+    setMobileNavActive('p2p');
     ['kycBasicScreen','kycAdvanceScreen'].forEach(function(id){
       var el = document.getElementById(id);
       if(el) el.style.display = 'none';
@@ -5043,6 +6236,8 @@ window.deleteMobAd = async function(offerId) {
   (function restoreFromHash() {
     var hash = window.location.hash.replace('#','');
     if (hash === 'profile') { showMobScreen('mobProfileScreen'); setTimeout(function(){ loadProfilePanel && loadProfilePanel(); }, 300); }
+    else if (hash === 'profile-payment') { openPaymentMethodsScreen(); }
+    else if (hash === 'profile-payment-add') { openPaymentMethodPickerScreen(); }
     else if (hash === 'orders') { showMobScreen('mobOrdersScreen'); }
   })();
 
@@ -5924,18 +7119,132 @@ window.deleteMobAd = async function(offerId) {
 
 // ── Navigate to standalone order flow on Buy ──────────────────────
 (function() {
+  function orderOpenUrl(target) {
+    return String(target.getAttribute('data-url') || target.getAttribute('href') || '').trim();
+  }
+
+  function handleOrderOpen(target) {
+    if (!target) {
+      return;
+    }
+    var orderId = String(target.getAttribute('data-order-id') || '').trim();
+    var openChat = target.getAttribute('data-open-chat') === '1';
+    var url = orderOpenUrl(target);
+    if (!url) {
+      return;
+    }
+    _ordPrimeOrderOpen(orderId);
+    if (typeof prefetchOrderFlowAssets === 'function') {
+      prefetchOrderFlowAssets();
+    }
+    if (typeof window._p2pNavSafe === 'function') {
+      window._p2pNavSafe(url, openChat ? 'Opening chat...' : 'Opening order...');
+      return;
+    }
+    window.location.href = url;
+  }
+
+  document.addEventListener('click', function(event) {
+    var target = event.target && event.target.closest ? event.target.closest('.ord-open-link') : null;
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    handleOrderOpen(target);
+  });
+
+  document.addEventListener('touchstart', function(event) {
+    var target = event.target && event.target.closest ? event.target.closest('.ord-open-link') : null;
+    if (!target) {
+      return;
+    }
+    _ordPrimeOrderOpen(target.getAttribute('data-order-id'));
+    if (typeof prefetchOrderFlowAssets === 'function') {
+      prefetchOrderFlowAssets();
+    }
+  }, { passive: true });
+
+  document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    var target = event.target && event.target.closest ? event.target.closest('article.ord-open-link') : null;
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    handleOrderOpen(target);
+  });
+})();
+
+(function() {
   var _navLockTs = 0;
-  function _navSafe(url) {
+  var _navOverlay = null;
+
+  function hideNavOverlay(resetLock) {
+    if (_navOverlay) {
+      _navOverlay.style.opacity = '0';
+      _navOverlay.style.pointerEvents = 'none';
+    }
+    if (resetLock !== false) {
+      _navLockTs = 0;
+    }
+  }
+
+  function ensureNavOverlay() {
+    if (_navOverlay && document.body.contains(_navOverlay)) {
+      return _navOverlay;
+    }
+    var overlay = document.createElement('div');
+    overlay.id = 'p2pNavOverlayFast';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.16s ease;';
+    overlay.innerHTML =
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:12px;color:#fff;font-family:Manrope,sans-serif;">' +
+      '<div style="width:28px;height:28px;border:2px solid rgba(255,255,255,0.18);border-top-color:#8bf300;border-radius:50%;animation:ord-spin 0.7s linear infinite;"></div>' +
+      '<div data-nav-label style="font-size:14px;font-weight:700;color:rgba(255,255,255,0.88);">Opening order...</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    _navOverlay = overlay;
+    return overlay;
+  }
+
+  function _navSafe(url, label) {
     var now = Date.now();
     if (now - _navLockTs < 800) { console.log('[navSafe] blocked duplicate nav'); return; }
     _navLockTs = now;
-    // Hide body to prevent raw HTML flash during navigation
-    document.body.style.visibility = 'hidden';
-    window.location.href = url;
+    var overlay = ensureNavOverlay();
+    if (overlay) {
+      var labelEl = overlay.querySelector('[data-nav-label]');
+      if (labelEl) {
+        labelEl.textContent = label || 'Opening order...';
+      }
+      overlay.style.opacity = '1';
+      overlay.style.pointerEvents = 'auto';
+    }
+    prefetchOrderFlowAssets();
+    setTimeout(function() {
+      window.location.href = url;
+    }, 18);
   }
+
+  window.addEventListener('pageshow', function() {
+    hideNavOverlay(true);
+  });
+  window.addEventListener('pagehide', function() {
+    hideNavOverlay(true);
+  });
+  window.addEventListener('popstate', function() {
+    hideNavOverlay(true);
+  });
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      hideNavOverlay(true);
+    }
+  });
   window.fillDealModal = function(offer) {
     if (offer && offer.id) {
-      _navSafe('/p2p-order-flow.html?adId=' + encodeURIComponent(offer.id));
+      cacheSelectedOffer(offer);
+      _navSafe(_buildOrderFlowUrl({ adId: offer.id, source: 'ad' }), 'Opening buy flow...');
     }
   };
   window._p2pNavSafe = _navSafe; // expose for openOrder override below
@@ -5948,7 +7257,7 @@ window.deleteMobAd = async function(offerId) {
   var _origOpenOrder = openOrder;
   openOrder = function(order) {
     if (order && order.id) {
-      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(order.id));
+      _navSafe(_buildOrderFlowUrl({ orderId: order.id, source: 'orders' }), 'Opening order...');
       return;
     }
     _origOpenOrder.call(this, order);
@@ -5957,7 +7266,7 @@ window.deleteMobAd = async function(offerId) {
   var _origOpenOrderById = openOrderById;
   openOrderById = async function(orderId) {
     if (orderId) {
-      _navSafe('/p2p-order-flow.html?orderId=' + encodeURIComponent(orderId));
+      _navSafe(_buildOrderFlowUrl({ orderId: orderId, source: 'orders' }), 'Opening order...');
       return;
     }
     return _origOpenOrderById.call(this, orderId);

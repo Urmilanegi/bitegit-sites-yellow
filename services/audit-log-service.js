@@ -1,5 +1,16 @@
 const { buildAuditLogRecord } = require('../models/AuditLog');
 
+const AUDIT_LOG_TIMEOUT_MS = Math.max(
+  50,
+  Number.parseInt(String(process.env.AUDIT_LOG_TIMEOUT_MS || '150'), 10) || 150
+);
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function createAuditLogService(collections) {
   const { auditLogs } = collections;
 
@@ -15,7 +26,9 @@ function createAuditLogService(collections) {
 
   async function safeLog(entry = {}) {
     try {
-      await log(entry);
+      const writePromise = Promise.resolve().then(() => log(entry));
+      writePromise.catch(() => {});
+      await Promise.race([writePromise, delay(AUDIT_LOG_TIMEOUT_MS)]);
     } catch (error) {
       // Audit logging should not break request flow.
     }

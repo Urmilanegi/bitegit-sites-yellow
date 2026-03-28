@@ -107,22 +107,41 @@ function registerAuthRoutes(app, deps) {
   const REGISTER_EMAIL_VERIFY_PURPOSE = 'register_email_verify';
   const REGISTER_EMAIL_VERIFY_TTL_MS = 5 * 60 * 1000;
 
-  async function safeAuditLog(entry) {
+  function runDetached(task) {
+    Promise.resolve()
+      .then(task)
+      .catch(() => {});
+  }
+
+  function safeAuditLog(entry) {
     if (!auditLogService || typeof auditLogService.safeLog !== 'function') {
       return;
     }
-    await auditLogService.safeLog(entry);
+    runDetached(() => auditLogService.safeLog(entry));
   }
 
-  async function safeOnLoginSuccess(payload) {
+  function buildUserFromCredential(email, role = 'USER', credential = null) {
+    return buildP2PUserFromEmail(email, role, credential || {});
+  }
+
+  function safeOnLoginSuccess(payload) {
     if (typeof onLoginSuccess !== 'function') {
       return;
     }
-    try {
-      await onLoginSuccess(payload);
-    } catch (error) {
-      // User-center login history failure should not block auth flow.
+    runDetached(async () => {
+      try {
+        await onLoginSuccess(payload);
+      } catch (error) {
+        // User-center login history failure should not block auth flow.
+      }
+    });
+  }
+
+  async function verifyCredentialPassword(password, storedHash) {
+    if (typeof repos.verifyPasswordAsync === 'function') {
+      return repos.verifyPasswordAsync(password, storedHash);
     }
+    return repos.verifyPassword(password, storedHash);
   }
 
   async function persistRefreshToken(user, refreshToken, expiresAtMs) {
@@ -353,7 +372,7 @@ function registerAuthRoutes(app, deps) {
       }
 
       await safeAuditLog({
-        userId: buildP2PUserFromEmail(email, existing.role || 'USER').id,
+        userId: buildUserFromCredential(email, existing.role || 'USER', existing).id,
         action: 'forgot_password_otp_sent',
         ipAddress,
         metadata: {
@@ -457,7 +476,8 @@ function registerAuthRoutes(app, deps) {
         emailVerified: true
       });
 
-      const user = buildP2PUserFromEmail(email, 'USER');
+      const credential = await repos.getP2PCredential(email);
+      const user = buildUserFromCredential(email, 'USER', credential);
       await walletService.ensureWallet(user.id, { username: user.username });
 
       await safeAuditLog({
@@ -560,12 +580,12 @@ function registerAuthRoutes(app, deps) {
       }
 
       const role = tokenService.normalizeRole(credential?.role || 'USER');
-      const user = buildP2PUserFromEmail(email, role);
+      const user = buildUserFromCredential(email, role, credential);
       await walletService.ensureWallet(user.id, { username: user.username });
       const tokenPair = await createAndReturnTokens(res, user);
 
       if (typeof createLegacyP2PUserSession === 'function') {
-        const legacySession = await createLegacyP2PUserSession(email, role);
+        const legacySession = await createLegacyP2PUserSession(email, role, credential);
         setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
       }
 
@@ -641,7 +661,11 @@ function registerAuthRoutes(app, deps) {
 
     try {
       const credential = await repos.getP2PCredential(email);
-      if (!credential || !repos.verifyPassword(password, credential.passwordHash)) {
+      const passwordMatches =
+        credential && credential.passwordHash
+          ? await verifyCredentialPassword(password, credential.passwordHash)
+          : false;
+      if (!credential || !passwordMatches) {
         req._recordFailedAttempt?.();
         await safeAuditLog({
           userId: '',
@@ -653,7 +677,7 @@ function registerAuthRoutes(app, deps) {
       }
 
       const role = tokenService.normalizeRole(credential.role || 'USER');
-      const user = buildP2PUserFromEmail(email, role);
+      const user = buildUserFromCredential(email, role, credential);
       const previousLoginIp = String(credential.lastLoginIp || '').trim();
       const previousUserAgent = String(credential.lastUserAgent || '').trim();
       const hasLoginHistory = Boolean(previousLoginIp || previousUserAgent);
@@ -664,7 +688,7 @@ function registerAuthRoutes(app, deps) {
       const [tokenPair, legacySession] = await Promise.all([
         createAndReturnTokens(res, user),
         typeof createLegacyP2PUserSession === 'function'
-          ? createLegacyP2PUserSession(email, role)
+          ? createLegacyP2PUserSession(email, role, credential)
           : Promise.resolve(null)
       ]);
 
@@ -794,13 +818,14 @@ function registerAuthRoutes(app, deps) {
         role: 'USER'
       });
 
-      const user = buildP2PUserFromEmail(email, 'USER');
+      const credential = await repos.getP2PCredential(email);
+      const user = buildUserFromCredential(email, 'USER', credential);
       await walletService.ensureWallet(user.id, { username: user.username });
 
       const tokenPair = await createAndReturnTokens(res, user);
 
       if (typeof createLegacyP2PUserSession === 'function') {
-        const legacySession = await createLegacyP2PUserSession(email, 'USER');
+        const legacySession = await createLegacyP2PUserSession(email, 'USER', credential);
         setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
       }
 
@@ -867,7 +892,7 @@ function registerAuthRoutes(app, deps) {
       const otpResult = await verifyOtp(email, otpCode, PASSWORD_RESET_OTP_PURPOSE);
       if (!otpResult.ok) {
         await safeAuditLog({
-          userId: buildP2PUserFromEmail(email, credential.role || 'USER').id,
+          userId: buildUserFromCredential(email, credential.role || 'USER', credential).id,
           action: 'password_reset_failed',
           ipAddress,
           metadata: { reason: 'otp_verification_failed', email }
@@ -876,10 +901,10 @@ function registerAuthRoutes(app, deps) {
       }
 
       await repos.updateP2PCredentialPassword(email, repos.hashPassword(nextPassword));
-      await repos.deleteRefreshTokensByUserId(buildP2PUserFromEmail(email, credential.role || 'USER').id);
+      await repos.deleteRefreshTokensByUserId(buildUserFromCredential(email, credential.role || 'USER', credential).id);
 
       await safeAuditLog({
-        userId: buildP2PUserFromEmail(email, credential.role || 'USER').id,
+        userId: buildUserFromCredential(email, credential.role || 'USER', credential).id,
         action: 'password_reset_success',
         ipAddress,
         metadata: { email }
