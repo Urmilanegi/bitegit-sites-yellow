@@ -803,7 +803,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   color: #cfd9eb;
   font-size: 0.8rem;
   white-space: nowrap;
-  animation: none;
+  animation: cf-announcement-scroll 18s linear infinite;
 }
 
 .cf-announcement-track span {
@@ -1091,7 +1091,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   align-items: center;
   gap: 0.65rem;
   white-space: nowrap;
-  animation: none;
+  animation: cf-exchange-scroll 22s linear infinite;
 }
 
 .cf-exchange-ticker-item {
@@ -1127,7 +1127,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 }
 
 .cf-exchange-ticker-bar:hover .cf-exchange-ticker-track {
-  animation-play-state: paused; /* no-op: animation already none */
+  animation-play-state: paused;
 }
 
 .social-pill {
@@ -1619,11 +1619,11 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 }
 
 .cf-trust-row-fwd .cf-trust-track {
-  animation: none;
+  animation: trustFwd 28s linear infinite;
 }
 
 .cf-trust-row-rev .cf-trust-track {
-  animation: none;
+  animation: trustRev 28s linear infinite;
 }
 
 @keyframes trustFwd {
@@ -3771,7 +3771,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   align-items: center;
   gap: 1.2rem;
   width: max-content;
-  animation: none;
+  animation: payMarquee 20s linear infinite;
 }
 
 .cf-pay-item {
@@ -4268,10 +4268,10 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   width: max-content;
 }
 .coin-track-ltr {
-  animation: none;
+  animation: coinLTR 24s linear infinite;
 }
 .coin-track-rtl {
-  animation: none;
+  animation: coinRTL 24s linear infinite;
 }
 @keyframes coinLTR {
   0%   { transform: translateX(0); }
