@@ -2768,7 +2768,7 @@ var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
 var _orderFlowWarmStartedAt = 0;
-var _ORDER_FLOW_VERSION = '20260329a';
+var _ORDER_FLOW_VERSION = '20260329b';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
 
 function _consumeOrdersFocusState() {

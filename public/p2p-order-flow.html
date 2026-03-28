@@ -1140,12 +1140,13 @@
   var _appealDraft = { images: [] };
   var _orderSseConnected = false;
   var _chatWarmPromise = null;
-  var ORDER_FLOW_PAGE_VERSION = '20260329a';
+  var ORDER_FLOW_PAGE_VERSION = '20260329b';
   var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
   var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
   var ORDERS_FOCUS_STATE_KEY = 'p2p_orders_focus_state';
   var ORDERS_CACHE_KEY = 'p2p_orders_cache';
   var NOTICE_DISMISS_KEY_PREFIX = 'p2p_notice_dismissed_';
+  var _bootFailSafeTimer = null;
 
   // ── Global click/navigation guards ─────────────────────────────
   var isProcessing = false;
@@ -1473,14 +1474,32 @@
   function hideLoading() {
     var el = document.getElementById('loadingOverlay');
     if (!el) return;
+    if (_bootFailSafeTimer) {
+      clearTimeout(_bootFailSafeTimer);
+      _bootFailSafeTimer = null;
+    }
     el.style.opacity = '0';
     setTimeout(function() { el.style.display = 'none'; }, 150);
+  }
+
+  function armBootFailSafe() {
+    if (_bootFailSafeTimer) {
+      clearTimeout(_bootFailSafeTimer);
+    }
+    _bootFailSafeTimer = setTimeout(function() {
+      hideLoading();
+      if (!currentOrder) {
+        showScreen('screen-buy');
+      }
+      showToast('Loading took too long. Please try again.');
+    }, 9000);
   }
 
   document.addEventListener('DOMContentLoaded', function() {
     document.body.style.visibility = 'visible';
     buildReasonList();
     wireEvents();
+    armBootFailSafe();
     var params = new URLSearchParams(window.location.search);
     var orderId = params.get('orderId');
     var openChat = params.get('openChat') === '1';
@@ -1787,8 +1806,11 @@
         hideLoading();
         _warmChatMessages(orderId);
         // Verify & refresh from API in background (silent)
-      fetch('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' })
-          .then(function(r){ return r.ok ? r.json() : null; })
+      fetchJsonWithTimeout('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' }, 7000)
+          .then(function(result){
+            if (!result || !result.response || !result.response.ok) return null;
+            return result.payload || null;
+          })
           .then(function(data){
             if (!data) return;
             var fresh = data.order || data;
@@ -1808,7 +1830,8 @@
     } catch(e) {}
 
     try {
-      var res = await fetch('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' });
+      var orderResult = await fetchJsonWithTimeout('/api/p2p/orders/' + encodeURIComponent(orderId), { credentials: 'include' }, 8000);
+      var res = orderResult.response;
       if (!res.ok) {
         hideLoading();
         if (res.status === 401) {
@@ -1820,7 +1843,7 @@
         loadAd();
         return;
       }
-      var data = await res.json();
+      var data = orderResult.payload || {};
       var order = data.order || data;
       try { localStorage.setItem('p2p_order_' + orderId, JSON.stringify(order)); } catch(e) {}
       _cacheOrderMessagesFromOrder(order);
@@ -2112,9 +2135,10 @@
   // ============================================================
   async function checkAuth() {
     try {
-      var res = await fetch('/api/p2p/me', { credentials: 'include' });
+      var authResult = await fetchJsonWithTimeout('/api/p2p/me', { credentials: 'include' }, 6000);
+      var res = authResult.response;
       if (res.ok) {
-        var data = await res.json();
+        var data = authResult.payload || {};
         if (data.loggedIn && data.user) {
           currentUser = normalizeCurrentUserPayload(data.user);
           return;
@@ -2191,9 +2215,10 @@
     }
     try {
       var url = adId ? ('/api/p2p/ads/' + encodeURIComponent(adId)) : '/api/p2p/ads?side=sell&asset=USDT';
-      var res = await fetch(url, { credentials: 'include' });
+      var adResult = await fetchJsonWithTimeout(url, { credentials: 'include' }, 8000);
+      var res = adResult.response;
       if (!res.ok) return;
-      var data = await res.json();
+      var data = adResult.payload || {};
       if (data.ad) {
         currentAd = data.ad;
       } else if (data.ads && data.ads.length > 0) {
