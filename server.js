@@ -2113,10 +2113,9 @@ app.get('/api/p2p/me', async (req, res) => {
     user: {
       id: user.id,
       userId: user.userId,
-      username: String(credential?.username || user.username || '').trim() || user.username,
+      username: String(cred?.username || user.username || '').trim() || user.username,
       email: user.email,
-      avatar: String(credential?.avatar || '').trim(),
-      createdAt: credential?.createdAt || null,
+      avatar: String(cred?.avatar || '').trim(),
       role: tokenService.normalizeRole(user.role || 'USER'),
       kyc: kycProfile,
       createdAt: cred && cred.createdAt ? cred.createdAt : null,
