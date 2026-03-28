@@ -1296,6 +1296,12 @@ function normalizeOrderState(order) {
     assetAmount: order.assetAmount || order.cryptoAmount,
     escrowAmount: order.escrowAmount,
     isParticipant: true,
+    sellerPaymentDetails: order.sellerPaymentDetails || null,
+    notes: order.notes || null,
+    paymentProof: order.paymentProof || null,
+    disputeReason: order.disputeReason || null,
+    disputedAt: order.disputedAt ? new Date(order.disputedAt).toISOString() : null,
+    disputedBy: order.disputedBy || null,
     createdAt: new Date(order.createdAt).toISOString(),
     expiresAt: new Date(order.expiresAt).toISOString(),
     updatedAt: new Date(order.updatedAt).toISOString(),
@@ -1685,7 +1691,10 @@ app.get('/api/p2p/me', async (req, res) => {
     return res.json({ loggedIn: false, user: null });
   }
 
-  const kycProfile = await getP2PKycProfileByEmail(user.email);
+  const [kycProfile, cred] = await Promise.all([
+    getP2PKycProfileByEmail(user.email),
+    repos ? repos.getP2PCredentialByUserId(user.id).catch(() => null) : null
+  ]);
 
   return res.json({
     loggedIn: true,
@@ -1694,7 +1703,9 @@ app.get('/api/p2p/me', async (req, res) => {
       username: user.username,
       email: user.email,
       role: tokenService.normalizeRole(user.role || 'USER'),
-      kyc: kycProfile
+      kyc: kycProfile,
+      createdAt: cred && cred.createdAt ? cred.createdAt : null,
+      emailVerified: cred ? Boolean(cred.emailVerified) : false
     }
   });
 });
@@ -2248,6 +2259,44 @@ app.post('/api/withdrawals/:requestId/cancel', requiresP2PUser, async (req, res)
   }
 });
 
+// ── Withdrawal OTP ────────────────────────────────────────────────────────────
+app.post('/api/withdrawals/send-otp', requiresP2PUser, async (req, res) => {
+  const amount = req.body.amount;
+  const currency = String(req.body.currency || 'USDT').toUpperCase();
+  const address = String(req.body.address || '').trim();
+  if (!amount || Number(amount) <= 0) return res.status(400).json({ message: 'Amount is required.' });
+  if (!address) return res.status(400).json({ message: 'Withdrawal address is required.' });
+  try {
+    const cred = await repos.getP2PCredentialByUserId(req.p2pUser.id);
+    if (!cred) return res.status(403).json({ message: 'P2P profile not found.' });
+    const email = cred.email || req.p2pUser.email;
+    if (!email) return res.status(400).json({ message: 'No email on account.' });
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await repos.storeEmailOtp(req.p2pUser.id, otp, expiresAt);
+    await p2pEmailService.sendWithdrawalOtp(email, otp, amount, currency, address);
+    return res.json({ sent: true });
+  } catch (err) {
+    console.error('[withdrawal-otp] error:', err);
+    return res.status(500).json({ message: 'Failed to send OTP.' });
+  }
+});
+
+app.post('/api/withdrawals/verify-otp', requiresP2PUser, async (req, res) => {
+  const otp = String(req.body.otp || '').trim();
+  if (otp.length !== 6) return res.status(400).json({ message: 'Invalid OTP.' });
+  try {
+    const result = await repos.verifyAndConsumeEmailOtp(req.p2pUser.id, otp);
+    if (!result.ok) {
+      const msgs = { EXPIRED: 'OTP expired. Please request a new one.', INVALID: 'Incorrect OTP.', NOT_FOUND: 'No OTP found. Please request a new one.' };
+      return res.status(400).json({ message: msgs[result.reason] || 'OTP verification failed.' });
+    }
+    return res.json({ verified: true });
+  } catch (err) {
+    return res.status(500).json({ message: 'Failed to verify OTP.' });
+  }
+});
+
 app.get('/api/p2p/exchange-ticker', async (req, res) => {
   const requestedSymbols = String(req.query.symbols || '')
     .split(',')
@@ -2687,7 +2736,8 @@ app.get('/api/p2p/ads/:adId', async (req, res) => {
 // Convenience: mark order paid
 app.post('/api/p2p/orders/:orderId/mark-paid', requiresP2PUser, async (req, res) => {
   try {
-    const updatedOrder = await walletService.markOrderPaid(req.params.orderId, req.p2pUser);
+    const proofBase64 = req.body && req.body.proofBase64 ? String(req.body.proofBase64) : null;
+    const updatedOrder = await walletService.markOrderPaid(req.params.orderId, req.p2pUser, { proofBase64 });
     const normalizedOrder = normalizeOrderState(updatedOrder);
     broadcastOrderEvent(updatedOrder.id, 'order_update', { order: normalizedOrder });
     // Push real-time status update to both buyer and seller (try both field names)
@@ -3030,7 +3080,8 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
     } else if (action === 'release') {
       updatedOrder = await walletService.releaseOrder(req.params.orderId, req.p2pUser);
     } else if (action === 'dispute') {
-      updatedOrder = await walletService.setOrderDisputed(req.params.orderId, req.p2pUser);
+      const disputeReason = req.body.reason ? String(req.body.reason).slice(0, 500) : '';
+      updatedOrder = await walletService.setOrderDisputed(req.params.orderId, req.p2pUser, { reason: disputeReason });
     } else {
       return res.status(400).json({ message: 'Invalid action.' });
     }
@@ -3166,6 +3217,65 @@ app.post('/api/p2p/orders/:orderId/messages', requiresP2PUser, async (req, res) 
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error while sending message.' });
+  }
+});
+
+// ── Rate counterparty after order completes ──────────────────────────────────
+app.post('/api/p2p/orders/:orderId/rate', requiresP2PUser, async (req, res) => {
+  const stars = parseInt(req.body.stars, 10);
+  const comment = String(req.body.comment || '').trim().slice(0, 300);
+  if (!stars || stars < 1 || stars > 5) {
+    return res.status(400).json({ message: 'stars must be 1–5.' });
+  }
+  try {
+    const order = await repos.getP2POrderById(req.params.orderId);
+    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    if (!isParticipant(order, req.p2pUser.id)) {
+      return res.status(403).json({ message: 'Only order participants can rate.' });
+    }
+    if (!['RELEASED', 'COMPLETED'].includes(order.status)) {
+      return res.status(400).json({ message: 'Can only rate completed orders.' });
+    }
+    const alreadyRated = await repos.hasRatedOrder(req.p2pUser.id, order.id);
+    if (alreadyRated) return res.status(409).json({ message: 'You have already rated this order.' });
+    const toUserId = req.p2pUser.id === (order.buyerUserId || order.buyerId)
+      ? (order.sellerUserId || order.sellerId)
+      : (order.buyerUserId || order.buyerId);
+    await repos.submitRating(req.p2pUser.id, toUserId, order.id, stars, comment);
+    return res.json({ success: true, message: 'Rating submitted.' });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error while submitting rating.' });
+  }
+});
+
+// ── Email verification OTP ────────────────────────────────────────────────────
+app.post('/api/p2p/verify-email/send', requiresP2PUser, async (req, res) => {
+  try {
+    const cred = await repos.getP2PCredentialByUserId(req.p2pUser.id);
+    if (!cred) return res.status(404).json({ message: 'User not found.' });
+    if (cred.emailVerified) return res.json({ success: true, message: 'Email already verified.' });
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
+    await repos.storeEmailOtp(req.p2pUser.id, otp, expiresAt);
+    await p2pEmailService.sendEmailVerificationOtp(req.p2pUser.email, otp);
+    return res.json({ success: true, message: 'OTP sent to your email.' });
+  } catch (err) {
+    return res.status(500).json({ message: 'Could not send OTP. Try again.' });
+  }
+});
+
+app.post('/api/p2p/verify-email/confirm', requiresP2PUser, async (req, res) => {
+  const otp = String(req.body.otp || '').trim();
+  if (!otp || otp.length !== 6) return res.status(400).json({ message: 'Enter the 6-digit OTP.' });
+  try {
+    const result = await repos.verifyAndConsumeEmailOtp(req.p2pUser.id, otp);
+    if (!result.ok) {
+      const msgs = { no_otp: 'No OTP found. Request a new one.', expired: 'OTP expired. Request a new one.', wrong_otp: 'Incorrect OTP.', user_not_found: 'User not found.' };
+      return res.status(400).json({ message: msgs[result.reason] || 'Verification failed.' });
+    }
+    return res.json({ success: true, message: 'Email verified successfully.' });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error during verification.' });
   }
 });
 

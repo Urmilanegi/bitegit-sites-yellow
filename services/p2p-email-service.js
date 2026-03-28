@@ -102,12 +102,38 @@ function createP2PEmailService() {
     );
   }
 
+  async function sendWithdrawalOtp(toEmail, otp, amount, currency, address) {
+    const T2 = require('./email-templates');
+    const html = T2.withdrawalVerificationCode
+      ? T2.withdrawalVerificationCode({ toEmail, code: otp, withdrawalTime: new Date().toLocaleString('en-IN'), amount, asset: currency || 'USDT', address: address || '' })
+      : `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0b0f17;color:#fff;padding:32px;border-radius:12px;">
+          <h2 style="color:#00d4d4;margin-top:0;">Withdrawal Confirmation</h2>
+          <p style="color:rgba(255,255,255,0.7);">Your withdrawal OTP for <strong>${amount} ${currency || 'USDT'}</strong>:</p>
+          <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#fff;padding:20px;background:#111;border-radius:8px;text-align:center;margin:16px 0;">${otp}</div>
+          <p style="color:rgba(255,255,255,0.4);font-size:12px;">To: ${address}<br>Valid for 10 minutes. Never share this code.</p>
+        </div>`;
+    await trySend(toEmail, T.subject(`Withdrawal OTP: ${amount} ${currency || 'USDT'}`), html,
+      `Your Bitegit withdrawal OTP: ${otp}. Amount: ${amount} ${currency || 'USDT'}. Valid 10 minutes.`);
+  }
+
+  async function sendEmailVerificationOtp(toEmail, otp) {
+    const html = `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0b0f17;color:#fff;padding:32px;border-radius:12px;">
+      <h2 style="color:#00d4d4;margin-top:0;">Email Verification</h2>
+      <p style="color:rgba(255,255,255,0.7);">Your email verification code for Bitegit P2P:</p>
+      <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#fff;padding:20px;background:#111;border-radius:8px;text-align:center;margin:16px 0;">${otp}</div>
+      <p style="color:rgba(255,255,255,0.4);font-size:13px;">This code expires in 10 minutes. Do not share it with anyone.</p>
+    </div>`;
+    await trySend(toEmail, T.subject('Your Bitegit email verification code'), html, `Your Bitegit verification code: ${otp}. Valid for 10 minutes.`);
+  }
+
   return {
     sendOrderCreated,
     sendOrderPaid,
     sendOrderReleased,
     sendOrderCancelled,
-    sendDisputeRaised
+    sendDisputeRaised,
+    sendEmailVerificationOtp,
+    sendWithdrawalOtp
   };
 }
 

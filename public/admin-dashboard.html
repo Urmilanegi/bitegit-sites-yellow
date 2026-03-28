@@ -336,12 +336,23 @@
 
           <!-- P2P Control Panel -->
           <section class="admin-panel hidden" data-panel="p2p">
+            <!-- Disputes — full width, prominent -->
+            <article class="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 shadow-panel mb-4">
+              <div class="mb-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-amber-400 text-lg">⚖️</span>
+                  <h3 class="text-sm font-semibold uppercase tracking-wide text-amber-300">Active Disputes</h3>
+                  <span id="disputeCount" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30"></span>
+                </div>
+                <button id="p2pReloadBtn" class="btn-secondary">Reload</button>
+              </div>
+              <div id="p2pDisputesList" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"></div>
+            </article>
+
+            <!-- Ads + Settings -->
             <div class="grid gap-4 xl:grid-cols-[2fr_1fr]">
               <article class="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-panel">
-                <div class="mb-3 flex items-center justify-between">
-                  <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-300">P2P Ads</h3>
-                  <button id="p2pReloadBtn" class="btn-secondary">Reload</button>
-                </div>
+                <h3 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">P2P Ads</h3>
                 <div id="p2pAdsList" class="space-y-2"></div>
               </article>
 
@@ -354,9 +365,6 @@
                   <input name="autoExpiryMinutes" type="number" step="1" class="input-dark" placeholder="Auto Expiry (min)" required />
                   <button type="submit" class="btn-primary w-full">Save P2P Settings</button>
                 </form>
-
-                <h4 class="mt-6 mb-2 text-sm font-semibold text-slate-300">Open Disputes</h4>
-                <div id="p2pDisputesList" class="space-y-2"></div>
               </article>
             </div>
           </section>

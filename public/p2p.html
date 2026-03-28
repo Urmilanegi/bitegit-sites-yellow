@@ -270,6 +270,7 @@
             <span id="profileIdentityTag" class="p2p-identity-tag">Identity Not Submitted</span>
           </div>
           <button id="profileDepositBtn" type="button" class="p2p-deposit-btn">Deposit</button>
+          <button type="button" class="p2p-deposit-btn" onclick="openWithdrawModal()" style="background:#1a1a2e;border:1px solid rgba(0,212,212,0.3);color:#00d4d4;margin-left:8px;">Withdraw</button>
         </article>
         <div class="p2p-metrics-grid">
           <article><span>Completed Orders (30D)</span><strong id="profileCompletedOrders30d">0</strong></article>
@@ -365,9 +366,14 @@
           <h3 id="profileName" class="mob-profile-name">Guest User</h3>
           <p class="mob-profile-since">Signup Time: 2024/01/01</p>
           <div class="mob-verify-row">
-            <span class="mob-verify-chip">✓ Email</span>
+            <span class="mob-verify-chip" id="profileEmailChip" onclick="window.openEmailVerifyModal && window.openEmailVerifyModal()" style="cursor:pointer;">✓ Email</span>
             <span class="mob-verify-chip">✓ Phone</span>
             <span class="mob-verify-chip" id="profileIdentityTag">✓ Identity</span>
+          </div>
+          <div id="profileRatingRow" style="margin-top:6px;font-size:13px;color:rgba(255,255,255,0.5);display:none;">
+            <span id="profileAvgStars" style="color:#f0b90b;font-size:15px;">★</span>
+            <span id="profileAvgStarsVal">—</span>
+            <span id="profileRatingCount" style="color:rgba(255,255,255,0.35);font-size:12px;margin-left:4px;"></span>
           </div>
         </div>
       </div>
@@ -393,6 +399,7 @@
           <span class="mob-arrow">›</span>
         </li>
         <li data-open-payment="1" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>💳</span> Payment Management <span class="mob-arrow">›</span></li>
+        <li onclick="openWithdrawModal()" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>📤</span> Withdraw Crypto <span class="mob-arrow">›</span></li>
         <li><span>⚙️</span> Settings <span class="mob-arrow">›</span></li>
         <li><span>👤</span> Follow/Block <span class="mob-arrow">›</span></li>
         <li><span>🔑</span> Ad Code <span class="mob-arrow">›</span></li>
@@ -526,6 +533,101 @@
         </article>
       </div>
     </section>
+
+    <!-- Email Verification Modal -->
+    <div id="emailVerifyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1200;align-items:flex-end;justify-content:center;">
+      <div style="background:#0f0f0f;border-radius:20px 20px 0 0;padding:28px 20px 32px;width:100%;max-width:430px;box-sizing:border-box;border-top:1px solid #1e1e1e;">
+        <div style="width:40px;height:4px;background:#2a2a2a;border-radius:99px;margin:0 auto 20px;"></div>
+        <h3 style="margin:0 0 6px;font-size:18px;font-weight:700;">Verify Your Email</h3>
+        <p id="emailVerifyDesc" style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px;">We'll send a 6-digit code to your registered email.</p>
+        <div id="emailOtpInputWrap" style="display:none;margin-bottom:16px;">
+          <input id="emailOtpInput" type="number" inputmode="numeric" placeholder="Enter 6-digit code" maxlength="6"
+            style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:14px 16px;font-size:18px;letter-spacing:6px;text-align:center;box-sizing:border-box;outline:none;" />
+          <p id="emailOtpError" style="font-size:12px;color:#ef4444;margin-top:6px;display:none;"></p>
+        </div>
+        <button id="emailVerifySendBtn" onclick="sendEmailOtp()" style="width:100%;padding:14px;background:#00d4d4;color:#000;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;">Send Code</button>
+        <button id="emailVerifyConfirmBtn" onclick="confirmEmailOtp()" style="display:none;width:100%;padding:14px;background:#00d4d4;color:#000;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;">Verify</button>
+        <button onclick="closeEmailVerifyModal()" style="width:100%;padding:12px;background:transparent;border:none;color:rgba(255,255,255,0.4);font-size:14px;cursor:pointer;">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Withdrawal Modal -->
+    <div id="withdrawModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:1200;align-items:flex-end;justify-content:center;">
+      <div style="background:#0f0f0f;border-radius:20px 20px 0 0;padding:24px 20px 32px;width:100%;max-width:460px;box-sizing:border-box;border-top:1px solid #1e1e1e;max-height:92vh;overflow-y:auto;">
+        <div style="width:40px;height:4px;background:#2a2a2a;border-radius:99px;margin:0 auto 20px;"></div>
+        <!-- Step 1: Form -->
+        <div id="withdrawFormStep">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <h3 style="margin:0;font-size:18px;font-weight:700;">Withdraw Crypto</h3>
+            <button onclick="closeWithdrawModal()" style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:22px;cursor:pointer;line-height:1;">&#215;</button>
+          </div>
+          <!-- Balance display -->
+          <div style="background:#111;border-radius:12px;padding:14px 16px;margin-bottom:18px;border:1px solid #1a1a1a;">
+            <span style="font-size:12px;color:rgba(255,255,255,0.4);">Available Balance</span>
+            <div style="font-size:20px;font-weight:700;color:#00d4d4;margin-top:4px;"><span id="withdrawAvailBal">0</span> USDT</div>
+          </div>
+          <label style="display:block;margin-bottom:14px;">
+            <span style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Asset</span>
+            <select id="withdrawAsset" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:12px 14px;font-size:15px;outline:none;box-sizing:border-box;">
+              <option value="USDT">USDT</option>
+              <option value="BTC">BTC</option>
+              <option value="ETH">ETH</option>
+            </select>
+          </label>
+          <label style="display:block;margin-bottom:14px;">
+            <span style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Network</span>
+            <select id="withdrawNetwork" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:12px 14px;font-size:15px;outline:none;box-sizing:border-box;">
+              <option value="TRC20">TRC20</option>
+              <option value="ERC20">ERC20</option>
+              <option value="BEP20">BEP20</option>
+            </select>
+          </label>
+          <label style="display:block;margin-bottom:14px;">
+            <span style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Withdrawal Address</span>
+            <input id="withdrawAddress" type="text" placeholder="Enter wallet address" autocomplete="off"
+              style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;outline:none;box-sizing:border-box;" />
+          </label>
+          <label style="display:block;margin-bottom:6px;">
+            <span style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Amount</span>
+            <div style="position:relative;">
+              <input id="withdrawAmount" type="number" inputmode="decimal" placeholder="0.00" min="0"
+                style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:12px 60px 12px 14px;font-size:16px;font-weight:600;outline:none;box-sizing:border-box;" />
+              <button onclick="withdrawSetMax()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#00d4d4;font-size:12px;font-weight:700;cursor:pointer;">MAX</button>
+            </div>
+          </label>
+          <p id="withdrawFormErr" style="font-size:12px;color:#ef4444;margin:6px 0 12px;display:none;"></p>
+          <button onclick="withdrawSendOtp()" style="width:100%;padding:14px;background:#00d4d4;color:#000;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;">Send OTP &amp; Confirm</button>
+        </div>
+        <!-- Step 2: OTP -->
+        <div id="withdrawOtpStep" style="display:none;">
+          <div style="display:flex;align-items:center;margin-bottom:20px;gap:10px;">
+            <button onclick="withdrawBackToForm()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:0;line-height:1;">&#8592;</button>
+            <h3 style="margin:0;font-size:18px;font-weight:700;">Enter OTP</h3>
+          </div>
+          <p id="withdrawOtpDesc" style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px;">A 6-digit code was sent to your registered email. Enter it below to confirm withdrawal.</p>
+          <input id="withdrawOtpInput" type="number" inputmode="numeric" placeholder="000000" maxlength="6"
+            style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:10px;padding:14px 16px;font-size:24px;letter-spacing:8px;text-align:center;box-sizing:border-box;outline:none;margin-bottom:6px;" />
+          <p id="withdrawOtpErr" style="font-size:12px;color:#ef4444;margin:0 0 14px;display:none;"></p>
+          <button onclick="withdrawConfirmOtp()" style="width:100%;padding:14px;background:#00d4d4;color:#000;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;">Confirm Withdrawal</button>
+          <button onclick="withdrawSendOtp(true)" style="width:100%;padding:12px;background:transparent;border:1px solid #2a2a2a;color:rgba(255,255,255,0.5);border-radius:10px;font-size:13px;cursor:pointer;">Resend OTP</button>
+        </div>
+        <!-- Step 3: Success -->
+        <div id="withdrawSuccessStep" style="display:none;text-align:center;padding:24px 0;">
+          <div style="font-size:52px;margin-bottom:16px;">&#10003;</div>
+          <h3 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#00d4d4;">Withdrawal Submitted</h3>
+          <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 24px;">Your withdrawal request is pending admin approval. You'll receive an email once processed.</p>
+          <button onclick="closeWithdrawModal()" style="padding:13px 40px;background:#00d4d4;color:#000;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">Done</button>
+        </div>
+        <!-- Withdrawal History -->
+        <div id="withdrawHistoryWrap" style="margin-top:24px;border-top:1px solid #1a1a1a;padding-top:18px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <span style="font-size:13px;font-weight:600;">Recent Withdrawals</span>
+            <button onclick="loadWithdrawHistory()" style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:12px;cursor:pointer;">Refresh</button>
+          </div>
+          <div id="withdrawHistoryList" style="font-size:13px;color:rgba(255,255,255,0.4);text-align:center;padding:12px 0;">Loading...</div>
+        </div>
+      </div>
+    </div>
 
     <!-- KYC modal -->
     <section id="kycModal" class="p2p-kyc-modal hidden" aria-hidden="true">

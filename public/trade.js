@@ -1078,14 +1078,14 @@ function ensureLightweightChart() {
   });
 
   candleSeries = lightweightChart.addCandlestickSeries({
-    upColor: '#00d084',
-    downColor: '#ff4d6d',
-    borderUpColor: '#00d084',
-    borderDownColor: '#ff4d6d',
-    wickUpColor: '#00d084',
-    wickDownColor: '#ff4d6d',
+    upColor: '#2dc08e',
+    downColor: '#f6465d',
+    borderUpColor: '#2dc08e',
+    borderDownColor: '#f6465d',
+    wickUpColor: '#2dc08e',
+    wickDownColor: '#f6465d',
     priceLineVisible: true,
-    priceLineColor: '#9cff00',
+    priceLineColor: '#2dc08e',
     lastValueVisible: true
   });
 

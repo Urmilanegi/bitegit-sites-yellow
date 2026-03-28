@@ -93,7 +93,13 @@ function buildP2POrderDocument(input = {}) {
     createdAt: now,
     updatedAt: now,
     participants: Array.isArray(input.participants) ? input.participants : [],
-    messages: Array.isArray(input.messages) ? input.messages : []
+    messages: Array.isArray(input.messages) ? input.messages : [],
+    sellerPaymentDetails: input.sellerPaymentDetails || null,
+    notes: input.notes || null,
+    paymentProof: input.paymentProof || null,
+    disputeReason: input.disputeReason || null,
+    disputedAt: input.disputedAt || null,
+    disputedBy: input.disputedBy || null
   };
 }
 

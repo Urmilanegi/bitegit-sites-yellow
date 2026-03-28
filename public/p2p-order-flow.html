@@ -698,6 +698,20 @@
           <span id="chatCompletedAmount" style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:1px;"></span>
         </div>
       </div>
+      <!-- DISPUTED: shown for both buyer and seller when dispute is raised -->
+      <div id="chatDisputedBar" style="display:none;padding:10px 0 4px;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:22px;height:22px;border-radius:50%;background:#ef4444;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;color:#fff;font-weight:800;">!</div>
+          <div style="display:flex;flex-direction:column;">
+            <span style="font-size:14px;font-weight:700;color:#ef4444;">Dispute Raised</span>
+            <span style="font-size:12px;color:rgba(255,255,255,0.4);">Admin is reviewing this order</span>
+          </div>
+        </div>
+      </div>
+      <!-- DISPUTE button: shown in PAYMENT_SENT state for both parties -->
+      <div id="chatDisputeRow" style="display:none;padding:4px 0 6px;justify-content:flex-end;">
+        <button id="chatDisputeBtn" onclick="openDisputeModal()" style="background:transparent;border:1px solid #ef4444;color:#ef4444;border-radius:6px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;">Raise Dispute</button>
+      </div>
     </div>
 
     <div class="chat-messages" id="chatMessages" style="flex:1;overflow-y:auto;min-height:0;"></div>
@@ -889,7 +903,47 @@
       </div>
       <div class="paid-option" id="paid-opt-1">I have transferred <span id="paidOptAmount">1,000</span> INR to the above account.</div>
       <div class="paid-option" id="paid-opt-2">I have not made the payment yet.</div>
-      <button class="confirm-btn" id="paid-confirm-btn">Confirm</button>
+
+      <!-- Payment proof upload (shown only when option 1 selected) -->
+      <div id="proof-upload-section" style="display:none;margin-top:12px;">
+        <p style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:8px;">Upload payment screenshot (optional but recommended)</p>
+        <div id="proof-preview-wrap" style="display:none;margin-bottom:8px;position:relative;">
+          <img id="proof-preview-img" src="" alt="proof" style="width:100%;max-height:160px;object-fit:contain;border-radius:8px;border:1px solid #2a2a2a;" />
+          <button onclick="clearProofImage()" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.7);color:#fff;border:none;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:13px;line-height:24px;text-align:center;">✕</button>
+        </div>
+        <button id="proof-upload-btn" onclick="document.getElementById('proofFileInput').click()" style="width:100%;padding:10px;background:#111;border:1px dashed #333;border-radius:8px;color:rgba(255,255,255,0.6);font-size:13px;cursor:pointer;">
+          + Add Screenshot
+        </button>
+        <input type="file" id="proofFileInput" accept="image/*" style="display:none;" onchange="handleProofFileSelect(event)" />
+      </div>
+
+<button class="confirm-btn" id="paid-confirm-btn">Confirm</button>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- OVERLAY: Dispute Modal                                        -->
+  <!-- ============================================================ -->
+  <div class="bottom-sheet-overlay" id="dispute-overlay">
+    <div class="paid-sheet" style="padding-bottom:env(safe-area-inset-bottom,16px);">
+      <div class="sheet-handle"></div>
+      <h2 style="color:#ef4444;">Raise Dispute</h2>
+      <div class="warning-box" style="border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);">
+        <span class="w-icon">⚠️</span>
+        <span>Only raise a dispute if you have a genuine issue. False disputes may result in account restrictions.</span>
+      </div>
+      <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:14px;margin-bottom:8px;">Reason for dispute</p>
+      <select id="dispute-reason-select" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:8px;padding:10px 12px;font-size:14px;outline:none;appearance:none;margin-bottom:10px;">
+        <option value="">Select a reason...</option>
+        <option value="Seller not releasing after payment">Seller not releasing after payment</option>
+        <option value="Buyer not paying but marked as paid">Buyer not paying but marked as paid</option>
+        <option value="Payment amount mismatch">Payment amount mismatch</option>
+        <option value="Wrong account / payment rejected">Wrong account / payment rejected</option>
+        <option value="Other">Other</option>
+      </select>
+      <textarea id="dispute-details-input" placeholder="Additional details (optional)" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:8px;padding:10px 12px;font-size:13px;resize:none;height:80px;outline:none;box-sizing:border-box;"></textarea>
+      <button class="confirm-btn" id="dispute-confirm-btn" onclick="confirmDispute()" style="margin-top:14px;background:#ef4444;">Confirm Dispute</button>
+      <button onclick="closeDisputeModal()" style="width:100%;padding:12px;background:transparent;border:none;color:rgba(255,255,255,0.4);font-size:14px;cursor:pointer;margin-top:6px;">Cancel</button>
     </div>
   </div>
 
@@ -902,6 +956,27 @@
       <div class="sheet-item">Take a photo</div>
       <div class="sheet-item">Select from album</div>
       <div class="sheet-item" id="closeImageSheetBtn">Cancel</div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- OVERLAY: Rating Modal                                         -->
+  <!-- ============================================================ -->
+  <div class="bottom-sheet-overlay" id="rating-overlay">
+    <div class="paid-sheet" style="padding-bottom:env(safe-area-inset-bottom,16px);">
+      <div class="sheet-handle"></div>
+      <h2 style="margin-bottom:4px;">Rate Your Experience</h2>
+      <p id="ratingCounterpartyName" style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:20px;margin-top:0;"></p>
+      <div id="star-row" style="display:flex;justify-content:center;gap:14px;margin-bottom:20px;">
+        <span class="star-btn" data-star="1" onclick="selectStar(1)" style="font-size:36px;cursor:pointer;opacity:0.3;">★</span>
+        <span class="star-btn" data-star="2" onclick="selectStar(2)" style="font-size:36px;cursor:pointer;opacity:0.3;">★</span>
+        <span class="star-btn" data-star="3" onclick="selectStar(3)" style="font-size:36px;cursor:pointer;opacity:0.3;">★</span>
+        <span class="star-btn" data-star="4" onclick="selectStar(4)" style="font-size:36px;cursor:pointer;opacity:0.3;">★</span>
+        <span class="star-btn" data-star="5" onclick="selectStar(5)" style="font-size:36px;cursor:pointer;opacity:0.3;">★</span>
+      </div>
+      <textarea id="rating-comment" placeholder="Leave a comment (optional)" style="width:100%;background:#111;border:1px solid #2a2a2a;color:#fff;border-radius:8px;padding:10px 12px;font-size:13px;resize:none;height:72px;outline:none;box-sizing:border-box;margin-bottom:14px;"></textarea>
+      <button class="confirm-btn" id="rating-submit-btn" onclick="submitRating()" style="margin-bottom:0;">Submit Rating</button>
+      <button onclick="closeRatingModal()" style="width:100%;padding:12px;background:transparent;border:none;color:rgba(255,255,255,0.4);font-size:14px;cursor:pointer;margin-top:6px;">Skip</button>
     </div>
   </div>
 
@@ -1743,15 +1818,13 @@
     var s = String(status || '').toUpperCase();
     var isPaid = s === 'PAID' || s === 'PAYMENT_SENT';
     var isCompleted = s === 'RELEASED' || s === 'COMPLETED';
+    var isDisputed = s === 'DISPUTED';
+    var isCancelled = s === 'CANCELLED' || s === 'EXPIRED';
 
     // Update chat title to show counterparty name
     var titleEl = document.getElementById('chatTitle');
     if (titleEl && currentOrder) {
-      if (isSeller) {
-        titleEl.textContent = currentOrder.buyerUsername || 'Buyer';
-      } else {
-        titleEl.textContent = currentOrder.sellerUsername || 'Seller';
-      }
+      titleEl.textContent = isSeller ? (currentOrder.buyerUsername || 'Buyer') : (currentOrder.sellerUsername || 'Seller');
     }
 
     // Get all bars
@@ -1760,33 +1833,51 @@
     var sellerWaitBar = document.getElementById('chatSellerWaitBar');
     var sellerReleaseBar = document.getElementById('chatSellerReleaseBar');
     var completedBar = document.getElementById('chatCompletedBar');
+    var disputedBar = document.getElementById('chatDisputedBar');
+    var disputeRow = document.getElementById('chatDisputeRow');
 
     // Reset all
-    if (payBar) payBar.style.display = 'none';
-    if (waitBar) waitBar.style.display = 'none';
-    if (sellerWaitBar) sellerWaitBar.style.display = 'none';
-    if (sellerReleaseBar) sellerReleaseBar.style.display = 'none';
-    if (completedBar) completedBar.style.display = 'none';
+    [payBar, waitBar, sellerWaitBar, sellerReleaseBar, completedBar, disputedBar, disputeRow].forEach(function(el) {
+      if (el) el.style.display = 'none';
+    });
+
+    var inputBar = document.querySelector('.chat-input-bar');
 
     if (isCompleted) {
-      // Show completed bar for both buyer and seller
       if (completedBar) completedBar.style.display = 'flex';
       var amtEl = document.getElementById('chatCompletedAmount');
       if (amtEl && currentOrder) {
         var fiatAmt = Number(currentOrder.fiatAmount || currentOrder.amountInr || 0);
         amtEl.textContent = '₹ ' + fmtInr(fiatAmt) + ' · ' + Number(currentOrder.cryptoAmount || 0).toFixed(4) + ' USDT';
       }
-      // Hide input bar for completed orders
-      var inputBar = document.querySelector('.chat-input-bar');
+      if (inputBar) inputBar.style.display = 'none';
+      // Show rating modal 1.5s after completion (non-blocking UX)
+      setTimeout(openRatingModal, 1500);
+    } else if (isDisputed) {
+      if (disputedBar) disputedBar.style.display = 'flex';
+      // Chat stays open so both parties can still communicate with admin/each other
+      if (inputBar) inputBar.style.display = '';
+    } else if (isCancelled) {
       if (inputBar) inputBar.style.display = 'none';
     } else {
-      // Show input for active orders
-      var inputBarA = document.querySelector('.chat-input-bar');
-      if (inputBarA) inputBarA.style.display = '';
+      if (inputBar) inputBar.style.display = '';
       if (isSeller) {
-        // Seller view
         if (isPaid) {
           if (sellerReleaseBar) sellerReleaseBar.style.display = 'flex';
+          // Show proof thumbnail to seller if buyer uploaded one
+          if (currentOrder && currentOrder.paymentProof) {
+            var proofThumb = document.getElementById('sellerProofThumb');
+            if (!proofThumb) {
+              proofThumb = document.createElement('div');
+              proofThumb.id = 'sellerProofThumb';
+              proofThumb.style.cssText = 'margin-top:8px;';
+              proofThumb.innerHTML = '<p style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:4px;">Payment screenshot from buyer:</p>' +
+                '<img src="' + currentOrder.paymentProof + '" style="width:100%;max-height:140px;object-fit:contain;border-radius:6px;border:1px solid #2a2a2a;" onclick="showFullProof(this.src)" />';
+              if (sellerReleaseBar) sellerReleaseBar.appendChild(proofThumb);
+            }
+          }
+          // Show dispute row for seller too after payment
+          if (disputeRow) disputeRow.style.display = 'flex';
         } else {
           if (sellerWaitBar) sellerWaitBar.style.display = 'flex';
         }
@@ -1794,6 +1885,7 @@
         // Buyer view
         if (isPaid) {
           if (waitBar) waitBar.style.display = 'flex';
+          if (disputeRow) disputeRow.style.display = 'flex';
         } else {
           if (payBar) payBar.style.display = 'flex';
         }
@@ -2137,11 +2229,170 @@
   // ============================================================
   // MARK PAID
   // ============================================================
+  // ── Rating modal ──────────────────────────────────────────────────
+  var _selectedStars = 0;
+  var _ratingShown = false;
+
+  function openRatingModal() {
+    if (_ratingShown || !currentOrder) return;
+    // Don't show if already rated (check localStorage)
+    var lsKey = 'p2p_rated_' + currentOrder.id;
+    try { if (localStorage.getItem(lsKey)) return; } catch(_) {}
+    _selectedStars = 0;
+    document.querySelectorAll('.star-btn').forEach(function(s) { s.style.opacity = '0.3'; s.style.color = '#fff'; });
+    var commentEl = document.getElementById('rating-comment');
+    if (commentEl) commentEl.value = '';
+    var nameEl = document.getElementById('ratingCounterpartyName');
+    if (nameEl && currentOrder) {
+      nameEl.textContent = 'Rating: ' + (isSeller ? (currentOrder.buyerUsername || 'Buyer') : (currentOrder.sellerUsername || 'Seller'));
+    }
+    document.getElementById('rating-overlay').classList.add('active');
+  }
+
+  function closeRatingModal() {
+    document.getElementById('rating-overlay').classList.remove('active');
+    _ratingShown = true; // don't re-open this session
+  }
+
+  function selectStar(n) {
+    _selectedStars = n;
+    document.querySelectorAll('.star-btn').forEach(function(s) {
+      var v = parseInt(s.getAttribute('data-star'), 10);
+      s.style.opacity = v <= n ? '1' : '0.25';
+      s.style.color = v <= n ? '#f0b90b' : '#fff';
+    });
+  }
+
+  async function submitRating() {
+    if (!_selectedStars) { showToast('Please select a star rating.'); return; }
+    var comment = (document.getElementById('rating-comment') || {}).value || '';
+    var btn = document.getElementById('rating-submit-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+    try {
+      var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/rate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ stars: _selectedStars, comment: comment })
+      });
+      var data = await res.json().catch(function() { return {}; });
+      if (res.ok) {
+        try { localStorage.setItem('p2p_rated_' + currentOrder.id, '1'); } catch(_) {}
+        showToast('Rating submitted. Thank you!');
+        closeRatingModal();
+      } else {
+        showToast(data.message || 'Rating failed. Try again.');
+        if (btn) { btn.disabled = false; btn.textContent = 'Submit Rating'; }
+      }
+    } catch(e) {
+      showToast('Network error. Try again.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Submit Rating'; }
+    }
+  }
+
+  // ── Payment proof state ───────────────────────────────────────────
+  var _proofBase64 = null;
+
+  function handleProofFileSelect(event) {
+    var file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please select an image file.'); return; }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var raw = e.target.result;
+      // Compress to max 400KB
+      var img = new Image();
+      img.onload = function() {
+        var canvas = document.createElement('canvas');
+        var MAX = 800;
+        var scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        var compressed = canvas.toDataURL('image/jpeg', 0.7);
+        _proofBase64 = compressed;
+        var prevImg = document.getElementById('proof-preview-img');
+        var prevWrap = document.getElementById('proof-preview-wrap');
+        var uploadBtn = document.getElementById('proof-upload-btn');
+        if (prevImg) prevImg.src = compressed;
+        if (prevWrap) prevWrap.style.display = 'block';
+        if (uploadBtn) uploadBtn.style.display = 'none';
+      };
+      img.src = raw;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearProofImage() {
+    _proofBase64 = null;
+    var prevWrap = document.getElementById('proof-preview-wrap');
+    var uploadBtn = document.getElementById('proof-upload-btn');
+    var fileInput = document.getElementById('proofFileInput');
+    if (prevWrap) prevWrap.style.display = 'none';
+    if (uploadBtn) uploadBtn.style.display = '';
+    if (fileInput) fileInput.value = '';
+  }
+
+  function showFullProof(src) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = '<img src="' + src + '" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:8px;" />';
+    overlay.onclick = function() { document.body.removeChild(overlay); };
+    document.body.appendChild(overlay);
+  }
+
+  // ── Dispute modal ──────────────────────────────────────────────────
+  function openDisputeModal() {
+    document.getElementById('dispute-reason-select').value = '';
+    document.getElementById('dispute-details-input').value = '';
+    document.getElementById('dispute-overlay').classList.add('active');
+  }
+
+  function closeDisputeModal() {
+    document.getElementById('dispute-overlay').classList.remove('active');
+  }
+
+  async function confirmDispute() {
+    var reason = document.getElementById('dispute-reason-select').value;
+    var details = document.getElementById('dispute-details-input').value.trim();
+    if (!reason) { showToast('Please select a reason.'); return; }
+    var fullReason = details ? reason + ' — ' + details : reason;
+    var btn = document.getElementById('dispute-confirm-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+    closeDisputeModal();
+    try {
+      var res = await fetch('/api/p2p/orders/' + currentOrder.id + '/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'dispute', reason: fullReason })
+      });
+      if (res.ok) {
+        var data = await res.json();
+        if (data.order) currentOrder = data.order;
+        showToast('Dispute raised. Admin will review within 24 hours.');
+        setupChatForRole('DISPUTED');
+        pollNewMessages();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.message || 'Could not raise dispute. Try again.');
+      }
+    } catch (e) {
+      showToast('Network error. Please try again.');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Dispute'; }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
   function showPaidModal() {
     selectedPaidOption = 0;
+    _proofBase64 = null;
+    clearProofImage();
     document.getElementById('paid-opt-1').classList.remove('selected');
     document.getElementById('paid-opt-2').classList.remove('selected');
     document.getElementById('paid-confirm-btn').classList.remove('active');
+    document.getElementById('proof-upload-section').style.display = 'none';
     document.getElementById('paid-overlay').classList.add('active');
   }
 
@@ -2153,6 +2404,8 @@
     selectedPaidOption = n;
     document.getElementById('paid-opt-1').classList.toggle('selected', n === 1);
     document.getElementById('paid-opt-2').classList.toggle('selected', n === 2);
+    // Show proof upload only when user confirms they paid
+    document.getElementById('proof-upload-section').style.display = n === 1 ? 'block' : 'none';
     var confirmBtn = document.getElementById('paid-confirm-btn');
     confirmBtn.classList.add('active');
     confirmBtn.style.cursor = 'pointer';
@@ -2177,11 +2430,13 @@
     showToast('Payment marked. Waiting for seller to release.');
     // API call in background
     if (currentOrder && currentOrder.id) {
+      var paidPayload = {};
+      if (_proofBase64) paidPayload.proofBase64 = _proofBase64;
       fetch('/api/p2p/orders/' + currentOrder.id + '/mark-paid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({})
+        body: JSON.stringify(paidPayload)
       }).then(function(res) { return res.ok ? res.json() : null; })
         .then(function(data) {
           if (data && (data.order || data.id)) {

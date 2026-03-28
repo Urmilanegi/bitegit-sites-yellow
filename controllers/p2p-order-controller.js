@@ -62,6 +62,16 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
         return res.status(400).json({ success: false, message: 'adId is required.' });
       }
 
+      // Email must be verified before placing first order
+      const buyerCred = await repos.getP2PCredentialByUserId(req.p2pUser.id);
+      if (buyerCred && !buyerCred.emailVerified) {
+        return res.status(403).json({
+          success: false,
+          message: 'Please verify your email before placing orders.',
+          code: 'EMAIL_NOT_VERIFIED'
+        });
+      }
+
       const offer = await repos.getOfferById(adId);
       if (!offer) {
         return res.status(404).json({ success: false, message: 'Ad not found.' });
@@ -139,6 +149,26 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
         return res.status(400).json({ success: false, message: 'Selected payment method is not available for this ad.' });
       }
 
+      // Fetch seller's payment method details to embed in order
+      let sellerPaymentDetails = null;
+      try {
+        const sellerMethods = await repos.listPaymentMethods(seller.id);
+        if (Array.isArray(sellerMethods) && sellerMethods.length > 0) {
+          const match = sellerMethods.find(m => m.type && m.type.toUpperCase() === paymentMethod.toUpperCase())
+            || sellerMethods[0];
+          if (match) {
+            sellerPaymentDetails = {
+              type: match.type || paymentMethod,
+              accountName: match.accountName || match.holderName || match.name || null,
+              accountNumber: match.accountNumber || match.bankAccount || null,
+              vpa: match.vpa || match.upiId || match.upi || null,
+              ifsc: match.ifsc || null,
+              bankName: match.bankName || null
+            };
+          }
+        }
+      } catch (_) {}
+
       const now = Date.now();
       const orderDoc = buildP2POrderDocument({
         id: createOrderId(),
@@ -152,6 +182,7 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
         side: adType === 'SELL' ? 'buy' : 'sell',
         asset: offer.asset || 'USDT',
         paymentMethod,
+        sellerPaymentDetails,
         price,
         cryptoAmount,
         fiatAmount,

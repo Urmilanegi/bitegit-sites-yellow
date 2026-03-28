@@ -1830,7 +1830,7 @@ th {
 }
 
 .bnx-notice p strong {
-  color: #f0b90b;
+  color: #00d4d4;
 }
 
 .bnx-notice-btn {
@@ -1858,7 +1858,7 @@ th {
 }
 
 .bnx-brand {
-  color: #f0b90b;
+  color: #00d4d4;
   font-size: 28px;
   line-height: 1;
 }
@@ -1873,7 +1873,7 @@ th {
 }
 
 .bnx-page .top-links a.active-link {
-  color: #f0b90b !important;
+  color: #00d4d4 !important;
 }
 
 .bnx-top-actions {
@@ -1899,8 +1899,8 @@ th {
 
 .bnx-page .cta-mini {
   border-radius: 8px;
-  background: #f0b90b;
-  color: #191c22;
+  background: #00d4d4;
+  color: #000;
   padding: 8px 14px;
   font-size: 15px;
 }
@@ -1923,7 +1923,7 @@ th {
 }
 
 .bnx-left h1 span {
-  color: #f0b90b;
+  color: #00d4d4;
   display: inline-block;
 }
 
@@ -1951,7 +1951,7 @@ th {
 
 .bnx-awards strong {
   display: block;
-  color: #f0b90b;
+  color: #00d4d4;
   font-size: 28px;
 }
 
@@ -1984,8 +1984,8 @@ th {
   height: 48px;
   min-width: 160px;
   font-size: 16px;
-  background: #f0b90b;
-  color: #191d25;
+  background: #00d4d4;
+  color: #000;
 }
 
 .bnx-otp-row {
@@ -2013,8 +2013,8 @@ th {
 .bnx-otp-row button {
   height: 42px;
   border-radius: 10px;
-  background: #f0b90b;
-  color: #1a1d24;
+  background: #00d4d4;
+  color: #000;
   font-size: 14px;
   min-width: 120px;
 }
@@ -2073,7 +2073,7 @@ th {
 
 .bnx-tab.active {
   color: #f6f9ff;
-  border-bottom: 3px solid #f0b90b;
+  border-bottom: 3px solid #00d4d4;
 }
 
 .bnx-view-link {
@@ -2123,7 +2123,7 @@ th {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: #f0b90b;
+  background: #00d4d4;
   color: #1b1f27;
   font-size: 12px;
   font-weight: 700;

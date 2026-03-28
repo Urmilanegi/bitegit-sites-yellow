@@ -1205,6 +1205,129 @@ async function handleAdCreate(event) {
   }
 }
 
+function syncMobProfile() {
+  var s = document.getElementById('mobProfileScreen');
+  if (!s) return;
+  var el;
+  el = s.querySelector('.mob-profile-avatar');
+  if (el) el.textContent = profileAvatar ? profileAvatar.textContent : ((currentUser && currentUser.username ? currentUser.username[0].toUpperCase() : 'U'));
+  el = s.querySelector('.mob-profile-name');
+  if (el) el.textContent = currentUser ? (currentUser.username || 'P2P User') : 'Guest';
+  el = s.querySelector('.mob-profile-since');
+  if (el) {
+    var d = currentUser && currentUser.createdAt ? new Date(currentUser.createdAt) : null;
+    el.textContent = 'Signup Time: ' + (d && !isNaN(d) ? d.toISOString().slice(0,10).replace(/-/g,'/') : '\u2014');
+  }
+  // Email chip
+  var emailChip = s.querySelector('#profileEmailChip') || s.querySelector('.mob-verify-chip');
+  if (emailChip) {
+    var isEmailVerified = currentUser && currentUser.emailVerified;
+    emailChip.textContent = isEmailVerified ? '\u2713 Email' : 'Verify Email';
+    emailChip.style.cssText = isEmailVerified
+      ? 'background:rgba(22,199,132,.15);border-color:rgba(22,199,132,.4);color:#16c784;cursor:default;'
+      : 'background:rgba(240,185,11,.1);border-color:rgba(240,185,11,.3);color:#f0b90b;cursor:pointer;';
+  }
+  var chips = s.querySelectorAll('.mob-verify-chip');
+  if (chips[2]) {
+    var ks = normalizeKycStatus(currentUser && currentUser.kyc && currentUser.kyc.status);
+    chips[2].textContent = ks === 'VERIFIED' ? '\u2713 Identity' : 'Identity';
+    chips[2].style.cssText = ks === 'VERIFIED' ? 'background:rgba(22,199,132,.15);border-color:rgba(22,199,132,.4);color:#16c784;' : '';
+  }
+  var sg = s.querySelector('.mob-stats-grid');
+  if (sg) {
+    var st = sg.querySelectorAll('strong');
+    if (st[0] && profileCompletedOrders30d) st[0].textContent = profileCompletedOrders30d.textContent;
+    if (st[1] && profileCompletionRate30d) st[1].textContent = profileCompletionRate30d.textContent;
+    if (st[2] && profileCompletedOrders30d) st[2].textContent = profileCompletedOrders30d.textContent;
+    if (st[3] && profileAvgReleaseTime) st[3].textContent = profileAvgReleaseTime.textContent;
+  }
+  // Rating row
+  var ratingRow = document.getElementById('profileRatingRow');
+  var avgStarsVal = document.getElementById('profileAvgStarsVal');
+  var ratingCountEl = document.getElementById('profileRatingCount');
+  if (ratingRow && currentUser && currentUser._rep) {
+    var rep = currentUser._rep;
+    if (rep.avgStars !== null && rep.avgStars !== undefined) {
+      ratingRow.style.display = 'block';
+      if (avgStarsVal) avgStarsVal.textContent = Number(rep.avgStars).toFixed(1);
+      if (ratingCountEl) ratingCountEl.textContent = '(' + (rep.ratingCount || 0) + ' ratings)';
+    }
+  }
+}
+
+// ── Email verification (p2p.html) ─────────────────────────────────
+window.openEmailVerifyModal = function() {
+  var modal = document.getElementById('emailVerifyModal');
+  if (!modal) return;
+  if (currentUser && currentUser.emailVerified) return;
+  // Reset state
+  document.getElementById('emailOtpInputWrap').style.display = 'none';
+  document.getElementById('emailVerifySendBtn').style.display = '';
+  document.getElementById('emailVerifyConfirmBtn').style.display = 'none';
+  var errEl = document.getElementById('emailOtpError');
+  if (errEl) errEl.style.display = 'none';
+  var desc = document.getElementById('emailVerifyDesc');
+  if (desc) desc.textContent = 'We\'ll send a 6-digit code to: ' + (currentUser && currentUser.email ? currentUser.email : 'your email');
+  modal.style.display = 'flex';
+};
+
+window.closeEmailVerifyModal = function() {
+  var modal = document.getElementById('emailVerifyModal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.sendEmailOtp = async function() {
+  var btn = document.getElementById('emailVerifySendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    var res = await fetch('/api/p2p/verify-email/send', { method: 'POST', credentials: 'include' });
+    var data = await res.json().catch(function() { return {}; });
+    if (res.ok) {
+      document.getElementById('emailOtpInputWrap').style.display = 'block';
+      document.getElementById('emailVerifyConfirmBtn').style.display = '';
+      if (btn) btn.style.display = 'none';
+      var desc = document.getElementById('emailVerifyDesc');
+      if (desc) desc.textContent = 'Enter the 6-digit code sent to your email.';
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Send Code'; }
+      var errEl = document.getElementById('emailOtpError');
+      if (errEl) { errEl.textContent = data.message || 'Failed. Try again.'; errEl.style.display = 'block'; }
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Code'; }
+  }
+};
+
+window.confirmEmailOtp = async function() {
+  var otp = (document.getElementById('emailOtpInput') || {}).value || '';
+  var errEl = document.getElementById('emailOtpError');
+  if (!otp || otp.length < 6) {
+    if (errEl) { errEl.textContent = 'Enter the 6-digit code.'; errEl.style.display = 'block'; }
+    return;
+  }
+  var btn = document.getElementById('emailVerifyConfirmBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Verifying...'; }
+  try {
+    var res = await fetch('/api/p2p/verify-email/confirm', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp: otp })
+    });
+    var data = await res.json().catch(function() { return {}; });
+    if (res.ok) {
+      window.closeEmailVerifyModal();
+      if (currentUser) currentUser.emailVerified = true;
+      syncMobProfile();
+      if (typeof showToast === 'function') showToast('Email verified!');
+    } else {
+      if (errEl) { errEl.textContent = data.message || 'Wrong code. Try again.'; errEl.style.display = 'block'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Verify'; }
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Verify'; }
+  }
+};
+
 async function loadProfilePanel(options = {}) {
   if (!profileSection) {
     return;
@@ -1442,6 +1565,20 @@ async function loadProfilePanel(options = {}) {
       profileWalletBalance
     )}`;
   }
+
+  // Fetch reputation (includes avgStars from ratings)
+  if (currentUser && currentUser.id) {
+    fetch('/api/p2p/users/' + encodeURIComponent(currentUser.id) + '/reputation', { credentials: 'include' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(rep) {
+        if (!rep) return;
+        if (currentUser) currentUser._rep = rep;
+        syncMobProfile();
+      })
+      .catch(function() {});
+  }
+
+  syncMobProfile();
 }
 
 function syncMobileTabFromHash(options = {}) {
@@ -2569,7 +2706,12 @@ async function submitDealOrder() {
     _ordLoaded = false;
   } catch (error) {
     console.warn('[submitDealOrder] FAILED:', error.message, 'code=' + (error.code || 'none'));
-    setDealHint(error.message || 'Unable to create order.', 'error');
+    if (error.code === 'EMAIL_NOT_VERIFIED') {
+      setDealHint('Please verify your email first.', 'error');
+      setTimeout(function() { if (typeof window.openEmailVerifyModal === 'function') window.openEmailVerifyModal(); }, 400);
+    } else {
+      setDealHint(error.message || 'Unable to create order.', 'error');
+    }
   } finally {
     _dealSubmitLock = false;
     dealConfirmBtn.disabled = false;
@@ -5960,6 +6102,150 @@ window.deleteMobAd = async function(offerId) {
 
   document.addEventListener('p2p:login',  function() { if (currentUser) connectWs(); });
   document.addEventListener('p2p:logout', function() { disconnectWs(); });
+})();
+
+// ── Withdrawal modal ─────────────────────────────────────────────────────────
+(function() {
+  var _withdrawPending = {};
+
+  function showStep(step) {
+    ['withdrawFormStep','withdrawOtpStep','withdrawSuccessStep'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    var target = document.getElementById(step);
+    if (target) target.style.display = '';
+  }
+
+  window.openWithdrawModal = function() {
+    var modal = document.getElementById('withdrawModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    showStep('withdrawFormStep');
+    var balEl = document.getElementById('withdrawAvailBal');
+    if (balEl) balEl.textContent = profileWalletBalance.toFixed(2);
+    var err = document.getElementById('withdrawFormErr');
+    if (err) { err.style.display = 'none'; }
+    loadWithdrawHistory();
+  };
+
+  window.closeWithdrawModal = function() {
+    var modal = document.getElementById('withdrawModal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.withdrawSetMax = function() {
+    var input = document.getElementById('withdrawAmount');
+    if (input) input.value = profileWalletBalance.toFixed(2);
+  };
+
+  window.withdrawBackToForm = function() {
+    showStep('withdrawFormStep');
+  };
+
+  window.withdrawSendOtp = function(resend) {
+    var address = (document.getElementById('withdrawAddress') || {}).value || '';
+    var amount  = (document.getElementById('withdrawAmount') || {}).value || '';
+    var asset   = (document.getElementById('withdrawAsset') || {}).value || 'USDT';
+    var network = (document.getElementById('withdrawNetwork') || {}).value || 'TRC20';
+    var errEl = document.getElementById('withdrawFormErr');
+    if (!address.trim()) { if (errEl) { errEl.textContent = 'Enter wallet address.'; errEl.style.display = ''; } return; }
+    if (!amount || Number(amount) <= 0) { if (errEl) { errEl.textContent = 'Enter a valid amount.'; errEl.style.display = ''; } return; }
+    if (Number(amount) > profileWalletBalance) { if (errEl) { errEl.textContent = 'Insufficient balance.'; errEl.style.display = ''; } return; }
+    if (errEl) errEl.style.display = 'none';
+    _withdrawPending = { address: address.trim(), amount: amount, asset: asset, network: network };
+    fetch('/api/withdrawals/send-otp', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: address.trim(), amount: amount, currency: asset })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.sent) {
+        var desc = document.getElementById('withdrawOtpDesc');
+        if (desc) desc.textContent = 'A 6-digit OTP was sent to your registered email. Enter it to confirm the withdrawal of ' + amount + ' ' + asset + '.';
+        var otpInput = document.getElementById('withdrawOtpInput');
+        if (otpInput) otpInput.value = '';
+        var otpErr = document.getElementById('withdrawOtpErr');
+        if (otpErr) otpErr.style.display = 'none';
+        showStep('withdrawOtpStep');
+        if (resend) alert('New OTP sent to your email.');
+      } else {
+        if (errEl) { errEl.textContent = d.message || 'Failed to send OTP.'; errEl.style.display = ''; }
+      }
+    }).catch(function() {
+      if (errEl) { errEl.textContent = 'Network error. Please try again.'; errEl.style.display = ''; }
+    });
+  };
+
+  window.withdrawConfirmOtp = function() {
+    var otp = ((document.getElementById('withdrawOtpInput') || {}).value || '').trim();
+    var errEl = document.getElementById('withdrawOtpErr');
+    if (otp.length !== 6) { if (errEl) { errEl.textContent = 'Enter 6-digit OTP.'; errEl.style.display = ''; } return; }
+    // verify OTP then submit withdrawal
+    fetch('/api/withdrawals/verify-otp', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp: otp })
+    }).then(function(r) { return r.json(); }).then(function(vd) {
+      if (!vd.verified) {
+        if (errEl) { errEl.textContent = vd.message || 'Invalid OTP.'; errEl.style.display = ''; }
+        return;
+      }
+      // OTP verified — submit withdrawal request
+      fetch('/api/withdrawals', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: _withdrawPending.amount,
+          currency: _withdrawPending.asset,
+          network: _withdrawPending.network,
+          address: _withdrawPending.address
+        })
+      }).then(function(r) { return r.json(); }).then(function(wd) {
+        if (wd.withdrawal || wd.message === 'Withdrawal request created.') {
+          showStep('withdrawSuccessStep');
+          // refresh history + balance
+          loadWithdrawHistory();
+        } else {
+          if (errEl) { errEl.textContent = wd.message || 'Withdrawal failed.'; errEl.style.display = ''; }
+        }
+      }).catch(function() {
+        if (errEl) { errEl.textContent = 'Network error. Please try again.'; errEl.style.display = ''; }
+      });
+    }).catch(function() {
+      if (errEl) { errEl.textContent = 'Network error. Please try again.'; errEl.style.display = ''; }
+    });
+  };
+
+  window.loadWithdrawHistory = function() {
+    var listEl = document.getElementById('withdrawHistoryList');
+    if (!listEl) return;
+    listEl.textContent = 'Loading...';
+    fetch('/api/withdrawals?limit=5', { credentials: 'include' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var items = d.withdrawals || [];
+        if (!items.length) { listEl.innerHTML = '<span style="color:rgba(255,255,255,0.3);font-size:12px;">No withdrawals yet.</span>'; return; }
+        var html = '';
+        items.forEach(function(w) {
+          var statusColor = w.status === 'approved' ? '#00d4d4' : w.status === 'rejected' ? '#ef4444' : '#f59e0b';
+          var dt = w.createdAt ? new Date(w.createdAt).toLocaleDateString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #1a1a1a;">'
+            + '<div><div style="font-size:13px;font-weight:600;">' + (w.amount || 0) + ' ' + (w.currency || 'USDT') + '</div>'
+            + '<div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">' + dt + ' · ' + (w.network || '') + '</div></div>'
+            + '<span style="font-size:11px;font-weight:700;color:' + statusColor + ';text-transform:uppercase;">' + (w.status || 'pending') + '</span></div>';
+        });
+        listEl.innerHTML = html;
+      })
+      .catch(function() { listEl.innerHTML = '<span style="color:rgba(255,255,255,0.3);font-size:12px;">Could not load history.</span>'; });
+  };
+
+  // Close on backdrop tap
+  var modal = document.getElementById('withdrawModal');
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) window.closeWithdrawModal();
+    });
+  }
 })();
 
 // ── Render free-tier keepalive ────────────────────────────────────────────────

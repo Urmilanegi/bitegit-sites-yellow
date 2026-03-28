@@ -758,8 +758,8 @@ async function loadWallet() {
           </div>
           ${statusBadge(status)}
         </div>
-        <p class="mt-2 text-sm text-slate-200">${row.coin || 'USDT'} • ${formatNumber(row.amount || 0, 6)}</p>
-        <p class="mt-1 text-xs text-slate-500">To: ${row.address || row.toAddress || row.to || '-'}</p>
+        <p class="mt-2 text-sm text-slate-200">${row.currency || row.coin || 'USDT'} • ${formatNumber(row.amount || 0, 6)} ${(row.network || row.metadata?.network) ? `<span class="text-xs text-slate-500">(${row.network || row.metadata?.network})</span>` : ''}</p>
+        <p class="mt-1 text-xs text-slate-500 break-all">To: ${row.address || row.toAddress || row.to || '-'}</p>
         <div class="mt-2 flex gap-2">
           <button class="btn-primary${disabledClass}" data-withdrawal-action="approve" data-withdrawal-id="${row.id}"${disabledAttr}>Approve</button>
           <button class="btn-danger${disabledClass}" data-withdrawal-action="reject" data-withdrawal-id="${row.id}"${disabledAttr}>Reject</button>
@@ -894,23 +894,45 @@ async function loadP2P() {
   const disputesList = document.getElementById('p2pDisputesList');
   const disputes = Array.isArray(disputesPayload.disputes) ? disputesPayload.disputes : [];
   disputesList.innerHTML = disputes
-    .map(
-      (order) => `
-      <article class="list-item">
-        <p class="text-sm font-semibold">${order.reference}</p>
-        <p class="text-xs text-slate-400">${order.id} • ${order.asset} • ₹${formatNumber(order.amountInr || 0, 2)}</p>
-        <div class="mt-2 flex gap-2">
-          <button class="btn-primary" data-p2p-action="release-order" data-order-id="${order.id}" title="Release crypto to buyer">Release to Buyer</button>
-          <button class="btn-danger" data-p2p-action="cancel-order" data-order-id="${order.id}" title="Cancel order, return crypto to seller">Cancel (Seller Wins)</button>
-          <button class="btn-secondary" data-p2p-action="freeze-order" data-order-id="${order.id}">Freeze</button>
+    .map((order) => {
+      const proofHtml = order.paymentProof
+        ? `<div class="mt-2">
+            <p class="text-xs text-slate-400 mb-1">Payment Proof:</p>
+            <img src="${order.paymentProof}" alt="Payment proof" class="rounded-lg border border-slate-700 max-h-40 w-auto cursor-pointer object-contain"
+              onclick="this.style.maxHeight=this.style.maxHeight==='none'?'160px':'none'" title="Click to expand" />
+          </div>`
+        : '<p class="text-xs text-slate-500 mt-1">No payment proof uploaded.</p>';
+      return `
+      <article class="list-item border-l-4 border-l-amber-500">
+        <div class="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <p class="text-sm font-bold text-white">${order.reference || order.id}</p>
+            <p class="text-xs text-slate-400 mt-0.5">${order.asset || 'USDT'} ${order.assetAmount || ''} &bull; ₹${formatNumber(order.fiatAmount || order.amountInr || 0, 2)}</p>
+          </div>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">DISPUTED</span>
+        </div>
+        <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          <p class="text-slate-400">Buyer: <span class="text-white">${order.buyerUsername || order.buyerUserId || '-'}</span></p>
+          <p class="text-slate-400">Seller: <span class="text-white">${order.sellerUsername || order.sellerUserId || '-'}</span></p>
+          <p class="text-slate-400">Raised by: <span class="text-amber-400 font-semibold">${order.disputedBy || '-'}</span></p>
+          <p class="text-slate-400">Time: <span class="text-white">${formatDate(order.disputedAt || order.updatedAt)}</span></p>
+        </div>
+        ${order.disputeReason ? `<p class="mt-2 text-xs bg-slate-800 rounded-lg px-3 py-2 text-slate-200"><span class="text-slate-400">Reason:</span> ${order.disputeReason}</p>` : ''}
+        ${proofHtml}
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button class="btn-primary" data-p2p-action="release-order" data-order-id="${order.id}">&#10003; Release to Buyer</button>
+          <button class="btn-danger" data-p2p-action="cancel-order" data-order-id="${order.id}">&#10005; Seller Wins</button>
+          <button class="btn-secondary" data-p2p-action="freeze-order" data-order-id="${order.id}">&#10052; Freeze</button>
         </div>
       </article>
-    `
-    )
+    `;
+    })
     .join('');
 
+  const disputeCountEl = document.getElementById('disputeCount');
+  if (disputeCountEl) disputeCountEl.textContent = disputes.length ? `${disputes.length} open` : '';
   if (disputes.length === 0) {
-    disputesList.innerHTML = '<p class="text-sm text-slate-500">No active disputes.</p>';
+    disputesList.innerHTML = '<p class="text-sm text-slate-500 col-span-full py-4 text-center">&#10003; No active disputes.</p>';
   }
 
   const settings = settingsPayload.settings || {};
