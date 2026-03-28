@@ -1619,11 +1619,11 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 }
 
 .cf-trust-row-fwd .cf-trust-track {
-  animation: trustFwd 28s linear infinite;
+  animation: none;
 }
 
 .cf-trust-row-rev .cf-trust-track {
-  animation: trustRev 28s linear infinite;
+  animation: none;
 }
 
 @keyframes trustFwd {
@@ -3814,20 +3814,18 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 
 /* Category tabs: Popular / Market Trends / 24H Change / New Coin List */
 .cf-fullmkt-cattabs-wrap {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  overflow: hidden;
   margin-bottom: 0;
   border-bottom: none;
   padding: 0 0.5rem;
 }
-.cf-fullmkt-cattabs-wrap::-webkit-scrollbar { display: none; }
 
 .cf-fullmkt-cattabs {
   display: flex;
   gap: 0;
   white-space: nowrap;
-  min-width: max-content;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 
 .cf-fullmkt-cattabs button {
