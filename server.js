@@ -79,6 +79,14 @@ const P2P_ACCESS_COOKIE_NAME = 'p2p_access_token';
 const P2P_REFRESH_COOKIE_NAME = 'p2p_refresh_token';
 const P2P_ORDER_TTL_MS = 1000 * 60 * 15;
 const P2P_EXPIRY_SWEEP_INTERVAL_MS = 10 * 1000;
+const STARTUP_RETRY_ATTEMPTS = Math.max(
+  1,
+  Number.parseInt(String(process.env.STARTUP_RETRY_ATTEMPTS || '5'), 10) || 5
+);
+const STARTUP_RETRY_BASE_DELAY_MS = Math.max(
+  500,
+  Number.parseInt(String(process.env.STARTUP_RETRY_BASE_DELAY_MS || '2500'), 10) || 2500
+);
 const MERCHANT_ACTIVATION_DEPOSIT = 200;
 const SIGNUP_OTP_TTL_MS = Math.max(
   60 * 1000,
@@ -4202,6 +4210,81 @@ function registerShutdownHandlers() {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryStartupStep(label, task, {
+  attempts = STARTUP_RETRY_ATTEMPTS,
+  baseDelayMs = STARTUP_RETRY_BASE_DELAY_MS
+} = {}) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      if (attempt > 1) {
+        console.log(`[boot] Retrying ${label} (attempt ${attempt}/${attempts})...`);
+      }
+      return await task();
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message || error);
+      console.error(`[boot] ${label} failed on attempt ${attempt}/${attempts}: ${message}`);
+
+      if (attempt >= attempts) {
+        break;
+      }
+
+      const delayMs = baseDelayMs * attempt;
+      console.log(`[boot] Waiting ${delayMs}ms before retrying ${label}...`);
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError || new Error(`${label} failed after ${attempts} attempt(s).`);
+}
+
+async function startHttpServer() {
+  await new Promise((resolve, reject) => {
+    httpServer = app.listen(PORT, HOST, () => {
+      console.log(`[boot] Server started — PID ${process.pid} on port ${PORT}`);
+
+      // Attach WebSocket server for real-time order push
+      const wss = new WebSocketServer({ server: httpServer, path: '/ws/p2p' });
+      wss.on('connection', async (ws, req) => {
+        const user = normalizeP2PUserObject(await getP2PUserFromRequest(req).catch(() => null));
+        if (!user) { ws.close(4401, 'Unauthorized'); return; }
+        const aliasKeys = getP2PUserAliasKeys(user);
+        aliasKeys.forEach((aliasKey) => {
+          getWsClients(aliasKey).add(ws);
+        });
+        ws.send(JSON.stringify({ event: 'connected', data: { userId: user.id } }));
+        const cleanup = () => {
+          aliasKeys.forEach((aliasKey) => {
+            const clients = p2pWsClients.get(aliasKey);
+            if (!clients) {
+              return;
+            }
+            clients.delete(ws);
+            if (clients.size === 0) {
+              p2pWsClients.delete(aliasKey);
+            }
+          });
+        };
+        ws.on('close', cleanup);
+        ws.on('error', cleanup);
+      });
+
+      resolve();
+    });
+
+    httpServer.once('error', (err) => {
+      httpServer = null;
+      reject(err);
+    });
+  });
+}
+
 let _bootStarted = false; // hard once-only guard — second call is a no-op
 
 async function boot() {
@@ -4212,55 +4295,13 @@ async function boot() {
   _bootStarted = true;
 
   try {
-    await new Promise((resolve, reject) => {
-      httpServer = app.listen(PORT, '0.0.0.0', () => {
-        console.log(`[boot] Server started — PID ${process.pid} on port ${PORT}`);
-        // Attach WebSocket server for real-time order push
-        const wss = new WebSocketServer({ server: httpServer, path: '/ws/p2p' });
-        wss.on('connection', async (ws, req) => {
-          const user = normalizeP2PUserObject(await getP2PUserFromRequest(req).catch(() => null));
-          if (!user) { ws.close(4401, 'Unauthorized'); return; }
-          const aliasKeys = getP2PUserAliasKeys(user);
-          aliasKeys.forEach((aliasKey) => {
-            getWsClients(aliasKey).add(ws);
-          });
-          ws.send(JSON.stringify({ event: 'connected', data: { userId: user.id } }));
-          const cleanup = () => {
-            aliasKeys.forEach((aliasKey) => {
-              const clients = p2pWsClients.get(aliasKey);
-              if (!clients) {
-                return;
-              }
-              clients.delete(ws);
-              if (clients.size === 0) {
-                p2pWsClients.delete(aliasKey);
-              }
-            });
-          };
-          ws.on('close', cleanup);
-          ws.on('error', cleanup);
-        });
-        resolve();
-      });
-      httpServer.once('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-          console.error(`[boot] FATAL: port ${PORT} already in use — another instance is running`);
-          console.error(`[boot] Kill it:  lsof -ti:${PORT} | xargs kill -9`);
-        } else {
-          console.error(`[boot] Listen error: ${err.message}`);
-        }
-        process.exit(1); // never retry — exit and let the process manager handle it
-      });
-    });
-    registerShutdownHandlers();
-
     validateStartupConfig();
     tokenService.ensureJwtSecret();
     const mongoConfig = getMongoConfig();
     console.log(`MongoDB target URI: ${mongoConfig.maskedUri}`);
     console.log('Environment loader: dotenv');
 
-    await connectToMongo();
+    await retryStartupStep('MongoDB connection', () => connectToMongo());
     const collections = getCollections();
     repos = createRepositories(collections);
     auditLogService = createAuditLogService(collections);
@@ -4531,28 +4572,46 @@ async function boot() {
       adminAuthMiddleware
     });
 
-    await repos.ensureIndexes();
-    await adminStore.ensureIndexes();
+    await retryStartupStep('MongoDB index setup', async () => {
+      await repos.ensureIndexes();
+      await adminStore.ensureIndexes();
+    });
     console.log('MongoDB indexes ensured');
 
-    const migration = await repos.migrateLegacyLeadsJsonOnce(dataFile);
+    const migration = await retryStartupStep('legacy lead migration', async () => {
+      return repos.migrateLegacyLeadsJsonOnce(dataFile);
+    }, {
+      attempts: 3,
+      baseDelayMs: 1500
+    });
     if (migration.migrated) {
       console.log(`Legacy leads migration completed. Imported ${migration.imported || 0} rows.`);
     } else {
       console.log(`Legacy leads migration skipped (${migration.reason || 'n/a'}).`);
     }
 
-    await repos.ensureSeedOffers([]);
+    await retryStartupStep('seed offer initialization', () => repos.ensureSeedOffers([]), {
+      attempts: 3,
+      baseDelayMs: 1500
+    });
 
-    await adminStore.ensureDefaults();
+    await retryStartupStep('admin defaults initialization', async () => {
+      await adminStore.ensureDefaults();
+    }, {
+      attempts: 3,
+      baseDelayMs: 1500
+    });
     const enableDemoSeedData =
       String(process.env.ENABLE_DEMO_SEED_DATA || '')
         .trim()
         .toLowerCase() === 'true';
     if (enableDemoSeedData) {
-      await adminStore.ensureDemoSupportTicket();
+      await retryStartupStep('demo support seed', () => adminStore.ensureDemoSupportTicket(), {
+        attempts: 3,
+        baseDelayMs: 1500
+      });
     }
-    const seededAdmin = await adminStore.seedAdminUser({
+    const seededAdmin = await retryStartupStep('admin seed initialization', () => adminStore.seedAdminUser({
       username: ADMIN_SEED_USERNAME,
       email: ADMIN_SEED_EMAIL,
       password: ADMIN_PASSWORD,
@@ -4569,6 +4628,9 @@ async function boot() {
         String(process.env.ADMIN_FORCE_ACTIVATE || '')
           .trim()
           .toLowerCase() === 'true'
+    }), {
+      attempts: 3,
+      baseDelayMs: 1500
     });
     if (seededAdmin) {
       console.log(`Admin seed ensured for ${seededAdmin.email} (${seededAdmin.role})`);
@@ -4581,6 +4643,9 @@ async function boot() {
     });
 
     app.use(errorHandler);
+
+    await startHttpServer();
+    registerShutdownHandlers();
 
     if (p2pExpirySweepTimer) {
       clearInterval(p2pExpirySweepTimer);
@@ -4642,7 +4707,11 @@ async function boot() {
     persistenceReady = true;
     console.log(`MongoDB connected to ${mongoConfig.dbName}`);
   } catch (error) {
-    console.error('[boot] Fatal startup error:', error.message);
+    if (error?.code === 'EADDRINUSE') {
+      console.error(`[boot] Fatal startup error: port ${PORT} is already in use.`);
+    } else {
+      console.error('[boot] Fatal startup error:', error.message);
+    }
     if (error.stack) console.error(error.stack);
     process.exit(1); // no retry — fail fast, let the process manager restart if needed
   }
