@@ -1140,7 +1140,7 @@
   var _appealDraft = { images: [] };
   var _orderSseConnected = false;
   var _chatWarmPromise = null;
-  var ORDER_FLOW_PAGE_VERSION = '20260328g';
+  var ORDER_FLOW_PAGE_VERSION = '20260329a';
   var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
   var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
   var ORDERS_FOCUS_STATE_KEY = 'p2p_orders_focus_state';
@@ -1157,6 +1157,30 @@
     if (now - _lastNavMs < 800) return;
     _lastNavMs = now;
     window.location.href = url;
+  }
+
+  async function fetchJsonWithTimeout(url, options, timeoutMs) {
+    var timer = null;
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var finalOptions = Object.assign({}, options || {});
+    if (controller) {
+      finalOptions.signal = controller.signal;
+      timer = setTimeout(function() {
+        try { controller.abort(); } catch (_) {}
+      }, Math.max(1000, Number(timeoutMs || 0) || 12000));
+    }
+    try {
+      var response = await fetch(url, finalOptions);
+      var payload = null;
+      try {
+        payload = await response.json();
+      } catch (_) {
+        payload = null;
+      }
+      return { response: response, payload: payload };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   function getCurrentScreenId() {
@@ -2293,13 +2317,14 @@
       try {
         var body = { adId: currentAd.id, paymentMethod: payment };
         if (isFiat) body.fiatAmount = fiatAmt; else body.cryptoAmount = cryptoAmt;
-        var res = await fetch('/api/p2p/orders', {
+        var createResult = await fetchJsonWithTimeout('/api/p2p/orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(body)
-        });
-        var data = await res.json();
+        }, 12000);
+        var res = createResult.response;
+        var data = createResult.payload || {};
         if (res.ok) {
           currentOrder = data.order || data;
           if (data && data.existingOrder) {
@@ -2315,7 +2340,13 @@
           return;
         }
         showToast(data.message || 'Order failed');
-      } catch (e) { showToast('Network error'); }
+      } catch (e) {
+        if (e && e.name === 'AbortError') {
+          showToast('Request took too long. Please check Orders once.');
+        } else {
+          showToast('Network error');
+        }
+      }
       finally {
         if (btn) {
           btn._creating = false;

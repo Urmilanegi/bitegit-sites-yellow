@@ -2767,7 +2767,8 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260328i';
+var _orderFlowWarmStartedAt = 0;
+var _ORDER_FLOW_VERSION = '20260329a';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
 
 function _consumeOrdersFocusState() {
@@ -2851,11 +2852,17 @@ function prefetchOrderFlowAssets() {
   if (_orderFlowWarmPromise) {
     return _orderFlowWarmPromise;
   }
+  _orderFlowWarmStartedAt = Date.now();
   _orderFlowWarmPromise = Promise.allSettled([
     fetch(_buildOrderFlowUrl({}), { credentials: 'include', cache: 'force-cache' }),
     fetch(_buildOrderFlowUrl({ warm: '1' }), { credentials: 'include', cache: 'force-cache' })
   ]).catch(function() {
     return null;
+  }).finally(function() {
+    if (Date.now() - _orderFlowWarmStartedAt > 30000) {
+      _orderFlowWarmPromise = null;
+      _orderFlowWarmStartedAt = 0;
+    }
   });
   return _orderFlowWarmPromise;
 }
@@ -7180,8 +7187,13 @@ window.deleteMobAd = async function(offerId) {
 (function() {
   var _navLockTs = 0;
   var _navOverlay = null;
+  var _navFailSafeTimer = null;
 
   function hideNavOverlay(resetLock) {
+    if (_navFailSafeTimer) {
+      clearTimeout(_navFailSafeTimer);
+      _navFailSafeTimer = null;
+    }
     if (_navOverlay) {
       _navOverlay.style.opacity = '0';
       _navOverlay.style.pointerEvents = 'none';
@@ -7221,10 +7233,16 @@ window.deleteMobAd = async function(offerId) {
       overlay.style.opacity = '1';
       overlay.style.pointerEvents = 'auto';
     }
-    prefetchOrderFlowAssets();
-    setTimeout(function() {
-      window.location.href = url;
-    }, 18);
+    _navFailSafeTimer = setTimeout(function() {
+      hideNavOverlay(true);
+    }, 1600);
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(function() {
+        window.location.assign(url);
+      });
+      return;
+    }
+    window.location.assign(url);
   }
 
   window.addEventListener('pageshow', function() {
