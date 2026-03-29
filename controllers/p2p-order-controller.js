@@ -1,4 +1,4 @@
-const { buildP2POrderDocument, toOrderResponse } = require('../models/P2POrder');
+const { buildP2POrderDocument, toOrderResponse, normalizeExpiresAtValue } = require('../models/P2POrder');
 const { makeSeedUserId } = require('../lib/wallet-service');
 const {
   normalizeOrderStatus,
@@ -54,6 +54,20 @@ function normalizeP2PKycStatus(rawStatus) {
   return 'NOT_SUBMITTED';
 }
 
+function isOfferApprovedForTrading(offer = {}) {
+  const moderationStatus = String(offer.moderationStatus || 'APPROVED').trim().toUpperCase();
+  return moderationStatus === 'APPROVED';
+}
+
+function getOfferPayments(offer = {}) {
+  if (!Array.isArray(offer.payments)) {
+    return [];
+  }
+  return offer.payments
+    .map((method) => String(method || '').trim())
+    .filter((method) => method.length > 0);
+}
+
 function broadcastOrderParticipantEvent(broadcastUserEvent, order, eventName, payload) {
   if (typeof broadcastUserEvent !== 'function' || !order) {
     return;
@@ -80,6 +94,27 @@ function broadcastOrderParticipantEvent(broadcastUserEvent, order, eventName, pa
   }
 }
 
+async function recoverExistingActiveOrderForBuyer(repos, user, adId) {
+  if (!repos || typeof repos.listP2PActiveOrdersForUser !== 'function') {
+    return null;
+  }
+
+  const activeOrders = await repos.listP2PActiveOrdersForUser({ user, limit: 10 });
+  if (!Array.isArray(activeOrders) || activeOrders.length === 0) {
+    return null;
+  }
+
+  const sameAdOrder = activeOrders.find((order) => {
+    const orderAdId = String(order?.adId || order?.offerId || '').trim();
+    return orderAdId && orderAdId === adId;
+  });
+  if (sameAdOrder) {
+    return sameAdOrder;
+  }
+
+  return activeOrders.length === 1 ? activeOrders[0] : null;
+}
+
 function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 * 1000, p2pEmailService = null, broadcastUserEvent = null }) {
   if (!repos || !walletService) {
     throw new Error('P2P order controller requires repos and walletService.');
@@ -87,9 +122,10 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
   function buildControllerOrderResponse(order) {
     const normalizedStatus = normalizeOrderStatus(order?.status);
+    const expiresAt = normalizeExpiresAtValue(order?.expiresAt, 0);
     const remainingSeconds =
-      isExpirableOrderStatus(normalizedStatus) && Number(order?.expiresAt || 0) > Date.now()
-        ? Math.max(0, Math.floor((Number(order.expiresAt) - Date.now()) / 1000))
+      isExpirableOrderStatus(normalizedStatus) && expiresAt > Date.now()
+        ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
         : 0;
 
     return {
@@ -103,14 +139,37 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
   }
 
   async function createOrder(req, res) {
+    const adId = String(req.body?.adId || req.body?.offerId || '').trim();
     try {
-      const adId = String(req.body.adId || req.body.offerId || '').trim();
       if (!adId) {
         return res.status(400).json({ success: false, message: 'adId is required.' });
       }
 
       // Email must be verified before placing first order
-      const buyerCred = await repos.getP2PCredentialByUserId(req.p2pUser.id);
+      const buyerCred = await repos.getP2PCredentialByUserId(req.p2pUser);
+      const buyerEmail = String(req.p2pUser?.email || '').trim().toLowerCase();
+      const credentialEmail = String(buyerCred?.email || '').trim().toLowerCase();
+      if (
+        buyerCred &&
+        !buyerCred.emailVerified &&
+        buyerEmail &&
+        credentialEmail &&
+        buyerEmail === credentialEmail &&
+        typeof repos.setP2PCredential === 'function' &&
+        buyerCred.passwordHash
+      ) {
+        await repos.setP2PCredential(credentialEmail, buyerCred.passwordHash, {
+          role: buyerCred.role || 'USER',
+          username: buyerCred.username,
+          avatar: buyerCred.avatar,
+          isMerchant: buyerCred.isMerchant,
+          merchantDepositLocked: buyerCred.merchantDepositLocked,
+          merchantLevel: buyerCred.merchantLevel,
+          userId: req.p2pUser.id,
+          emailVerified: true
+        });
+        buyerCred.emailVerified = true;
+      }
       if (buyerCred && !buyerCred.emailVerified) {
         return res.status(403).json({
           success: false,
@@ -122,6 +181,9 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       const offer = await repos.getOfferById(adId);
       if (!offer) {
         return res.status(404).json({ success: false, message: 'Ad not found.' });
+      }
+      if (!isOfferApprovedForTrading(offer)) {
+        return res.status(400).json({ success: false, message: 'Ad is not approved for trading.' });
       }
 
       const isDemo = offer.isDemo === true || String(offer.environment || '').trim().toLowerCase() === 'demo';
@@ -187,11 +249,10 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
       // KYC gate removed — all logged-in users can place orders
 
+      const offerPayments = getOfferPayments(offer);
       const selectedPaymentMethod = String(req.body.paymentMethod || '').trim();
-      const exactPayment = Array.isArray(offer.payments)
-        ? offer.payments.find((method) => method.toLowerCase() === selectedPaymentMethod.toLowerCase())
-        : null;
-      const paymentMethod = exactPayment || (Array.isArray(offer.payments) && offer.payments[0]) || 'UPI';
+      const exactPayment = offerPayments.find((method) => method.toLowerCase() === selectedPaymentMethod.toLowerCase());
+      const paymentMethod = exactPayment || offerPayments[0] || 'UPI';
       if (selectedPaymentMethod && !exactPayment) {
         return res.status(400).json({ success: false, message: 'Selected payment method is not available for this ad.' });
       }
@@ -281,6 +342,7 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       return res.status(201).json(buildControllerOrderResponse(savedOrder));
     } catch (error) {
       const knownStatus = Number(error?.status || 0);
+      const knownMessage = String(error?.message || '');
       if (String(error?.code || '').trim().toUpperCase() === 'ACTIVE_ORDER_EXISTS' && error?.existingOrder) {
         const existingOrder = { ...error.existingOrder };
         delete existingOrder._id;
@@ -294,10 +356,40 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       if (knownStatus >= 400 && knownStatus < 500) {
         return res.status(knownStatus).json({
           success: false,
-          message: String(error.message || 'Order creation failed.'),
+          message: knownMessage || 'Order creation failed.',
           code: String(error.code || 'P2P_ORDER_CREATE_FAILED')
         });
       }
+      const validationLikeMessage = knownMessage.toLowerCase();
+      if (
+        validationLikeMessage.includes('required') ||
+        validationLikeMessage.includes('must') ||
+        validationLikeMessage.includes('invalid') ||
+        validationLikeMessage.includes('greater than 0')
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: knownMessage || 'Request validation failed.',
+          code: String(error.code || 'P2P_ORDER_CREATE_FAILED')
+        });
+      }
+      try {
+        const recoveredOrder = await recoverExistingActiveOrderForBuyer(repos, req.p2pUser, adId);
+        if (recoveredOrder) {
+          const existingOrder = { ...recoveredOrder };
+          delete existingOrder._id;
+          return res.status(200).json({
+            success: true,
+            existingOrder: true,
+            recovered: true,
+            message: 'Recovered your active order. Opening it now.',
+            ...buildControllerOrderResponse(existingOrder)
+          });
+        }
+      } catch (recoveryError) {
+        console.warn('[p2p-order-controller] active-order recovery failed:', recoveryError?.message || recoveryError);
+      }
+      console.error('[p2p-order-controller] createOrder unexpected error:', error);
       return res.status(500).json({ success: false, message: 'Server error while creating order.' });
     }
   }

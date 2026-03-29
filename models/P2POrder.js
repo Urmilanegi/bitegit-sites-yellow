@@ -31,6 +31,25 @@ function toPublicOrderStatus(status) {
   return normalizeOrderStatus(status);
 }
 
+function normalizeExpiresAtValue(value, fallback = Date.now()) {
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    return Number.isFinite(timestamp) ? timestamp : fallback;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+  const parsed = new Date(value);
+  const timestamp = parsed.getTime();
+  return Number.isFinite(timestamp) ? timestamp : fallback;
+}
+
 function buildP2POrderDocument(input = {}) {
   const now = Date.now();
   const adId = ensureString(input.adId || input.offerId, 'adId');
@@ -100,7 +119,7 @@ function buildP2POrderDocument(input = {}) {
 }
 
 function toOrderResponse(order) {
-  const expiresAt = Number(order?.expiresAt || Date.now());
+  const expiresAt = normalizeExpiresAtValue(order?.expiresAt);
   return {
     success: true,
     orderId: String(order?.id || ''),
@@ -113,5 +132,6 @@ module.exports = {
   ORDER_STATUS,
   toPublicOrderStatus,
   buildP2POrderDocument,
-  toOrderResponse
+  toOrderResponse,
+  normalizeExpiresAtValue
 };

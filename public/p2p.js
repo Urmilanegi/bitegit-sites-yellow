@@ -2030,14 +2030,15 @@ function fillDealModal(offer) {
     dealConfirmBtn.classList.toggle('is-sell', currentSide === 'sell');
   }
 
+  const offerPayments = getOfferPayments(offer);
   if (dealPaymentSelect) {
-    dealPaymentSelect.innerHTML = offer.payments
+    dealPaymentSelect.innerHTML = offerPayments
       .map((method) => `<option value="${escapeHtml(method)}">${escapeHtml(method)}</option>`)
       .join('');
   }
 
   if (dealPaymentPreview) {
-    dealPaymentPreview.textContent = offer.payments[0] || '--';
+    dealPaymentPreview.textContent = offerPayments[0] || '--';
   }
 
   const amountInput = Number(amountFilter?.value || 0);
@@ -2617,6 +2618,16 @@ async function loadExchangeTicker() {
   }
 }
 
+function getOfferPayments(offer) {
+  if (!offer || !Array.isArray(offer.payments)) {
+    return ['UPI'];
+  }
+  const payments = offer.payments
+    .map((method) => String(method || '').trim())
+    .filter((method) => method.length > 0);
+  return payments.length ? payments : ['UPI'];
+}
+
 function renderOffers(data, append) {
   if (!append) offersMap = new Map();
 
@@ -2636,7 +2647,8 @@ function renderOffers(data, append) {
 
     const actionLabel = data.side === 'buy' ? 'Buy' : 'Sell';
     const isOwnAd = currentUser && offer.createdByUserId === getCurrentUserId();
-    const payments = offer.payments
+    const offerPayments = getOfferPayments(offer);
+    const payments = offerPayments
       .map((method, paymentIndex) => `<span class="pay-chip pay-chip-${paymentIndex % 4}">${escapeHtml(method)}</span>`)
       .join(' ');
     const quantity = `${formatNumber(offer.available)} ${offer.asset}`;
@@ -2686,7 +2698,7 @@ function renderOffers(data, append) {
     const repOrders = rep.completedOrders != null ? rep.completedOrders : (offer.orders || 0);
     const repRate = rep.completionRate != null ? rep.completionRate : (offer.completionRate || 100);
     const repTime = rep.avgReleaseMinutes != null ? rep.avgReleaseMinutes + ' min' : (offer.orders > 500 ? '10 min' : offer.orders > 100 ? '15 min' : '20 min');
-    const paymentGate = offer.payments.map(m => `<span class="gt-pay">${escapeHtml(m)}</span>`).join('');
+    const paymentGate = offerPayments.map(m => `<span class="gt-pay">${escapeHtml(m)}</span>`).join('');
 
     cardsHtml.push(`
       <article class="gt-card">
@@ -2767,7 +2779,8 @@ var _offersResponseCache = new Map();
 var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
-var _ORDER_FLOW_VERSION = '20260328i';
+var _orderFlowWarmStartedAt = 0;
+var _ORDER_FLOW_VERSION = '20260329b';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
 
 function _consumeOrdersFocusState() {
@@ -2851,11 +2864,17 @@ function prefetchOrderFlowAssets() {
   if (_orderFlowWarmPromise) {
     return _orderFlowWarmPromise;
   }
+  _orderFlowWarmStartedAt = Date.now();
   _orderFlowWarmPromise = Promise.allSettled([
     fetch(_buildOrderFlowUrl({}), { credentials: 'include', cache: 'force-cache' }),
     fetch(_buildOrderFlowUrl({ warm: '1' }), { credentials: 'include', cache: 'force-cache' })
   ]).catch(function() {
     return null;
+  }).finally(function() {
+    if (Date.now() - _orderFlowWarmStartedAt > 30000) {
+      _orderFlowWarmPromise = null;
+      _orderFlowWarmStartedAt = 0;
+    }
   });
   return _orderFlowWarmPromise;
 }
@@ -6606,7 +6625,7 @@ window.deleteMobAd = async function(offerId) {
     el = document.getElementById('bfCompletedOrds');
     if (el) el.textContent = offer.orders || 0;
     var pm = document.getElementById('bfPayMethod');
-    if (pm) pm.innerHTML = (offer.payments || ['UPI']).map(function(m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
+    if (pm) pm.innerHTML = getOfferPayments(offer).map(function(m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
     var pi = document.getElementById('bfPayInput');
     if (pi) { pi.value = offer.minLimit || ''; bfUpdateCalc(); }
     el = document.getElementById('bfBuyHint'); if (el) el.textContent = '';
@@ -7180,8 +7199,13 @@ window.deleteMobAd = async function(offerId) {
 (function() {
   var _navLockTs = 0;
   var _navOverlay = null;
+  var _navFailSafeTimer = null;
 
   function hideNavOverlay(resetLock) {
+    if (_navFailSafeTimer) {
+      clearTimeout(_navFailSafeTimer);
+      _navFailSafeTimer = null;
+    }
     if (_navOverlay) {
       _navOverlay.style.opacity = '0';
       _navOverlay.style.pointerEvents = 'none';
@@ -7221,10 +7245,16 @@ window.deleteMobAd = async function(offerId) {
       overlay.style.opacity = '1';
       overlay.style.pointerEvents = 'auto';
     }
-    prefetchOrderFlowAssets();
-    setTimeout(function() {
-      window.location.href = url;
-    }, 18);
+    _navFailSafeTimer = setTimeout(function() {
+      hideNavOverlay(true);
+    }, 1600);
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(function() {
+        window.location.assign(url);
+      });
+      return;
+    }
+    window.location.assign(url);
   }
 
   window.addEventListener('pageshow', function() {
