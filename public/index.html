@@ -141,12 +141,35 @@
           <div id="heroUserPanel" class="cf-user-panel hidden" data-auth-user-only>
             <span class="cf-user-badge">Signed in</span>
             <h2 id="heroUserName">Bitegit User</h2>
-            <p id="heroUserMeta">Your account is ready for markets, P2P and assets.</p>
-            <div class="cf-user-actions">
-              <a href="/p2p" class="cf-signup">Open P2P</a>
-              <a href="/assets" class="cf-login">View Assets</a>
+            <p id="heroUserMeta" style="font-size:0.82rem;color:#aaa;margin:0 0 1.2rem;"></p>
+            <!-- Quick action icons -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:1.2rem;">
+              <a href="/rewards" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#111;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+                </div>
+                <span style="font-size:0.72rem;color:#ccc;font-weight:500;">Rewards</span>
+              </a>
+              <a href="/p2p" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#111;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="9" height="9" rx="2"/><rect x="13" y="7" width="9" height="9" rx="2"/><path d="M7 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/><path d="M7 16v2a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-2"/></svg>
+                </div>
+                <span style="font-size:0.72rem;color:#ccc;font-weight:500;">P2P</span>
+              </a>
+              <a href="/assets" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#111;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 12l-4-4-4 4"/><path d="M12 16V8"/></svg>
+                </div>
+                <span style="font-size:0.72rem;color:#ccc;font-weight:500;">Deposit</span>
+              </a>
+              <a href="/trade" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#111;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                </div>
+                <span style="font-size:0.72rem;color:#ccc;font-weight:500;">Buy</span>
+              </a>
             </div>
-            <button id="heroLogoutBtn" type="button" class="cf-user-logout">Logout</button>
+            <button id="heroLogoutBtn" type="button" class="cf-user-logout" style="width:100%;padding:0.6rem;background:transparent;border:1px solid #333;border-radius:8px;color:#888;font-size:0.85rem;cursor:pointer;">Logout</button>
           </div>
 
           <p id="message" class="message" role="status" aria-live="polite"></p>
@@ -257,23 +280,23 @@
       </section>
 
       <!-- Deposit CTA — only for logged in users -->
-      <section data-auth-user-only class="hidden" style="padding:2rem 1rem;background:#000;text-align:center;">
+      <section data-auth-user-only class="hidden" style="padding:1.5rem 1rem 0.5rem;background:#000;">
         <div style="max-width:480px;margin:0 auto;">
-          <!-- Progress steps -->
-          <div style="display:flex;align-items:center;gap:0;margin-bottom:1.5rem;">
-            <span style="width:12px;height:12px;border-radius:50%;background:#00B4D8;flex-shrink:0;"></span>
+          <!-- Progress bar -->
+          <div style="display:flex;align-items:center;gap:0;margin-bottom:0.6rem;">
+            <span style="width:10px;height:10px;border-radius:50%;background:#00B4D8;flex-shrink:0;"></span>
             <div style="flex:1;height:2px;background:#00B4D8;"></div>
-            <span style="width:12px;height:12px;border-radius:50%;background:#00B4D8;flex-shrink:0;"></span>
+            <span style="width:10px;height:10px;border-radius:50%;background:#00B4D8;flex-shrink:0;"></span>
             <div style="flex:1;height:2px;background:#333;"></div>
-            <span style="width:12px;height:12px;border-radius:50%;background:#333;flex-shrink:0;"></span>
+            <span style="width:10px;height:10px;border-radius:50%;background:#333;flex-shrink:0;"></span>
           </div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:2rem;">
-            <span style="font-size:0.78rem;color:#00B4D8;font-weight:600;">Verify identity</span>
-            <span style="font-size:0.78rem;color:#00B4D8;font-weight:600;">Deposit</span>
-            <span style="font-size:0.78rem;color:#555;">Start trading</span>
+          <div style="display:flex;justify-content:space-between;margin-bottom:1.2rem;">
+            <span style="font-size:0.72rem;color:#00B4D8;font-weight:600;">Verify identity</span>
+            <span style="font-size:0.72rem;color:#00B4D8;font-weight:600;">Deposit</span>
+            <span style="font-size:0.72rem;color:#555;">Start trading</span>
           </div>
-          <h2 style="font-size:1.8rem;font-weight:800;color:#fff;margin:0 0 1.5rem;text-align:left;">Deposit and start trading</h2>
-          <a href="/assets" style="display:block;width:100%;padding:1rem;background:#00B4D8;color:#000;font-size:1rem;font-weight:700;border-radius:10px;text-decoration:none;text-align:center;box-sizing:border-box;">Deposit</a>
+          <h2 style="font-size:1.5rem;font-weight:800;color:#fff;margin:0 0 1rem;text-align:left;">Deposit and start trading</h2>
+          <a href="/assets" style="display:block;width:100%;padding:0.9rem;background:#00B4D8;color:#000;font-size:1rem;font-weight:700;border-radius:10px;text-decoration:none;text-align:center;box-sizing:border-box;">Deposit</a>
         </div>
       </section>
 
