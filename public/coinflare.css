@@ -9,11 +9,11 @@
   --cf-panel-glass: #0d0d0d;
 
   /* ── Brand / Accent ── */
-  --cf-brand:      #00FFD6;
-  --cf-brand-2:    #00D4FF;
-  --cf-brand-glow: rgba(0, 255, 214, 0.40);
-  --cf-brand-soft: rgba(0, 255, 214, 0.15);
-  --cf-brand-grad: linear-gradient(135deg, #00FFD6 0%, #00D4FF 100%);
+  --cf-brand:      #00B4D8;
+  --cf-brand-2:    #0096C7;
+  --cf-brand-glow: rgba(0, 180, 216, 0.40);
+  --cf-brand-soft: rgba(0, 180, 216, 0.15);
+  --cf-brand-grad: linear-gradient(135deg, #00B4D8 0%, #0096C7 100%);
 
   /* ── Text ── */
   --cf-text:       #FFFFFF;
@@ -261,7 +261,7 @@ a {
 .cf-signup,
 .cf-signup-link,
 .cf-apk-cta {
-  background: #00C9C9 !important;
+  background: #00B4D8 !important;
   border-color: transparent !important;
   color: #000 !important;
   font-weight: 700 !important;
