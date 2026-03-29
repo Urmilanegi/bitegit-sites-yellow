@@ -320,6 +320,7 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       return res.status(201).json(buildControllerOrderResponse(savedOrder));
     } catch (error) {
       const knownStatus = Number(error?.status || 0);
+      const knownMessage = String(error?.message || '');
       if (String(error?.code || '').trim().toUpperCase() === 'ACTIVE_ORDER_EXISTS' && error?.existingOrder) {
         const existingOrder = { ...error.existingOrder };
         delete existingOrder._id;
@@ -333,7 +334,20 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       if (knownStatus >= 400 && knownStatus < 500) {
         return res.status(knownStatus).json({
           success: false,
-          message: String(error.message || 'Order creation failed.'),
+          message: knownMessage || 'Order creation failed.',
+          code: String(error.code || 'P2P_ORDER_CREATE_FAILED')
+        });
+      }
+      const validationLikeMessage = knownMessage.toLowerCase();
+      if (
+        validationLikeMessage.includes('required') ||
+        validationLikeMessage.includes('must') ||
+        validationLikeMessage.includes('invalid') ||
+        validationLikeMessage.includes('greater than 0')
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: knownMessage || 'Request validation failed.',
           code: String(error.code || 'P2P_ORDER_CREATE_FAILED')
         });
       }
