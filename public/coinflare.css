@@ -294,24 +294,24 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 }
 
 .cf-nav-toggle {
-  width: 22px;
-  height: 18px;
+  width: 28px;
+  height: 20px;
   border: none;
   background: transparent;
   display: inline-flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 0;
   padding: 0;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .cf-nav-toggle span {
   display: block;
-  height: 2px;
+  height: 2.5px;
   width: 100%;
-  border-radius: 2px;
-  background: #d7e0ef;
+  border-radius: 3px;
+  background: #ffffff;
 }
 
 .cf-nav-overlay {
@@ -3069,7 +3069,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   }
 
   .cf-nav-toggle {
-    width: 26px;
+    width: 28px;
     height: 20px;
     border: none;
     background: transparent;
