@@ -2050,15 +2050,12 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   overflow: hidden;
   background: #000000;
   margin: 0;
-  aspect-ratio: 1 / 0.72;
 }
 
 .cf-guide-card-visual img {
   width: 100%;
-  height: 100%;
+  height: auto;
   display: block;
-  object-fit: cover;
-  object-position: center bottom;
 }
 
 .cf-guide-cta {
