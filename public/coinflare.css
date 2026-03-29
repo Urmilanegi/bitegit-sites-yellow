@@ -2059,31 +2059,20 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 }
 
 .cf-guide-cta {
-  position: absolute;
-  left: 50%;
-  bottom: 1.4rem;
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
+  display: block;
+  width: 100%;
+  text-align: center;
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   color: #ffffff;
-  text-shadow: 0 2px 12px rgba(0,0,0,0.7);
-  background: none;
-  border-radius: 0;
-  min-height: unset;
-  min-width: unset;
-  padding: 0;
-  box-shadow: none;
-  z-index: 3;
+  background: #000000;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
   pointer-events: none;
 }
 
 .cf-guide-card-link:hover .cf-guide-cta {
   color: #00d4d4;
-  text-shadow: 0 2px 16px rgba(0,212,212,0.5);
 }
 
 .cf-guide-card.cf-reveal:nth-child(1) {
@@ -2996,7 +2985,6 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 
   .cf-guide-cta {
     font-size: 1rem;
-    bottom: 1.2rem;
   }
 
   .cf-market-tabs {
@@ -3400,7 +3388,6 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   }
 
   .cf-guide-cta {
-    bottom: 1rem;
     font-size: 0.95rem;
   }
 
