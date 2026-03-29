@@ -478,6 +478,9 @@ function registerAuthRoutes(app, deps) {
 
       const credential = await repos.getP2PCredential(email);
       const user = buildUserFromCredential(email, 'USER', credential);
+      if (typeof repos.updateP2PCredentialProfile === 'function') {
+        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
+      }
       await walletService.ensureWallet(user.id, { username: user.username });
 
       await safeAuditLog({
@@ -581,6 +584,9 @@ function registerAuthRoutes(app, deps) {
 
       const role = tokenService.normalizeRole(credential?.role || 'USER');
       const user = buildUserFromCredential(email, role, credential);
+      if (typeof repos.updateP2PCredentialProfile === 'function') {
+        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
+      }
       await walletService.ensureWallet(user.id, { username: user.username });
       const tokenPair = await createAndReturnTokens(res, user);
 
@@ -678,6 +684,9 @@ function registerAuthRoutes(app, deps) {
 
       const role = tokenService.normalizeRole(credential.role || 'USER');
       const user = buildUserFromCredential(email, role, credential);
+      if (typeof repos.updateP2PCredentialProfile === 'function') {
+        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
+      }
       const previousLoginIp = String(credential.lastLoginIp || '').trim();
       const previousUserAgent = String(credential.lastUserAgent || '').trim();
       const hasLoginHistory = Boolean(previousLoginIp || previousUserAgent);
@@ -820,6 +829,9 @@ function registerAuthRoutes(app, deps) {
 
       const credential = await repos.getP2PCredential(email);
       const user = buildUserFromCredential(email, 'USER', credential);
+      if (typeof repos.updateP2PCredentialProfile === 'function') {
+        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
+      }
       await walletService.ensureWallet(user.id, { username: user.username });
 
       const tokenPair = await createAndReturnTokens(res, user);

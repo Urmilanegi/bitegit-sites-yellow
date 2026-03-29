@@ -110,7 +110,7 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       }
 
       // Email must be verified before placing first order
-      const buyerCred = await repos.getP2PCredentialByUserId(req.p2pUser.id);
+      const buyerCred = await repos.getP2PCredentialByUserId(req.p2pUser);
       if (buyerCred && !buyerCred.emailVerified) {
         return res.status(403).json({
           success: false,

@@ -2105,7 +2105,7 @@ app.get('/api/p2p/me', async (req, res) => {
 
   const [kycProfile, cred] = await Promise.all([
     getP2PKycProfileByEmail(user.email),
-    repos ? repos.getP2PCredentialByUserId(user.id).catch(() => null) : null
+    repos ? repos.getP2PCredentialByUserId(user).catch(() => null) : null
   ]);
 
   return res.json({
@@ -2719,13 +2719,13 @@ app.post('/api/withdrawals/send-otp', requiresP2PUser, async (req, res) => {
   if (!amount || Number(amount) <= 0) return res.status(400).json({ message: 'Amount is required.' });
   if (!address) return res.status(400).json({ message: 'Withdrawal address is required.' });
   try {
-    const cred = await repos.getP2PCredentialByUserId(req.p2pUser.id);
+    const cred = await repos.getP2PCredentialByUserId(req.p2pUser);
     if (!cred) return res.status(403).json({ message: 'P2P profile not found.' });
     const email = cred.email || req.p2pUser.email;
     if (!email) return res.status(400).json({ message: 'No email on account.' });
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    await repos.storeEmailOtp(req.p2pUser.id, otp, expiresAt);
+    await repos.storeEmailOtp(req.p2pUser, otp, expiresAt);
     await p2pEmailService.sendWithdrawalOtp(email, otp, amount, currency, address);
     return res.json({ sent: true });
   } catch (err) {
@@ -3815,12 +3815,12 @@ app.post('/api/p2p/orders/:orderId/rate', requiresP2PUser, async (req, res) => {
 // ── Email verification OTP ────────────────────────────────────────────────────
 app.post('/api/p2p/verify-email/send', requiresP2PUser, async (req, res) => {
   try {
-    const cred = await repos.getP2PCredentialByUserId(req.p2pUser.id);
+    const cred = await repos.getP2PCredentialByUserId(req.p2pUser);
     if (!cred) return res.status(404).json({ message: 'User not found.' });
     if (cred.emailVerified) return res.json({ success: true, message: 'Email already verified.' });
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
-    await repos.storeEmailOtp(req.p2pUser.id, otp, expiresAt);
+    await repos.storeEmailOtp(req.p2pUser, otp, expiresAt);
     await p2pEmailService.sendEmailVerificationOtp(req.p2pUser.email, otp);
     return res.json({ success: true, message: 'OTP sent to your email.' });
   } catch (err) {
@@ -3832,7 +3832,7 @@ app.post('/api/p2p/verify-email/confirm', requiresP2PUser, async (req, res) => {
   const otp = String(req.body.otp || '').trim();
   if (!otp || otp.length !== 6) return res.status(400).json({ message: 'Enter the 6-digit OTP.' });
   try {
-    const result = await repos.verifyAndConsumeEmailOtp(req.p2pUser.id, otp);
+    const result = await repos.verifyAndConsumeEmailOtp(req.p2pUser, otp);
     if (!result.ok) {
       const msgs = { no_otp: 'No OTP found. Request a new one.', expired: 'OTP expired. Request a new one.', wrong_otp: 'Incorrect OTP.', user_not_found: 'User not found.' };
       return res.status(400).json({ message: msgs[result.reason] || 'Verification failed.' });
