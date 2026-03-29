@@ -1,4 +1,4 @@
-const { buildP2POrderDocument, toOrderResponse } = require('../models/P2POrder');
+const { buildP2POrderDocument, toOrderResponse, normalizeExpiresAtValue } = require('../models/P2POrder');
 const { makeSeedUserId } = require('../lib/wallet-service');
 const {
   normalizeOrderStatus,
@@ -101,9 +101,10 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
   function buildControllerOrderResponse(order) {
     const normalizedStatus = normalizeOrderStatus(order?.status);
+    const expiresAt = normalizeExpiresAtValue(order?.expiresAt, 0);
     const remainingSeconds =
-      isExpirableOrderStatus(normalizedStatus) && Number(order?.expiresAt || 0) > Date.now()
-        ? Math.max(0, Math.floor((Number(order.expiresAt) - Date.now()) / 1000))
+      isExpirableOrderStatus(normalizedStatus) && expiresAt > Date.now()
+        ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
         : 0;
 
     return {
