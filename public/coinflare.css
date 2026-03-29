@@ -2064,15 +2064,15 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   text-align: center;
   font-weight: 700;
   font-size: 0.95rem;
-  color: #ffffff;
-  background: #000000;
+  color: #000000;
+  background: linear-gradient(135deg, #00f5f5 0%, #00c8ff 100%);
   padding: 0.55rem 0;
-  border-top: 1px solid rgba(255,255,255,0.06);
   pointer-events: none;
 }
 
 .cf-guide-card-link:hover .cf-guide-cta {
-  color: #00d4d4;
+  background: linear-gradient(135deg, #00ffff 0%, #00d4ff 100%);
+  color: #000000;
 }
 
 .cf-guide-card.cf-reveal:nth-child(1) {
