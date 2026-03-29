@@ -335,7 +335,7 @@ body.auth-page {
 .auth-submit {
   margin-top: 0.6rem;
   min-height: 46px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 0;
   background: linear-gradient(135deg, #00FFD6 0%, #00D4FF 100%);
   color: #000;
@@ -343,13 +343,13 @@ body.auth-page {
   font-weight: 800;
   cursor: pointer;
   width: 100%;
-  letter-spacing: 0.01em;
-  box-shadow: 0 0 18px rgba(0,255,214,0.5), 0 4px 14px rgba(0,0,0,0.35);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 16px rgba(0,255,214,0.35), 0 4px 14px rgba(0,0,0,0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .auth-submit:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 28px rgba(0,255,214,0.65), 0 6px 20px rgba(0,0,0,0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 24px rgba(0,255,214,0.5), 0 6px 20px rgba(0,0,0,0.35);
 }
 
 .auth-submit:disabled {
@@ -480,19 +480,19 @@ body.auth-forgot-mode .auth-card h1 {
 
 body.auth-signup-mode .auth-form label,
 body.auth-forgot-mode .auth-form label {
-  font-size: 0.96rem;
+  font-size: 0.85rem;
 }
 
 body.auth-signup-mode .auth-form input,
 body.auth-forgot-mode .auth-form input {
-  min-height: 56px;
-  font-size: 1.06rem;
+  min-height: 44px;
+  font-size: 0.9rem;
 }
 
 body.auth-signup-mode .auth-submit,
 body.auth-forgot-mode .auth-submit {
-  min-height: 52px;
-  font-size: 1.22rem;
+  min-height: 44px;
+  font-size: 1rem;
 }
 
 .auth-qr-modal {
