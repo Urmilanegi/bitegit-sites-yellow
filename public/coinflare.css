@@ -261,11 +261,11 @@ a {
 .cf-signup,
 .cf-signup-link,
 .cf-apk-cta {
-  background: linear-gradient(135deg, #00f5f5 0%, #00c8ff 100%) !important;
+  background: #00C9C9 !important;
   border-color: transparent !important;
   color: #000 !important;
   font-weight: 700 !important;
-  box-shadow: 0 0 14px rgba(0,220,255,0.45) !important;
+  box-shadow: none !important;
 }
 
 .cf-user-logout {
@@ -285,7 +285,7 @@ a {
 .cf-signup-link:hover,
 .cf-apk-cta:hover {
   transform: translateY(-1px);
-  box-shadow: 0 20px 38px rgba(16, 213, 207, 0.22);
+  box-shadow: none;
 }
 
 body.coinflare-page.cf-chart-open .cf-signup,
