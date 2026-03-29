@@ -94,6 +94,27 @@ function broadcastOrderParticipantEvent(broadcastUserEvent, order, eventName, pa
   }
 }
 
+async function recoverExistingActiveOrderForBuyer(repos, user, adId) {
+  if (!repos || typeof repos.listP2PActiveOrdersForUser !== 'function') {
+    return null;
+  }
+
+  const activeOrders = await repos.listP2PActiveOrdersForUser({ user, limit: 10 });
+  if (!Array.isArray(activeOrders) || activeOrders.length === 0) {
+    return null;
+  }
+
+  const sameAdOrder = activeOrders.find((order) => {
+    const orderAdId = String(order?.adId || order?.offerId || '').trim();
+    return orderAdId && orderAdId === adId;
+  });
+  if (sameAdOrder) {
+    return sameAdOrder;
+  }
+
+  return activeOrders.length === 1 ? activeOrders[0] : null;
+}
+
 function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 * 1000, p2pEmailService = null, broadcastUserEvent = null }) {
   if (!repos || !walletService) {
     throw new Error('P2P order controller requires repos and walletService.');
@@ -118,8 +139,8 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
   }
 
   async function createOrder(req, res) {
+    const adId = String(req.body?.adId || req.body?.offerId || '').trim();
     try {
-      const adId = String(req.body.adId || req.body.offerId || '').trim();
       if (!adId) {
         return res.status(400).json({ success: false, message: 'adId is required.' });
       }
@@ -351,6 +372,22 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
           message: knownMessage || 'Request validation failed.',
           code: String(error.code || 'P2P_ORDER_CREATE_FAILED')
         });
+      }
+      try {
+        const recoveredOrder = await recoverExistingActiveOrderForBuyer(repos, req.p2pUser, adId);
+        if (recoveredOrder) {
+          const existingOrder = { ...recoveredOrder };
+          delete existingOrder._id;
+          return res.status(200).json({
+            success: true,
+            existingOrder: true,
+            recovered: true,
+            message: 'Recovered your active order. Opening it now.',
+            ...buildControllerOrderResponse(existingOrder)
+          });
+        }
+      } catch (recoveryError) {
+        console.warn('[p2p-order-controller] active-order recovery failed:', recoveryError?.message || recoveryError);
       }
       console.error('[p2p-order-controller] createOrder unexpected error:', error);
       return res.status(500).json({ success: false, message: 'Server error while creating order.' });

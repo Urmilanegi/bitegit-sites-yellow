@@ -114,3 +114,87 @@ test('createOrder returns existing order payload even when expiresAt is an ISO s
   assert.equal(typeof res.payload.order.remainingSeconds, 'number');
   assert.ok(res.payload.order.remainingSeconds > 0);
 });
+
+test('createOrder recovers buyer active order after unexpected error', async () => {
+  const recoveredOrder = {
+    id: 'ord_recovered',
+    reference: 'P2P-RECOVER-1234',
+    adId: 'ofr_1028',
+    offerId: 'ofr_1028',
+    buyerId: 'buyer_1',
+    sellerId: 'seller_1',
+    buyerUserId: 'buyer_1',
+    sellerUserId: 'seller_1',
+    buyerUsername: 'buyer',
+    sellerUsername: 'seller',
+    type: 'SELL',
+    side: 'buy',
+    asset: 'USDT',
+    paymentMethod: 'UPI',
+    price: 90,
+    cryptoAmount: 11.11111111,
+    assetAmount: 11.11111111,
+    escrowAmount: 11.11111111,
+    fiatAmount: 1000,
+    amountInr: 1000,
+    status: 'CREATED',
+    expiresAt: Date.now() + 5 * 60 * 1000
+  };
+
+  const controller = createP2POrderController({
+    repos: {
+      async getP2PCredentialByUserId() {
+        return { email: 'buyer@example.com', emailVerified: true };
+      },
+      async getOfferById() {
+        return {
+          id: 'ofr_1028',
+          type: 'SELL',
+          asset: 'USDT',
+          price: 90,
+          minLimit: 100,
+          maxLimit: 10000,
+          availableAmount: 500,
+          payments: ['UPI'],
+          createdByUserId: 'seller_1',
+          createdByUsername: 'seller',
+          advertiser: 'seller',
+          status: 'ACTIVE',
+          moderationStatus: 'APPROVED',
+          merchantDepositLocked: true,
+          fundingSource: 'ad_locked',
+          environment: 'production'
+        };
+      },
+      async listPaymentMethods() {
+        return [];
+      },
+      async listP2PActiveOrdersForUser() {
+        return [recoveredOrder];
+      }
+    },
+    walletService: {
+      async createEscrowOrder() {
+        throw new Error('Unexpected write concern failure');
+      }
+    }
+  });
+
+  const req = {
+    body: { adId: 'ofr_1028', fiatAmount: 1000, paymentMethod: 'UPI' },
+    p2pUser: {
+      id: 'buyer_1',
+      userId: 'buyer_1',
+      username: 'buyer',
+      email: 'buyer@example.com'
+    }
+  };
+  const res = createMockResponse();
+
+  await controller.createOrder(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.existingOrder, true);
+  assert.equal(res.payload.recovered, true);
+  assert.equal(res.payload.order.id, recoveredOrder.id);
+});
