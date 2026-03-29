@@ -132,14 +132,23 @@ body.auth-page {
 }
 
 .auth-icon-btn {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  border: 1px solid var(--auth-line);
-  background: var(--auth-panel);
-  color: var(--auth-text);
-  font-size: 1.22rem;
+  width: 28px;
+  height: 20px;
+  border: none;
+  background: transparent;
   cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0;
+  flex-shrink: 0;
+}
+.auth-icon-btn span {
+  display: block;
+  height: 2.5px;
+  width: 100%;
+  border-radius: 3px;
+  background: #ffffff;
 }
 
 .auth-main {
@@ -824,7 +833,7 @@ body.auth-forgot-mode .auth-submit {
   background: var(--auth-panel);
   border-left: 1px solid var(--auth-line);
   transform: translateX(105%);
-  transition: transform 0.24s ease;
+  transition: transform 0.38s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   padding: 1rem;
   display: grid;
   grid-template-rows: auto 1fr auto;

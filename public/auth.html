@@ -9,12 +9,13 @@
   <body class="auth-page">
     <header class="auth-topbar">
       <a class="auth-brand" href="/">
-        <span class="auth-brand-mark" aria-hidden="true"></span>
         <span class="auth-brand-word">Bitegit</span>
       </a>
       <div class="auth-top-actions">
         <button id="authTopModeBtn" type="button" class="auth-top-primary">Register</button>
-        <button id="authMenuToggle" type="button" class="auth-icon-btn" aria-label="Open menu" aria-controls="authNavDrawer" aria-expanded="false">☰</button>
+        <button id="authMenuToggle" type="button" class="auth-icon-btn" aria-label="Open menu" aria-controls="authNavDrawer" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
       </div>
     </header>
 
@@ -22,7 +23,6 @@
     <aside id="authNavDrawer" class="auth-nav-drawer" aria-hidden="true">
       <div class="auth-nav-head">
         <strong class="auth-drawer-brand">
-          <span class="auth-brand-mark" aria-hidden="true"></span>
           <span>Bitegit</span>
         </strong>
         <button id="authNavClose" type="button" aria-label="Close menu">✕</button>
@@ -33,9 +33,8 @@
         <a href="/chart.html?symbol=BTCUSDT">Spot</a>
         <a href="/chart.html?symbol=BTCUSDT">Futures</a>
         <a href="/p2p">P2P</a>
-        <a href="/#crypto-for-everyone">Earn</a>
-        <a href="/#events">ICO</a>
-        <a href="/#support">Support</a>
+        <a href="/">Earn</a>
+        <a href="/">Support</a>
         <a href="/assets">Assets</a>
       </nav>
       <div class="auth-nav-extra">
@@ -52,7 +51,7 @@
 
     <main class="auth-main">
       <section class="auth-card" aria-live="polite">
-        <h1 id="authTitle">Log In to Bitegit</h1>
+        <h1 id="authTitle">Log In</h1>
         <p id="authSubtitle" class="auth-subtitle" style="display:none">Register your Bitegit account through any of the following methods:</p>
 
         <div class="auth-mode-tabs" role="tablist" aria-label="Auth mode">
