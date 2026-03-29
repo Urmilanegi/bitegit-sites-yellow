@@ -2059,15 +2059,19 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 }
 
 .cf-guide-cta {
-  display: block;
-  width: 100%;
-  text-align: center;
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: #000000;
-  background: linear-gradient(135deg, #00f5f5 0%, #00c8ff 100%);
-  padding: 0.55rem 0;
-  pointer-events: none;
+  display: block !important;
+  width: 100% !important;
+  text-align: center !important;
+  font-weight: 700 !important;
+  font-size: 0.95rem !important;
+  color: #000000 !important;
+  background: linear-gradient(135deg, #00f5f5 0%, #00c8ff 100%) !important;
+  padding: 0.6rem 0 !important;
+  position: static !important;
+  transform: none !important;
+  min-height: unset !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 .cf-guide-card-link:hover .cf-guide-cta {
