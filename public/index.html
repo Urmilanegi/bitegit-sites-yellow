@@ -138,11 +138,70 @@
             </div>
           </div>
 
-          <div id="heroUserPanel" class="cf-user-panel hidden" data-auth-user-only>
-            <span class="cf-user-badge">Signed in</span>
-            <h2 id="heroUserName">Bitegit User</h2>
-            <p id="heroUserMeta" style="font-size:0.82rem;color:#aaa;margin:0 0 1rem;"></p>
-            <button id="heroLogoutBtn" type="button" class="cf-user-logout" style="padding:0.5rem 1.2rem;background:transparent;border:1px solid #333;border-radius:8px;color:#888;font-size:0.82rem;cursor:pointer;">Logout</button>
+          <div id="heroUserPanel" class="hidden" data-auth-user-only style="background:#0d1a1f;border-radius:18px;padding:1.4rem 1.2rem 1.2rem;margin-top:1rem;">
+
+            <!-- User info row -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem;">
+              <div>
+                <div style="font-size:0.7rem;color:#00B4D8;font-weight:700;letter-spacing:0.06em;margin-bottom:0.25rem;">SIGNED IN</div>
+                <h2 id="heroUserName" style="font-size:1.1rem;font-weight:700;color:#fff;margin:0 0 0.1rem;"></h2>
+                <p id="heroUserMeta" style="font-size:0.72rem;color:#6b8a91;margin:0;"></p>
+              </div>
+              <button id="heroLogoutBtn" type="button" style="padding:0.4rem 0.9rem;background:transparent;border:1px solid #1e3a42;border-radius:8px;color:#6b8a91;font-size:0.75rem;cursor:pointer;white-space:nowrap;">Logout</button>
+            </div>
+
+            <!-- Diamond progress stepper — blue-teal -->
+            <div style="display:flex;align-items:center;margin-bottom:0.45rem;">
+              <svg width="13" height="13" viewBox="0 0 14 14" style="flex-shrink:0;"><polygon points="7,1 13,7 7,13 1,7" fill="#00B4D8"/></svg>
+              <div style="flex:1;height:2px;background:#00B4D8;"></div>
+              <svg width="13" height="13" viewBox="0 0 14 14" style="flex-shrink:0;"><polygon points="7,1 13,7 7,13 1,7" fill="#00B4D8"/></svg>
+              <div style="flex:1;height:2px;background:#1e3a42;"></div>
+              <svg width="13" height="13" viewBox="0 0 14 14" style="flex-shrink:0;"><polygon points="7,1 13,7 7,13 1,7" fill="#1e3a42"/></svg>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:1.1rem;">
+              <span style="font-size:0.7rem;color:#00B4D8;font-weight:600;">Verify identity</span>
+              <span style="font-size:0.7rem;color:#00B4D8;font-weight:600;">Deposit</span>
+              <span style="font-size:0.7rem;color:#2e5a66;font-weight:500;">Start trading</span>
+            </div>
+
+            <!-- Heading -->
+            <h3 style="font-size:1.35rem;font-weight:800;color:#fff;margin:0 0 1rem;line-height:1.2;">Deposit and start trading</h3>
+
+            <!-- Deposit button — blue-teal pill -->
+            <a href="/assets" style="display:block;width:100%;padding:0.85rem;background:#00B4D8;color:#000;font-size:0.95rem;font-weight:700;border-radius:50px;text-decoration:none;text-align:center;box-sizing:border-box;margin-bottom:1.2rem;">Deposit</a>
+
+            <!-- 4 Quick-action icon tiles -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;">
+
+              <a href="/rewards" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#0a1a1f;border:1px solid #1e3a42;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M20 12V22H4V12" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 7H2v5h20V7z" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 22V7" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <span style="font-size:0.68rem;color:#aad6df;font-weight:500;">Rewards</span>
+              </a>
+
+              <a href="/p2p" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#0a1a1f;border:1px solid #1e3a42;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="8" height="8" rx="2" stroke="#00B4D8" stroke-width="1.8"/><rect x="14" y="3" width="8" height="8" rx="2" stroke="#00B4D8" stroke-width="1.8"/><rect x="2" y="13" width="8" height="8" rx="2" stroke="#00B4D8" stroke-width="1.8"/><rect x="14" y="13" width="8" height="8" rx="2" stroke="#00B4D8" stroke-width="1.8"/></svg>
+                </div>
+                <span style="font-size:0.68rem;color:#aad6df;font-weight:500;">P2P</span>
+              </a>
+
+              <a href="/assets" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#0a1a1f;border:1px solid #1e3a42;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#00B4D8" stroke-width="1.8"/><path d="M8 12l4 4 4-4" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v8" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </div>
+                <span style="font-size:0.68rem;color:#aad6df;font-weight:500;">Deposit</span>
+              </a>
+
+              <a href="/trade" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+                <div style="width:56px;height:56px;border-radius:14px;background:#0a1a1f;border:1px solid #1e3a42;display:flex;align-items:center;justify-content:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#00B4D8" stroke-width="1.8"/><path d="M12 8v8M8 12h8" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </div>
+                <span style="font-size:0.68rem;color:#aad6df;font-weight:500;">Buy</span>
+              </a>
+
+            </div>
           </div>
 
           <p id="message" class="message" role="status" aria-live="polite"></p>
@@ -252,72 +311,6 @@
         </div>
       </section>
 
-      <!-- Deposit CTA — only for logged in users -->
-      <section data-auth-user-only class="hidden" style="padding:1.8rem 1.2rem 1.5rem;background:#0a0a0a;">
-        <div style="max-width:480px;margin:0 auto;">
-
-          <!-- Diamond progress stepper -->
-          <div style="display:flex;align-items:center;margin-bottom:0.5rem;">
-            <!-- Step 1 done -->
-            <svg width="14" height="14" viewBox="0 0 14 14" style="flex-shrink:0;"><polygon points="7,1 13,7 7,13 1,7" fill="#fff"/></svg>
-            <div style="flex:1;height:2px;background:#fff;"></div>
-            <!-- Step 2 active -->
-            <svg width="14" height="14" viewBox="0 0 14 14" style="flex-shrink:0;"><polygon points="7,1 13,7 7,13 1,7" fill="#fff"/></svg>
-            <div style="flex:1;height:2px;background:#333;"></div>
-            <!-- Step 3 inactive -->
-            <svg width="14" height="14" viewBox="0 0 14 14" style="flex-shrink:0;"><polygon points="7,1 13,7 7,13 1,7" fill="#333"/></svg>
-          </div>
-          <!-- Step labels -->
-          <div style="display:flex;justify-content:space-between;margin-bottom:1.6rem;">
-            <span style="font-size:0.75rem;color:#fff;font-weight:600;">Verify identity</span>
-            <span style="font-size:0.75rem;color:#fff;font-weight:600;">Deposit</span>
-            <span style="font-size:0.75rem;color:#555;font-weight:500;">Start trading</span>
-          </div>
-
-          <!-- Heading -->
-          <h2 style="font-size:1.7rem;font-weight:800;color:#fff;margin:0 0 1.2rem;line-height:1.2;">Deposit and start trading</h2>
-
-          <!-- Deposit button — white pill style like screenshot -->
-          <a href="/assets" style="display:block;width:100%;padding:1rem;background:#fff;color:#000;font-size:1rem;font-weight:700;border-radius:50px;text-decoration:none;text-align:center;box-sizing:border-box;margin-bottom:1.8rem;">Deposit</a>
-
-          <!-- 4 Quick-action icon tiles -->
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem;">
-
-            <!-- Rewards -->
-            <a href="/rewards" style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;text-decoration:none;">
-              <div style="width:62px;height:62px;border-radius:16px;background:#1a1a1a;display:flex;align-items:center;justify-content:center;">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M20 12V22H4V12" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 7H2v5h20V7z" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 22V7" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </div>
-              <span style="font-size:0.73rem;color:#fff;font-weight:500;">Rewards</span>
-            </a>
-
-            <!-- P2P -->
-            <a href="/p2p" style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;text-decoration:none;">
-              <div style="width:62px;height:62px;border-radius:16px;background:#1a1a1a;display:flex;align-items:center;justify-content:center;">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="3" width="8" height="8" rx="2" stroke="#fff" stroke-width="1.8"/><rect x="14" y="3" width="8" height="8" rx="2" stroke="#fff" stroke-width="1.8"/><rect x="2" y="13" width="8" height="8" rx="2" stroke="#fff" stroke-width="1.8"/><rect x="14" y="13" width="8" height="8" rx="2" stroke="#fff" stroke-width="1.8"/></svg>
-              </div>
-              <span style="font-size:0.73rem;color:#fff;font-weight:500;">P2P</span>
-            </a>
-
-            <!-- Deposit -->
-            <a href="/assets" style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;text-decoration:none;">
-              <div style="width:62px;height:62px;border-radius:16px;background:#1a1a1a;display:flex;align-items:center;justify-content:center;">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#fff" stroke-width="1.8"/><path d="M8 12l4 4 4-4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v8" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
-              </div>
-              <span style="font-size:0.73rem;color:#fff;font-weight:500;">Deposit</span>
-            </a>
-
-            <!-- Buy -->
-            <a href="/trade" style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;text-decoration:none;">
-              <div style="width:62px;height:62px;border-radius:16px;background:#1a1a1a;display:flex;align-items:center;justify-content:center;">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#fff" stroke-width="1.8"/><path d="M12 8v8M8 12h8" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
-              </div>
-              <span style="font-size:0.73rem;color:#fff;font-weight:500;">Buy</span>
-            </a>
-
-          </div>
-        </div>
-      </section>
 
       <!-- ── Market Section ── -->
       <section class="cf-fullmkt cf-reveal is-visible" aria-label="Live markets">
