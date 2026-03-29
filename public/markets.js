@@ -85,7 +85,7 @@ function coinIco(base) {
 // ── Render ──
 function renderTable() {
   if (currentTab === 'new') {
-    marketsRows.innerHTML = `<tr class="mk-loading-row"><td colspan="5">New listings coming soon — stay tuned.</td></tr>`;
+    marketsRows.innerHTML = `<tr class="mk-loading-row"><td colspan="4">New listings coming soon — stay tuned.</td></tr>`;
     if (mkCount) mkCount.textContent = '';
     return;
   }
@@ -116,11 +116,9 @@ function renderTable() {
   if (mkCount) mkCount.textContent = `${rows.length} coins`;
 
   if (!rows.length) {
-    marketsRows.innerHTML = `<tr class="mk-loading-row"><td colspan="5">No results for "${searchQ}".</td></tr>`;
+    marketsRows.innerHTML = `<tr class="mk-loading-row"><td colspan="4">No results for "${searchQ}".</td></tr>`;
     return;
   }
-
-  const market = currentTab === 'futures' ? 'perp' : 'spot';
 
   marketsRows.innerHTML = rows.map(item => {
     const base  = item.symbol.replace('USDT', '');
@@ -135,7 +133,7 @@ function renderTable() {
         <div class="mk-coin-cell">
           ${coinIco(base)}
           <div class="mk-coin-names">
-            <span class="mk-coin-sym">${base}</span>
+            <span class="mk-coin-sym">${base}/USDT</span>
             <span class="mk-coin-name">${name}</span>
           </div>
         </div>
@@ -143,7 +141,6 @@ function renderTable() {
       <td><span class="mk-price">${fmtPrice(item.lastPrice)}</span></td>
       <td><span class="mk-chg ${cls}">${sign}${chg.toFixed(2)}%</span></td>
       <td><span class="mk-vol">${fmtVol(item.volume24h)}</span></td>
-      <td><a class="mk-trade-btn" href="${href}" onclick="event.stopPropagation()">Chart</a></td>
     </tr>`;
   }).join('');
 }
@@ -199,6 +196,7 @@ async function fetchFromCoinGecko() {
 
 async function loadMarkets() {
   if (currentTab === 'new') { renderTable(); return; }
+  if (currentTab === 'all' && allRows.length) { renderTable(); return; }
 
   let rows = await fetchFromServer();
   if (!rows) rows = await fetchFromCoinGecko();
@@ -212,7 +210,7 @@ async function loadMarkets() {
 
 // ── Tab switching ──
 function setTab(tab) {
-  currentTab = ['spot', 'futures', 'new'].includes(tab) ? tab : 'spot';
+  currentTab = ['all', 'spot', 'futures', 'new'].includes(tab) ? tab : 'spot';
   if (marketsTabs) {
     marketsTabs.querySelectorAll('button[data-tab]').forEach(btn => {
       const active = btn.dataset.tab === currentTab;
@@ -227,7 +225,7 @@ function setTab(tab) {
 
 function startRefresh() {
   clearInterval(refreshTimer);
-  if (currentTab !== 'new') {
+  if (currentTab !== 'new' && currentTab !== 'all') {
     refreshTimer = setInterval(loadMarkets, 6000);
   }
 }

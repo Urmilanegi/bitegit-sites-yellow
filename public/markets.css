@@ -6,7 +6,7 @@
   --mk-line: rgba(201, 220, 255, 0.08);
   --mk-text: #f4f8ff;
   --mk-muted: #95a3bc;
-  --mk-brand: #00b897;
+  --mk-brand: #00B4D8;
   --mk-green: #19d27f;
   --mk-red: #ff5f82;
   --mk-header-bg: rgba(0,0,0,0.92);
@@ -277,11 +277,12 @@ body.markets-nav-open { overflow: hidden; }
 }
 
 .mk-tabs button.active {
-  color: #f4f8ff;
+  color: #00B4D8;
   border: none;
   border-radius: 10px;
   padding: 0.3rem 1.1rem;
-  background: rgba(255,255,255,0.04);
+  background: rgba(0,180,216,0.08);
+  border-bottom: 2px solid #00B4D8;
 }
 
 .mk-tabs button:not(.active):hover { color: #f4f8ff; }
@@ -373,8 +374,6 @@ body.markets-nav-open { overflow: hidden; }
 .mk-table thead th:nth-child(3),
 .mk-table thead th:nth-child(4) { text-align: right; }
 
-.mk-th-action { text-align: right !important; cursor: default !important; }
-
 .mk-table thead th.sort-asc::after { content: ' ↑'; }
 .mk-table thead th.sort-desc::after { content: ' ↓'; }
 
@@ -399,8 +398,6 @@ body.markets-nav-open { overflow: hidden; }
 .mk-table tbody td:nth-child(2),
 .mk-table tbody td:nth-child(3),
 .mk-table tbody td:nth-child(4) { text-align: right; }
-
-.mk-table tbody td:last-child { text-align: right; }
 
 /* Coin cell */
 .mk-coin-cell {

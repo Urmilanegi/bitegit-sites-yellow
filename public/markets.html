@@ -11,22 +11,10 @@
 
     <!-- Header -->
     <header class="mk-header" id="marketsHeader">
-      <div class="mk-header-inner">
-        <a class="mk-brand" href="/">
-          <span class="mk-brand-mark" aria-hidden="true"></span>
-          <span class="mk-brand-word">Bitegit</span>
-        </a>
-        <nav class="mk-nav" aria-label="Primary navigation">
-          <a href="/">Buy Crypto</a>
-          <a href="/markets.html" class="active">Markets</a>
-          <a href="/chart.html?symbol=BTCUSDT">Trade</a>
-          <a href="/chart.html?symbol=BTCUSDT">Futures</a>
-          <a href="/p2p">P2P</a>
-          <a href="/">Earn</a>
-        </nav>
+      <div class="mk-header-inner" style="justify-content:space-between;">
+        <span class="mk-header-title" style="font-size:1rem;font-weight:700;color:#f4f8ff;">Markets</span>
         <div class="mk-actions">
-          <a id="marketsSignupBtn" class="mk-signup" href="/auth.html?mode=signup">Sign Up</a>
-          <button id="marketsMenuToggle" class="mk-hamburger" type="button" aria-label="Open menu" aria-controls="marketsNavDrawer" aria-expanded="false">
+          <button id="marketsMenuToggle" class="mk-hamburger" type="button" aria-label="Open menu" aria-controls="marketsNavDrawer" aria-expanded="false" style="display:flex;">
             <span></span><span></span><span></span>
           </button>
         </div>
@@ -66,9 +54,10 @@
 
     <main class="mk-main">
 
-      <!-- Tabs — centered like Gate.io -->
+      <!-- Tabs -->
       <div class="mk-tabs-center">
         <div id="marketsTabs" class="mk-tabs" role="tablist" aria-label="Market categories">
+          <button type="button" data-tab="all" role="tab" aria-selected="false">All Pairs</button>
           <button type="button" class="active" data-tab="spot" role="tab" aria-selected="true">Spot</button>
           <button type="button" data-tab="futures" role="tab" aria-selected="false">Futures</button>
           <button type="button" data-tab="new" role="tab" aria-selected="false">New</button>
@@ -90,10 +79,9 @@
           <thead>
             <tr>
               <th class="mk-th-coin" data-sort="name">Coin</th>
-              <th data-sort="price">Current Price</th>
-              <th data-sort="change">Change</th>
-              <th data-sort="volume">24h Volume</th>
-              <th class="mk-th-action">Action</th>
+              <th data-sort="price">Price</th>
+              <th data-sort="change">24h Change</th>
+              <th data-sort="volume">Volume</th>
             </tr>
           </thead>
           <tbody id="marketsRows">
