@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
@@ -2421,6 +2421,173 @@ app.get('/api/p2p/wallet', requiresP2PUser, async (req, res) => {
     return res.status(500).json({ message: 'Server error while loading wallet.' });
   }
 });
+
+// ════════════════════════════════════════════════════
+// PROFILE FEATURE ROUTES — Settings, Notifications,
+// Follow/Block, Ad Code, Recently Viewed, Fund Password
+// ════════════════════════════════════════════════════
+
+// ── P2P Settings ──
+app.get('/api/p2p/settings', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const user = await User.findById(req.p2pUser.id).select('p2pSettings').lean();
+    return res.json(user?.p2pSettings || {});
+  } catch { return res.json({}); }
+});
+
+app.put('/api/p2p/settings', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const allowed = ['nickname','autoReply','onlineVisible','verifiedOnly','currency'];
+    const update = {};
+    allowed.forEach(k => { if (req.body[k] !== undefined) update[`p2pSettings.${k}`] = req.body[k]; });
+    await User.findByIdAndUpdate(req.p2pUser.id, { $set: update });
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ error: 'Failed to save settings' }); }
+});
+
+// ── Notifications preferences ──
+app.get('/api/p2p/notifications', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const user = await User.findById(req.p2pUser.id).select('notifPrefs').lean();
+    return res.json(user?.notifPrefs || { newOrders:false, orderUpdates:true, chat:true, priceAlerts:false, email:true, security:true });
+  } catch { return res.json({}); }
+});
+
+app.put('/api/p2p/notifications', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const allowed = ['newOrders','orderUpdates','chat','priceAlerts','email','security'];
+    const update = {};
+    allowed.forEach(k => { if (req.body[k] !== undefined) update[`notifPrefs.${k}`] = !!req.body[k]; });
+    await User.findByIdAndUpdate(req.p2pUser.id, { $set: update });
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ error: 'Failed' }); }
+});
+
+// ── Follow / Block ──
+app.get('/api/p2p/follow', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const type = req.query.type === 'blocked' ? 'blocked' : 'following';
+    const me = await User.findById(req.p2pUser.id).select('following blocked').lean();
+    const ids = type === 'blocked' ? (me?.blocked || []) : (me?.following || []);
+    if (!ids.length) return res.json([]);
+    const users = await User.find({ _id: { $in: ids } }).select('nickname email totalTrades').lean();
+    return res.json(users);
+  } catch { return res.json([]); }
+});
+
+app.delete('/api/p2p/follow/:userId', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const type = req.query.type === 'blocked' ? 'blocked' : 'following';
+    const field = type === 'blocked' ? 'blocked' : 'following';
+    await User.findByIdAndUpdate(req.p2pUser.id, { $pull: { [field]: req.params.userId } });
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ error: 'Failed' }); }
+});
+
+// ── Ad Code ──
+function generateAdCode(userId) {
+  const base = String(userId).slice(-6).toUpperCase();
+  const suffix = Math.random().toString(36).slice(2,5).toUpperCase();
+  return 'BG' + base + suffix;
+}
+
+app.get('/api/p2p/ad-code', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    let user = await User.findById(req.p2pUser.id).select('adCode').lean();
+    if (!user?.adCode) {
+      const code = generateAdCode(req.p2pUser.id);
+      await User.findByIdAndUpdate(req.p2pUser.id, { $set: { adCode: code } });
+      return res.json({ code });
+    }
+    return res.json({ code: user.adCode });
+  } catch { return res.status(500).json({ error: 'Failed' }); }
+});
+
+app.post('/api/p2p/ad-code/regenerate', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const code = generateAdCode(req.p2pUser.id) + Math.random().toString(36).slice(2,4).toUpperCase();
+    await User.findByIdAndUpdate(req.p2pUser.id, { $set: { adCode: code } });
+    return res.json({ code });
+  } catch { return res.status(500).json({ error: 'Failed' }); }
+});
+
+// ── Recently Viewed ──
+app.get('/api/p2p/recently-viewed', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const user = await User.findById(req.p2pUser.id).select('recentlyViewed').lean();
+    const list = (user?.recentlyViewed || []).reverse().slice(0, 20);
+    return res.json(list);
+  } catch { return res.json([]); }
+});
+
+app.post('/api/p2p/recently-viewed', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const entry = {
+      adId:       String(req.body.adId || ''),
+      asset:      String(req.body.asset || 'USDT'),
+      side:       req.body.side || 'buy',
+      price:      req.body.price || '--',
+      sellerName: String(req.body.sellerName || ''),
+      timeAgo:    new Date().toISOString()
+    };
+    await User.findByIdAndUpdate(req.p2pUser.id, {
+      $push: { recentlyViewed: { $each: [entry], $slice: -50 } }
+    });
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ error: 'Failed' }); }
+});
+
+app.delete('/api/p2p/recently-viewed', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    await User.findByIdAndUpdate(req.p2pUser.id, { $set: { recentlyViewed: [] } });
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ error: 'Failed' }); }
+});
+
+// ── Fund Password ──
+app.get('/api/p2p/fund-password/status', requiresP2PUser, async (req, res) => {
+  try {
+    const User = mongoose.model('User');
+    const user = await User.findById(req.p2pUser.id).select('fundPasswordHash').lean();
+    return res.json({ isSet: !!user?.fundPasswordHash });
+  } catch { return res.json({ isSet: false }); }
+});
+
+app.post('/api/p2p/fund-password/set', requiresP2PUser, async (req, res) => {
+  try {
+    const { newPassword, currentPassword } = req.body;
+    if (!newPassword || !/^\d{6}$/.test(newPassword)) {
+      return res.status(400).json({ error: 'Fund password must be exactly 6 digits.' });
+    }
+    const User = mongoose.model('User');
+    const user = await User.findById(req.p2pUser.id).select('fundPasswordHash').lean();
+    if (user?.fundPasswordHash) {
+      if (!currentPassword) return res.status(400).json({ error: 'Current password required.' });
+      const bcrypt = require('bcryptjs');
+      const ok = await bcrypt.compare(String(currentPassword), user.fundPasswordHash);
+      if (!ok) return res.status(400).json({ error: 'Current password incorrect.' });
+    }
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash(String(newPassword), 10);
+    await User.findByIdAndUpdate(req.p2pUser.id, { $set: { fundPasswordHash: hash } });
+    return res.json({ ok: true, success: true });
+  } catch (e) { return res.status(500).json({ error: 'Server error' }); }
+});
+
+// ════════════════════════════════════════════════════
+// END PROFILE FEATURE ROUTES
+// ════════════════════════════════════════════════════
 
 app.get('/api/wallet/summary', requiresP2PUser, async (req, res) => {
   try {

@@ -5909,6 +5909,266 @@ function toggleFaqSection(head) {
 })();
 // ===== END 3-DOT MENU =====
 
+// ===== PROFILE FEATURE SCREENS =====
+
+function closeMobScreen(fromId, toId) {
+  var from = document.getElementById(fromId);
+  var to   = document.getElementById(toId);
+  if (from) from.classList.add('hidden');
+  if (to)   to.classList.remove('hidden');
+}
+
+// ── Profile tab switcher ──
+(function(){
+  var tabs = document.querySelectorAll('[data-profile-tab]');
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      tabs.forEach(function(t){ t.classList.remove('active'); });
+      tab.classList.add('active');
+      ['trade','notifications','others'].forEach(function(name) {
+        var el = document.getElementById('profileTab' + name.charAt(0).toUpperCase() + name.slice(1));
+        if (el) el.classList.toggle('hidden', name !== tab.dataset.profileTab);
+      });
+    });
+  });
+})();
+
+// ── Settings ──
+function openProfileSettingsScreen() {
+  var s = document.getElementById('mobProfileSettingsScreen');
+  var p = document.getElementById('mobProfileScreen');
+  if (!s) return;
+  if (p) p.classList.add('hidden');
+  s.classList.remove('hidden');
+  // pre-fill
+  fetch('/api/p2p/settings', { credentials: 'include' })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .then(function(d) {
+      var el;
+      if ((el = document.getElementById('settingsNickname'))) el.value = d.nickname || (currentUser && currentUser.nickname) || '';
+      if ((el = document.getElementById('settingsAutoReply'))) el.value = d.autoReply || '';
+      if ((el = document.getElementById('settingsOnline'))) el.checked = d.onlineVisible !== false;
+      if ((el = document.getElementById('settingsVerifiedOnly'))) el.checked = !!d.verifiedOnly;
+      if ((el = document.getElementById('settingsCurrency'))) el.value = d.currency || 'INR';
+    }).catch(function(){});
+}
+
+function saveProfileSettings() {
+  var payload = {
+    nickname:      (document.getElementById('settingsNickname') || {}).value || '',
+    autoReply:     (document.getElementById('settingsAutoReply') || {}).value || '',
+    onlineVisible: (document.getElementById('settingsOnline') || {}).checked !== false,
+    verifiedOnly:  !!(document.getElementById('settingsVerifiedOnly') || {}).checked,
+    currency:      (document.getElementById('settingsCurrency') || {}).value || 'INR'
+  };
+  var msg = document.getElementById('settingsSaveMsg');
+  fetch('/api/p2p/settings', {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json(); }).then(function(d) {
+    if (msg) { msg.style.color = '#00B4D8'; msg.textContent = '✓ Settings saved'; setTimeout(function(){ msg.textContent=''; }, 3000); }
+  }).catch(function() {
+    if (msg) { msg.style.color = '#f6465d'; msg.textContent = 'Failed to save'; }
+  });
+}
+
+// ── Notifications ──
+function saveNotifPref(key, val) {
+  fetch('/api/p2p/notifications', {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ [key]: val })
+  }).catch(function(){});
+}
+
+(function loadNotifPrefs() {
+  fetch('/api/p2p/notifications', { credentials: 'include' })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .then(function(d) {
+      var map = { newOrders:'notifNewOrders', orderUpdates:'notifOrderUpdates', chat:'notifChat', priceAlerts:'notifPriceAlerts', email:'notifEmail', security:'notifSecurity' };
+      Object.entries(map).forEach(function(kv) {
+        var el = document.getElementById(kv[1]);
+        if (el && d[kv[0]] !== undefined) el.checked = !!d[kv[0]];
+      });
+    }).catch(function(){});
+})();
+
+// ── Follow / Block ──
+function openFollowBlockScreen() {
+  var s = document.getElementById('mobFollowBlockScreen');
+  var p = document.getElementById('mobProfileScreen');
+  if (!s) return;
+  if (p) p.classList.add('hidden');
+  s.classList.remove('hidden');
+  loadFollowList('following', s.querySelector('.mob-mtab'));
+}
+
+function loadFollowList(type, tabEl) {
+  if (tabEl) {
+    var tabs = tabEl.closest('.mob-menu-tabs');
+    if (tabs) tabs.querySelectorAll('.mob-mtab').forEach(function(t){ t.classList.remove('active'); });
+    tabEl.classList.add('active');
+  }
+  var container = document.getElementById('followBlockList');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;color:#555;padding:2rem;">Loading...</div>';
+  fetch('/api/p2p/follow?type=' + type, { credentials: 'include' })
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(list) {
+      if (!list.length) {
+        container.innerHTML = '<div style="text-align:center;color:#555;padding:2rem;">No ' + type + ' users yet.</div>';
+        return;
+      }
+      container.innerHTML = list.map(function(u) {
+        return '<div class="follow-user-row">' +
+          '<div class="follow-user-avatar">' + (u.nickname || u.email || 'U').charAt(0).toUpperCase() + '</div>' +
+          '<div><div class="follow-user-name">' + (u.nickname || u.email || 'Unknown') + '</div>' +
+          '<div class="follow-user-meta">' + (u.totalTrades || 0) + ' trades</div></div>' +
+          '<button class="follow-unfollow-btn" onclick="removeFollow(\'' + u._id + '\',\'' + type + '\')">' + (type === 'following' ? 'Unfollow' : 'Unblock') + '</button></div>';
+      }).join('');
+    }).catch(function() {
+      container.innerHTML = '<div style="text-align:center;color:#555;padding:2rem;">Could not load list.</div>';
+    });
+}
+
+function removeFollow(userId, type) {
+  fetch('/api/p2p/follow/' + userId + '?type=' + type, { method: 'DELETE', credentials: 'include' })
+    .then(function(){ loadFollowList(type, null); })
+    .catch(function(){});
+}
+
+// ── Ad Code ──
+function openAdCodeScreen() {
+  var s = document.getElementById('mobAdCodeScreen');
+  var p = document.getElementById('mobProfileScreen');
+  if (!s) return;
+  if (p) p.classList.add('hidden');
+  s.classList.remove('hidden');
+  var disp = document.getElementById('adCodeDisplay');
+  if (disp) disp.textContent = 'Loading...';
+  fetch('/api/p2p/ad-code', { credentials: 'include' })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .then(function(d) { if (disp) disp.textContent = d.code || '------'; })
+    .catch(function() { if (disp) disp.textContent = 'ERROR'; });
+}
+
+function copyAdCode() {
+  var code = (document.getElementById('adCodeDisplay') || {}).textContent || '';
+  if (!code || code === '------' || code === 'Loading...') return;
+  navigator.clipboard.writeText(code).then(function() {
+    var msg = document.getElementById('adCodeMsg');
+    if (msg) { msg.textContent = '✓ Code copied!'; setTimeout(function(){ msg.textContent=''; }, 2000); }
+  }).catch(function(){});
+}
+
+function regenerateAdCode() {
+  var disp = document.getElementById('adCodeDisplay');
+  fetch('/api/p2p/ad-code/regenerate', { method: 'POST', credentials: 'include' })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .then(function(d) {
+      if (disp) disp.textContent = d.code || '------';
+      var msg = document.getElementById('adCodeMsg');
+      if (msg) { msg.textContent = '✓ New code generated'; setTimeout(function(){ msg.textContent=''; }, 2500); }
+    }).catch(function(){});
+}
+
+// ── Recently Viewed ──
+function openRecentlyViewedScreen() {
+  var s = document.getElementById('mobRecentlyViewedScreen');
+  var p = document.getElementById('mobProfileScreen');
+  if (!s) return;
+  if (p) p.classList.add('hidden');
+  s.classList.remove('hidden');
+  loadRecentlyViewed();
+}
+
+function loadRecentlyViewed() {
+  var container = document.getElementById('recentlyViewedList');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;color:#555;padding:2rem;">Loading...</div>';
+  fetch('/api/p2p/recently-viewed', { credentials: 'include' })
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(list) {
+      if (!list.length) {
+        container.innerHTML = '<div style="text-align:center;color:#555;padding:2rem;">No recently viewed ads.</div>';
+        return;
+      }
+      container.innerHTML = list.map(function(item) {
+        var side = item.side === 'sell' ? '🔴 Sell' : '🟢 Buy';
+        return '<div class="rv-card" onclick="window.location.href=\'/p2p?ad=' + item.adId + '\'">' +
+          '<div class="rv-card-icon">' + (item.asset || 'U') + '</div>' +
+          '<div class="rv-card-info"><div class="rv-card-sym">' + side + ' ' + (item.asset || 'USDT') + '</div>' +
+          '<div class="rv-card-meta">by ' + (item.sellerName || 'Merchant') + ' · ' + (item.timeAgo || '') + '</div></div>' +
+          '<div class="rv-card-price">₹' + (item.price || '--') + '</div></div>';
+      }).join('');
+    }).catch(function() {
+      container.innerHTML = '<div style="text-align:center;color:#555;padding:2rem;">Could not load.</div>';
+    });
+}
+
+function clearRecentlyViewed() {
+  fetch('/api/p2p/recently-viewed', { method: 'DELETE', credentials: 'include' })
+    .then(function(){ loadRecentlyViewed(); })
+    .catch(function(){});
+}
+
+// ── Fund Password ──
+function openFundPasswordScreen() {
+  var s = document.getElementById('mobFundPasswordScreen');
+  var p = document.getElementById('mobProfileScreen');
+  if (!s) return;
+  if (p) p.classList.add('hidden');
+  s.classList.remove('hidden');
+  // check if user already has a fund password set
+  fetch('/api/p2p/fund-password/status', { credentials: 'include' })
+    .then(function(r){ return r.ok ? r.json() : {}; })
+    .then(function(d) {
+      var btn = s.querySelector('button[onclick="submitFundPassword()"]');
+      var currentWrap = document.getElementById('fundPwdCurrentWrap');
+      if (d.isSet) {
+        if (btn) btn.textContent = 'Change Fund Password';
+        if (currentWrap) currentWrap.style.display = 'block';
+      } else {
+        if (btn) btn.textContent = 'Set Fund Password';
+        if (currentWrap) currentWrap.style.display = 'none';
+      }
+    }).catch(function(){});
+}
+
+function submitFundPassword() {
+  var newPwd     = (document.getElementById('fundPwdNew') || {}).value || '';
+  var confirmPwd = (document.getElementById('fundPwdConfirm') || {}).value || '';
+  var currentPwd = (document.getElementById('fundPwdCurrent') || {}).value || '';
+  var msg = document.getElementById('fundPwdMsg');
+
+  if (newPwd.length !== 6 || !/^\d+$/.test(newPwd)) {
+    if (msg) { msg.style.color='#f6465d'; msg.textContent='Fund password must be exactly 6 digits.'; } return;
+  }
+  if (newPwd !== confirmPwd) {
+    if (msg) { msg.style.color='#f6465d'; msg.textContent='Passwords do not match.'; } return;
+  }
+  var payload = { newPassword: newPwd };
+  if (currentPwd) payload.currentPassword = currentPwd;
+
+  fetch('/api/p2p/fund-password/set', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json(); }).then(function(d) {
+    if (d.ok || d.success) {
+      if (msg) { msg.style.color='#00B4D8'; msg.textContent='✓ Fund password set successfully.'; }
+      ['fundPwdNew','fundPwdConfirm','fundPwdCurrent'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
+    } else {
+      if (msg) { msg.style.color='#f6465d'; msg.textContent = d.error || 'Failed. Try again.'; }
+    }
+  }).catch(function() {
+    if (msg) { msg.style.color='#f6465d'; msg.textContent='Network error. Try again.'; }
+  });
+}
+
+// ===== END PROFILE FEATURE SCREENS =====
+
 function openKycScreen() {
   var kycStatus = normalizeKycStatus(currentUser && currentUser.kyc && currentUser.kyc.status);
   if (kycStatus === 'PENDING_REVIEW') {

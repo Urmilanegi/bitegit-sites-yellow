@@ -395,11 +395,13 @@
 
       <!-- Menu tabs -->
       <div class="mob-menu-tabs">
-        <button class="mob-mtab active">Trade</button>
-        <button class="mob-mtab">Notifications</button>
-        <button class="mob-mtab">Others</button>
+        <button class="mob-mtab active" data-profile-tab="trade">Trade</button>
+        <button class="mob-mtab" data-profile-tab="notifications">Notifications</button>
+        <button class="mob-mtab" data-profile-tab="others">Others</button>
       </div>
-      <ul class="mob-menu-list">
+
+      <!-- Trade tab -->
+      <ul class="mob-menu-list" id="profileTabTrade">
         <li data-open-kyc="1" style="cursor:pointer;">
           <span>🛡️</span>
           <span style="flex:1;">KYC Verification <span id="kycStatusBadge" style="font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(246,70,93,0.15);border:1px solid rgba(246,70,93,0.3);color:#f6465d;margin-left:6px;">Not Done</span></span>
@@ -407,11 +409,49 @@
         </li>
         <li data-open-payment="1" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>💳</span> Payment Management <span class="mob-arrow">›</span></li>
         <li onclick="openWithdrawModal()" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>📤</span> Withdraw Crypto <span class="mob-arrow">›</span></li>
-        <li><span>⚙️</span> Settings <span class="mob-arrow">›</span></li>
-        <li><span>👤</span> Follow/Block <span class="mob-arrow">›</span></li>
-        <li><span>🔑</span> Ad Code <span class="mob-arrow">›</span></li>
-        <li><span>👁</span> Recently Viewed <span class="mob-arrow">›</span></li>
-        <li><span>🔒</span> Fund Password <span class="mob-arrow">›</span></li>
+        <li onclick="openProfileSettingsScreen()" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>⚙️</span> Settings <span class="mob-arrow">›</span></li>
+        <li onclick="openFollowBlockScreen()" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>👤</span> Follow/Block <span class="mob-arrow">›</span></li>
+        <li onclick="openAdCodeScreen()" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>🔑</span> Ad Code <span class="mob-arrow">›</span></li>
+        <li onclick="openRecentlyViewedScreen()" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>👁</span> Recently Viewed <span class="mob-arrow">›</span></li>
+        <li onclick="openFundPasswordScreen()" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>🔒</span> Fund Password <span class="mob-arrow">›</span></li>
+      </ul>
+
+      <!-- Notifications tab -->
+      <ul class="mob-menu-list hidden" id="profileTabNotifications">
+        <li style="justify-content:space-between;cursor:default;">
+          <span style="display:flex;align-items:center;gap:10px;"><span>🔔</span> New Orders</span>
+          <label class="p2p-toggle"><input type="checkbox" id="notifNewOrders" onchange="saveNotifPref('newOrders',this.checked)"><span class="p2p-toggle-track"></span></label>
+        </li>
+        <li style="justify-content:space-between;cursor:default;">
+          <span style="display:flex;align-items:center;gap:10px;"><span>📦</span> Order Updates</span>
+          <label class="p2p-toggle"><input type="checkbox" id="notifOrderUpdates" checked onchange="saveNotifPref('orderUpdates',this.checked)"><span class="p2p-toggle-track"></span></label>
+        </li>
+        <li style="justify-content:space-between;cursor:default;">
+          <span style="display:flex;align-items:center;gap:10px;"><span>💬</span> Chat Messages</span>
+          <label class="p2p-toggle"><input type="checkbox" id="notifChat" checked onchange="saveNotifPref('chat',this.checked)"><span class="p2p-toggle-track"></span></label>
+        </li>
+        <li style="justify-content:space-between;cursor:default;">
+          <span style="display:flex;align-items:center;gap:10px;"><span>📈</span> Price Alerts</span>
+          <label class="p2p-toggle"><input type="checkbox" id="notifPriceAlerts" onchange="saveNotifPref('priceAlerts',this.checked)"><span class="p2p-toggle-track"></span></label>
+        </li>
+        <li style="justify-content:space-between;cursor:default;">
+          <span style="display:flex;align-items:center;gap:10px;"><span>📧</span> Email Notifications</span>
+          <label class="p2p-toggle"><input type="checkbox" id="notifEmail" checked onchange="saveNotifPref('email',this.checked)"><span class="p2p-toggle-track"></span></label>
+        </li>
+        <li style="justify-content:space-between;cursor:default;">
+          <span style="display:flex;align-items:center;gap:10px;"><span>🔐</span> Security Alerts</span>
+          <label class="p2p-toggle"><input type="checkbox" id="notifSecurity" checked onchange="saveNotifPref('security',this.checked)"><span class="p2p-toggle-track"></span></label>
+        </li>
+      </ul>
+
+      <!-- Others tab -->
+      <ul class="mob-menu-list hidden" id="profileTabOthers">
+        <li onclick="window.open('/support-center/index.html','_self')" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>❓</span> Help Center <span class="mob-arrow">›</span></li>
+        <li onclick="window.location.href='/p2p#faq'" style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>📋</span> P2P FAQ <span class="mob-arrow">›</span></li>
+        <li style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>🛡️</span> Safety Tips <span class="mob-arrow">›</span></li>
+        <li style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>📜</span> Terms of Service <span class="mob-arrow">›</span></li>
+        <li style="cursor:pointer;-webkit-tap-highlight-color:transparent;"><span>🔏</span> Privacy Policy <span class="mob-arrow">›</span></li>
+        <li style="cursor:default;justify-content:space-between;"><span style="color:#555;">App Version</span><span style="color:#555;font-size:0.8rem;">v1.0.0</span></li>
       </ul>
 
       <!-- hidden hooks for p2p.js -->
@@ -420,6 +460,126 @@
       <p id="profileAvgPaymentTime" class="hidden"></p>
       <p id="profileDeposit" class="hidden"></p>
       <button id="profileDepositBtn" class="hidden"></button>
+    </div>
+
+    <!-- ── Settings Screen ── -->
+    <div id="mobProfileSettingsScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" onclick="closeMobScreen('mobProfileSettingsScreen','mobProfileScreen')" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Settings</h2>
+        <div style="width:34px;"></div>
+      </div>
+      <div style="padding:1rem;">
+        <div class="p2p-settings-section">
+          <h4 class="p2p-settings-label">Display Name</h4>
+          <input id="settingsNickname" type="text" class="p2p-settings-input" placeholder="Enter nickname" maxlength="30"/>
+        </div>
+        <div class="p2p-settings-section">
+          <h4 class="p2p-settings-label">Auto-reply Message</h4>
+          <textarea id="settingsAutoReply" class="p2p-settings-input" rows="3" placeholder="Message sent automatically when order starts..." maxlength="200"></textarea>
+        </div>
+        <div class="p2p-settings-section" style="display:flex;align-items:center;justify-content:space-between;">
+          <span class="p2p-settings-label" style="margin:0;">Online Status Visible</span>
+          <label class="p2p-toggle"><input type="checkbox" id="settingsOnline" checked><span class="p2p-toggle-track"></span></label>
+        </div>
+        <div class="p2p-settings-section" style="display:flex;align-items:center;justify-content:space-between;">
+          <span class="p2p-settings-label" style="margin:0;">Allow only verified users</span>
+          <label class="p2p-toggle"><input type="checkbox" id="settingsVerifiedOnly"><span class="p2p-toggle-track"></span></label>
+        </div>
+        <div class="p2p-settings-section">
+          <h4 class="p2p-settings-label">Default Currency</h4>
+          <select id="settingsCurrency" class="p2p-settings-input">
+            <option value="INR">INR — Indian Rupee</option>
+            <option value="USD">USD — US Dollar</option>
+            <option value="USDT">USDT — Tether</option>
+          </select>
+        </div>
+        <button onclick="saveProfileSettings()" class="p2p-settings-save-btn">Save Settings</button>
+        <p id="settingsSaveMsg" style="text-align:center;font-size:0.82rem;color:#00B4D8;margin-top:0.5rem;min-height:1.2em;"></p>
+      </div>
+    </div>
+
+    <!-- ── Follow / Block Screen ── -->
+    <div id="mobFollowBlockScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" onclick="closeMobScreen('mobFollowBlockScreen','mobProfileScreen')" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Follow / Block</h2>
+        <div style="width:34px;"></div>
+      </div>
+      <div style="padding:1rem;">
+        <div class="mob-menu-tabs" style="margin-bottom:1rem;">
+          <button class="mob-mtab active" onclick="loadFollowList('following',this)">Following</button>
+          <button class="mob-mtab" onclick="loadFollowList('blocked',this)">Blocked</button>
+        </div>
+        <div id="followBlockList" style="display:flex;flex-direction:column;gap:0.75rem;">
+          <div style="text-align:center;color:#555;padding:2rem;">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Ad Code Screen ── -->
+    <div id="mobAdCodeScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" onclick="closeMobScreen('mobAdCodeScreen','mobProfileScreen')" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Ad Code</h2>
+        <div style="width:34px;"></div>
+      </div>
+      <div style="padding:1.5rem 1rem;text-align:center;">
+        <div style="background:#0a1a1f;border:1px solid #1e3a42;border-radius:14px;padding:1.5rem;margin-bottom:1.5rem;">
+          <p style="font-size:0.78rem;color:#6b8a91;margin:0 0 0.75rem;">Your unique P2P Ad Code</p>
+          <div id="adCodeDisplay" style="font-size:1.6rem;font-weight:800;color:#00B4D8;letter-spacing:0.12em;margin-bottom:1rem;">------</div>
+          <p style="font-size:0.72rem;color:#444;margin:0;">Share this code so buyers can find your ads directly</p>
+        </div>
+        <button onclick="copyAdCode()" style="width:100%;padding:0.85rem;background:#00B4D8;color:#000;font-weight:700;border:none;border-radius:10px;font-size:0.95rem;cursor:pointer;margin-bottom:0.75rem;">Copy Code</button>
+        <button onclick="regenerateAdCode()" style="width:100%;padding:0.85rem;background:transparent;color:#00B4D8;font-weight:600;border:1px solid #1e3a42;border-radius:10px;font-size:0.95rem;cursor:pointer;">Generate New Code</button>
+        <p id="adCodeMsg" style="margin-top:0.75rem;font-size:0.82rem;color:#00B4D8;min-height:1.2em;"></p>
+      </div>
+    </div>
+
+    <!-- ── Recently Viewed Screen ── -->
+    <div id="mobRecentlyViewedScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" onclick="closeMobScreen('mobRecentlyViewedScreen','mobProfileScreen')" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Recently Viewed</h2>
+        <button onclick="clearRecentlyViewed()" style="background:none;border:none;color:#f6465d;font-size:0.8rem;font-weight:600;cursor:pointer;padding:0 4px;">Clear</button>
+      </div>
+      <div id="recentlyViewedList" style="padding:0.75rem;">
+        <div style="text-align:center;color:#555;padding:2rem;">Loading...</div>
+      </div>
+    </div>
+
+    <!-- ── Fund Password Screen ── -->
+    <div id="mobFundPasswordScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" onclick="closeMobScreen('mobFundPasswordScreen','mobProfileScreen')" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Fund Password</h2>
+        <div style="width:34px;"></div>
+      </div>
+      <div style="padding:1.25rem 1rem;">
+        <div id="fundPwdSetSection">
+          <p style="font-size:0.82rem;color:#6b8a91;margin-bottom:1.25rem;line-height:1.5;">Set a 6-digit fund password to protect withdrawals and P2P trades.</p>
+          <label class="p2p-settings-label">New Fund Password (6 digits)</label>
+          <input id="fundPwdNew" type="password" inputmode="numeric" maxlength="6" class="p2p-settings-input" placeholder="••••••" style="letter-spacing:0.25em;text-align:center;font-size:1.3rem;"/>
+          <label class="p2p-settings-label" style="margin-top:0.75rem;">Confirm Password</label>
+          <input id="fundPwdConfirm" type="password" inputmode="numeric" maxlength="6" class="p2p-settings-input" placeholder="••••••" style="letter-spacing:0.25em;text-align:center;font-size:1.3rem;margin-bottom:1rem;"/>
+          <div id="fundPwdCurrentWrap" style="display:none;">
+            <label class="p2p-settings-label">Current Fund Password</label>
+            <input id="fundPwdCurrent" type="password" inputmode="numeric" maxlength="6" class="p2p-settings-input" placeholder="••••••" style="letter-spacing:0.25em;text-align:center;font-size:1.3rem;margin-bottom:1rem;"/>
+          </div>
+          <button onclick="submitFundPassword()" style="width:100%;padding:0.9rem;background:#00B4D8;color:#000;font-weight:700;border:none;border-radius:10px;font-size:0.95rem;cursor:pointer;">Set Fund Password</button>
+          <p id="fundPwdMsg" style="text-align:center;font-size:0.82rem;margin-top:0.6rem;min-height:1.2em;"></p>
+        </div>
+      </div>
     </div>
 
     <!-- Mobile Payment Methods Screen -->
