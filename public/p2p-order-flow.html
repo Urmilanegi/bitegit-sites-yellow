@@ -1877,6 +1877,13 @@
     selectedReason = -1;
   }
 
+  function bindIfPresent(id, eventName, handler, options) {
+    var el = document.getElementById(id);
+    if (!el) return null;
+    el.addEventListener(eventName, handler, options);
+    return el;
+  }
+
   function wireEvents() {
     // Screen 1: Buy
     document.getElementById('buyBackBtn').addEventListener('click', function() { goBack(); });
@@ -1991,18 +1998,19 @@
     document.getElementById('chatOrderInquiryBtn').addEventListener('click', function() { _doFileAppeal(); });
     document.getElementById('chatOrderInquiryBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doFileAppeal(); });
 
-    document.getElementById('appealCloseBtn').addEventListener('click', function() { _setAppealModalOpen(false); });
-    document.getElementById('appealCancelBtn').addEventListener('click', function() { _setAppealModalOpen(false); });
-    document.getElementById('appealSubmitBtn').addEventListener('click', function() { _submitAppeal(); });
-    document.getElementById('appealImagePickBtn').addEventListener('click', function() {
-      document.getElementById('appealImageInput').click();
+    bindIfPresent('appealCloseBtn', 'click', function() { _setAppealModalOpen(false); });
+    bindIfPresent('appealCancelBtn', 'click', function() { _setAppealModalOpen(false); });
+    bindIfPresent('appealSubmitBtn', 'click', function() { _submitAppeal(); });
+    bindIfPresent('appealImagePickBtn', 'click', function() {
+      var input = document.getElementById('appealImageInput');
+      if (input) input.click();
     });
-    document.getElementById('appealImageInput').addEventListener('change', function(e) {
+    bindIfPresent('appealImageInput', 'change', function(e) {
       _readAppealFiles(e.target.files).finally(function() {
         e.target.value = '';
       });
     });
-    document.getElementById('appealImagePreview').addEventListener('click', function(e) {
+    bindIfPresent('appealImagePreview', 'click', function(e) {
       var btn = e.target.closest('[data-appeal-remove]');
       if (!btn) return;
       var index = Number(btn.getAttribute('data-appeal-remove'));
@@ -2010,7 +2018,7 @@
       _appealDraft.images.splice(index, 1);
       _renderAppealImages();
     });
-    document.getElementById('appealModal').addEventListener('click', function(e) {
+    bindIfPresent('appealModal', 'click', function(e) {
       if (e.target === this) _setAppealModalOpen(false);
     });
 
@@ -2811,6 +2819,10 @@
 
   function _openAppealModal() {
     if (!currentOrder || !currentOrder.id) return;
+    if (!document.getElementById('appealModal')) {
+      showToast('Appeal panel is temporarily unavailable.');
+      return;
+    }
     _resetAppealDraft();
     _setAppealModalOpen(true);
   }
