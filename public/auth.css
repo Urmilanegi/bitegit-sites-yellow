@@ -163,23 +163,23 @@ body.auth-page {
 }
 
 .auth-main {
-  width: min(540px, calc(100% - 1.2rem));
+  width: min(420px, calc(100% - 1.2rem));
   margin: 0 auto;
-  padding: 1rem 0 1.2rem;
+  padding: 0.5rem 0 0.8rem;
 }
 
 .auth-card {
   border: none;
   border-radius: 0;
-  padding: 1.6rem 1rem;
+  padding: 1rem 1rem;
   background: transparent;
   box-shadow: none;
 }
 
 .auth-card h1 {
-  margin: 0 0 0.4rem;
-  font-size: clamp(1.6rem, 7vw, 2.2rem);
-  font-weight: 800;
+  margin: 0 0 0.3rem;
+  font-size: clamp(1.3rem, 5vw, 1.7rem);
+  font-weight: 700;
   line-height: 1.1;
   color: #fff;
 }
@@ -246,13 +246,13 @@ body.auth-page {
 
 .auth-form input {
   width: 100%;
-  min-height: 54px;
-  border-radius: 999px;
+  min-height: 46px;
+  border-radius: 10px;
   border: none;
   background: #111;
   color: var(--auth-text);
-  font-size: 0.95rem;
-  padding: 0 1.2rem;
+  font-size: 0.9rem;
+  padding: 0 1rem;
 }
 
 [data-theme='light'] .auth-form input {
@@ -333,9 +333,9 @@ body.auth-page {
 }
 
 .auth-submit {
-  margin-top: 0.8rem;
-  min-height: 54px;
-  border-radius: 999px;
+  margin-top: 0.6rem;
+  min-height: 46px;
+  border-radius: 10px;
   border: 0;
   background: linear-gradient(135deg, #00FFD6 0%, #00D4FF 100%);
   color: #000;
