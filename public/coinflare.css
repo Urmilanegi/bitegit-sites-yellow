@@ -2021,6 +2021,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   box-shadow: 0 22px 42px rgba(0, 0, 0, 0.44);
   transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
   overflow: hidden;
+  padding: 0;
 }
 
 .cf-guide-card::before {
@@ -2049,9 +2050,10 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 .cf-guide-card-visual {
   position: relative;
   display: block;
-  border-radius: 24px;
+  border-radius: 0;
   overflow: hidden;
   background: #0d1015;
+  margin: 0;
 }
 
 .cf-guide-card-visual img {
