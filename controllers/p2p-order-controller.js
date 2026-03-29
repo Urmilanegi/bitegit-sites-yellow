@@ -111,6 +111,29 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
       // Email must be verified before placing first order
       const buyerCred = await repos.getP2PCredentialByUserId(req.p2pUser);
+      const buyerEmail = String(req.p2pUser?.email || '').trim().toLowerCase();
+      const credentialEmail = String(buyerCred?.email || '').trim().toLowerCase();
+      if (
+        buyerCred &&
+        !buyerCred.emailVerified &&
+        buyerEmail &&
+        credentialEmail &&
+        buyerEmail === credentialEmail &&
+        typeof repos.setP2PCredential === 'function' &&
+        buyerCred.passwordHash
+      ) {
+        await repos.setP2PCredential(credentialEmail, buyerCred.passwordHash, {
+          role: buyerCred.role || 'USER',
+          username: buyerCred.username,
+          avatar: buyerCred.avatar,
+          isMerchant: buyerCred.isMerchant,
+          merchantDepositLocked: buyerCred.merchantDepositLocked,
+          merchantLevel: buyerCred.merchantLevel,
+          userId: req.p2pUser.id,
+          emailVerified: true
+        });
+        buyerCred.emailVerified = true;
+      }
       if (buyerCred && !buyerCred.emailVerified) {
         return res.status(403).json({
           success: false,

@@ -1875,6 +1875,26 @@ app.post('/api/p2p/login', async (req, res) => {
     const userRole = tokenService.normalizeRole(existingCredential?.role || 'USER');
 
     const { token, user } = await createP2PUserSession(email, userRole, existingCredential);
+    if (
+      typeof repos.setP2PCredential === 'function' &&
+      (
+        !existingCredential?.emailVerified ||
+        String(existingCredential?.userId || '').trim() !== String(user.id || '').trim()
+      )
+    ) {
+      await repos.setP2PCredential(email, existingCredential.passwordHash, {
+        role: userRole,
+        username: existingCredential?.username,
+        avatar: existingCredential?.avatar,
+        isMerchant: existingCredential?.isMerchant,
+        merchantDepositLocked: existingCredential?.merchantDepositLocked,
+        merchantLevel: existingCredential?.merchantLevel,
+        userId: user.id,
+        emailVerified: true
+      });
+      existingCredential.emailVerified = true;
+      existingCredential.userId = user.id;
+    }
     const tokenPair = await issueAuthTokenPairForUser(user);
     setCookie(res, P2P_USER_COOKIE_NAME, token, P2P_USER_TTL_MS / 1000);
     setP2PAuthCookies(res, tokenPair);

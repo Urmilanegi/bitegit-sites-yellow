@@ -824,7 +824,8 @@ function registerAuthRoutes(app, deps) {
       }
 
       await repos.setP2PCredential(email, repos.hashPassword(password), {
-        role: 'USER'
+        role: 'USER',
+        emailVerified: true
       });
 
       const credential = await repos.getP2PCredential(email);
