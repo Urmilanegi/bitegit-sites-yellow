@@ -2060,7 +2060,7 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   width: 100%;
   height: auto;
   display: block;
-  object-fit: cover;
+  margin-top: -20%;
 }
 
 .cf-guide-cta {
