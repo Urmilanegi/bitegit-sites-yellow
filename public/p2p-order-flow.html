@@ -671,7 +671,7 @@
     </div>
 
     <div class="bottom-fixed">
-      <button class="btn-primary" id="ogNextBtn">Next →</button>
+      <button class="btn-primary" id="ogNextBtn">Continue to Pay</button>
       <button class="btn-secondary" id="ogCancelBtn">Cancel</button>
     </div>
   </div>
@@ -1544,6 +1544,11 @@
     return ['PAID', 'PAYMENT_SENT'].indexOf(s) !== -1;
   }
 
+  function isBuyerPendingPaymentStatus(status) {
+    var s = getCurrentOrderStatus(status);
+    return ['CREATED', 'PENDING', 'OPEN', ''].indexOf(s) !== -1;
+  }
+
   function hasBuyerMarkedPaid(status) {
     var s = getCurrentOrderStatus(status);
     return isBuyerWaitingReleaseStatus(s) || ['DISPUTED', 'RELEASED', 'COMPLETED'].indexOf(s) !== -1;
@@ -1557,7 +1562,7 @@
     if (['PAID', 'PAYMENT_SENT'].indexOf(s) !== -1) {
       return true;
     }
-    return ['CREATED', 'PENDING', 'OPEN', ''].indexOf(s) !== -1;
+    return isBuyerPendingPaymentStatus(s);
   }
 
   function showCancelBlockedMessage() {
@@ -1644,7 +1649,7 @@
     var cancelBtn = document.getElementById('ogCancelBtn');
     if (heading) heading.innerHTML = 'The order has been generated.<br>Proceed to payment.';
     if (timerRow) timerRow.innerHTML = 'Please pay within <span id="timer1">15:00</span> .';
-    _resetPaidLockButton(nextBtn, 'Next →');
+    _resetPaidLockButton(nextBtn, 'Continue to Pay');
     if (cancelBtn) {
       cancelBtn.style.display = '';
       cancelBtn.textContent = 'Cancel';
@@ -1776,6 +1781,8 @@
       } else if (isSeller) {
         openChat('screen-order-generated');
         setTimeout(function() { setupChatForRole(status); }, 200);
+      } else if (!isSeller && isBuyerPendingPaymentStatus(status)) {
+        showScreen('screen-transfer');
       } else {
         showScreen('screen-order-generated');
       }
@@ -1789,6 +1796,8 @@
         showScreen('screen-cancel-reason');
       } else if (desiredScreen === 'screen-before-cancel' && canCancelCurrentOrder(status)) {
         showScreen('screen-before-cancel');
+      } else if (!isSeller && isBuyerPendingPaymentStatus(status)) {
+        showScreen('screen-transfer');
       } else {
         showScreen('screen-order-generated');
       }
@@ -2363,13 +2372,7 @@
           if (data && data.existingOrder) {
             showToast(data.message || 'You already have an active order. Opening it now.');
           }
-          // Cache order immediately for instant navigation
-          cacheCurrentOrder();
-          _warmChatMessages(currentOrder && currentOrder.id);
-          syncOrderUrl();
-          startTimerFromOrder(currentOrder);
-          renderOrderDetails();
-          showScreen('screen-order-generated');
+          applyOrderAndShow(currentOrder, false, '');
           return;
         }
         showToast(data.message || 'Order failed');
