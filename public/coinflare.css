@@ -2063,10 +2063,10 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   width: 100%;
   text-align: center;
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   color: #ffffff;
   background: #000000;
-  padding: 1rem 0;
+  padding: 0.55rem 0;
   border-top: 1px solid rgba(255,255,255,0.06);
   pointer-events: none;
 }
@@ -3032,11 +3032,11 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   }
 
   .cf-signup {
-    min-height: 46px;
-    padding: 0 1.25rem;
-    font-size: 1rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, #149eff 0%, #10d5cf 100%);
+    min-height: 32px;
+    padding: 0 0.9rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #00d4d4 0%, #00a8cc 100%) !important;
   }
 
   .cf-user-panel {
