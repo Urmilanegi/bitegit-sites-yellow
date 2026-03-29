@@ -2723,11 +2723,25 @@
     var completedBar = document.getElementById('chatCompletedBar');
     var disputedBar = document.getElementById('chatDisputedBar');
     var disputeRow = document.getElementById('chatDisputeRow');
+    var noticeBar = document.getElementById('chatNoticeBar');
+    var receiveAmountEl = document.getElementById('chatReceiveAmount');
+    var waitingHelpEl = document.getElementById('chatWaitingHelp');
+    var cancelOrAppealBtn = document.getElementById('chatCancelOrAppealBtn');
 
     // Reset all
-    [payBar, waitBar, sellerWaitBar, sellerReleaseBar, completedBar, disputedBar, disputeRow].forEach(function(el) {
+    [payBar, waitBar, sellerWaitBar, sellerReleaseBar, completedBar, disputedBar, disputeRow, noticeBar].forEach(function(el) {
       if (el) el.style.display = 'none';
     });
+    if (cancelOrAppealBtn) {
+      cancelOrAppealBtn.style.display = 'none';
+      cancelOrAppealBtn.textContent = 'Cancel';
+    }
+    if (receiveAmountEl && currentOrder) {
+      receiveAmountEl.textContent = fmtCrypto(currentOrder.cryptoAmount || currentOrder.assetAmount || currentOrder.escrowAmount || 0, 4);
+    }
+    if (waitingHelpEl) {
+      waitingHelpEl.textContent = 'Waiting for seller to release';
+    }
 
     var inputBar = document.querySelector('.chat-input-bar');
 
@@ -2772,6 +2786,11 @@
       } else {
         if (isPaid) {
           if (waitBar) waitBar.style.display = 'flex';
+          if (waitingHelpEl) waitingHelpEl.textContent = 'Payment marked. Waiting for seller to release.';
+          if (cancelOrAppealBtn) {
+            cancelOrAppealBtn.style.display = '';
+            cancelOrAppealBtn.textContent = canCancelCurrentOrder(s) ? 'Cancel' : 'Appeal';
+          }
           if (disputeRow) disputeRow.style.display = 'flex';
         } else {
           if (noticeBar && !_isNoticeDismissed(currentOrder && currentOrder.id)) noticeBar.style.display = 'flex';
@@ -3612,6 +3631,13 @@
 
   function fmtInr(n) {
     return Number(n).toLocaleString('en-IN');
+  }
+
+  function fmtCrypto(n, precision) {
+    var value = Number(n || 0);
+    if (!Number.isFinite(value)) return '0';
+    var fixed = value.toFixed(typeof precision === 'number' ? precision : 4);
+    return fixed.replace(/\.?0+$/, '') || '0';
   }
 
   function formatDateTime(d) {
