@@ -700,13 +700,13 @@ body.p2p-kyc-open { overflow: hidden; }
 /* ── Alert bar ── */
 .p2p-alert-bar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.5rem;
   background: rgba(247, 167, 35, 0.08);
   border: 1px solid rgba(247, 167, 35, 0.2);
   border-radius: 8px;
-  padding: 0.55rem 0.8rem;
-  margin-bottom: 1rem;
+  padding: 0.45rem 0.8rem;
+  margin-bottom: 0.5rem;
 }
 
 .p2p-alert-bar svg { flex-shrink: 0; margin-top: 1px; }

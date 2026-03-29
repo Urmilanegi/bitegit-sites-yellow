@@ -30,7 +30,6 @@
       <div class="p2p-header-inner">
         <div class="p2p-brand-wrap">
           <a href="/" class="p2p-brand">
-            <span class="p2p-brand-mark" aria-hidden="true"></span>
             <span class="p2p-brand-word">Bitegit</span>
           </a>
         </div>
@@ -165,9 +164,10 @@
         <input id="paymentFilter" type="hidden" value=""/>
 
         <!-- Alert -->
-        <div class="p2p-alert-bar">
+        <div class="p2p-alert-bar" id="p2pAlertBar">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f7a723" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <span>Do not share personal contact details. Always verify payment information independently.</span>
+          <button onclick="document.getElementById('p2pAlertBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:#f7a723;cursor:pointer;font-size:1rem;padding:0 4px;line-height:1;">✕</button>
         </div>
 
         <!-- Desktop table -->
