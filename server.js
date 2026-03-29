@@ -693,6 +693,27 @@ function buildP2PKycProfileFromCredential(credential = {}) {
   };
 }
 
+function isTradeableP2PAd(offer) {
+  if (!offer || typeof offer !== 'object') {
+    return false;
+  }
+  const moderationStatus = String(offer.moderationStatus || 'APPROVED').trim().toUpperCase();
+  return moderationStatus === 'APPROVED';
+}
+
+function getTradeableOfferPayments(offer) {
+  if (!offer || !Array.isArray(offer.payments)) {
+    return [];
+  }
+  return offer.payments
+    .map((method) => String(method || '').trim())
+    .filter((method) => method.length > 0);
+}
+
+function getTradeableOfferAdvertiser(offer) {
+  return String(offer?.advertiser || offer?.createdByUsername || '').trim().toLowerCase();
+}
+
 async function getP2PKycProfileByEmail(email) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!normalizedEmail || !repos || typeof repos.getP2PCredential !== 'function') {
@@ -3066,17 +3087,18 @@ app.get('/api/p2p/offers', async (req, res) => {
       merchantOwnedOnly: true
     });
     const filtered = allOffers
+      .filter((offer) => isTradeableP2PAd(offer))
       .filter((offer) => {
         if (!payment) {
           return true;
         }
-        return offer.payments.some((method) => method.toLowerCase().includes(payment));
+        return getTradeableOfferPayments(offer).some((method) => method.toLowerCase().includes(payment));
       })
       .filter((offer) => {
         if (!advertiser) {
           return true;
         }
-        return offer.advertiser.toLowerCase().includes(advertiser);
+        return getTradeableOfferAdvertiser(offer).includes(advertiser);
       })
       .filter((offer) => {
         if (!amount || Number.isNaN(amount)) {
@@ -3184,10 +3206,12 @@ app.get('/api/p2p/ads', async (req, res) => {
       merchantOwnedOnly: true
     });
 
+    const approvedOffers = offers.filter((offer) => isTradeableP2PAd(offer));
+
     return res.json({
       success: true,
-      total: offers.length,
-      ads: offers
+      total: approvedOffers.length,
+      ads: approvedOffers
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error while fetching ads.' });
@@ -3198,7 +3222,7 @@ app.get('/api/p2p/ads', async (req, res) => {
 app.get('/api/p2p/ads/:adId', async (req, res) => {
   try {
     const offer = await repos.getOfferById(req.params.adId);
-    if (!offer) return res.status(404).json({ message: 'Ad not found.' });
+    if (!offer || !isTradeableP2PAd(offer)) return res.status(404).json({ message: 'Ad not found.' });
     return res.json({ success: true, ad: offer });
   } catch (error) {
     return res.status(500).json({ message: 'Server error.' });

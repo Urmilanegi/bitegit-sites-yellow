@@ -2030,14 +2030,15 @@ function fillDealModal(offer) {
     dealConfirmBtn.classList.toggle('is-sell', currentSide === 'sell');
   }
 
+  const offerPayments = getOfferPayments(offer);
   if (dealPaymentSelect) {
-    dealPaymentSelect.innerHTML = offer.payments
+    dealPaymentSelect.innerHTML = offerPayments
       .map((method) => `<option value="${escapeHtml(method)}">${escapeHtml(method)}</option>`)
       .join('');
   }
 
   if (dealPaymentPreview) {
-    dealPaymentPreview.textContent = offer.payments[0] || '--';
+    dealPaymentPreview.textContent = offerPayments[0] || '--';
   }
 
   const amountInput = Number(amountFilter?.value || 0);
@@ -2617,6 +2618,16 @@ async function loadExchangeTicker() {
   }
 }
 
+function getOfferPayments(offer) {
+  if (!offer || !Array.isArray(offer.payments)) {
+    return ['UPI'];
+  }
+  const payments = offer.payments
+    .map((method) => String(method || '').trim())
+    .filter((method) => method.length > 0);
+  return payments.length ? payments : ['UPI'];
+}
+
 function renderOffers(data, append) {
   if (!append) offersMap = new Map();
 
@@ -2636,7 +2647,8 @@ function renderOffers(data, append) {
 
     const actionLabel = data.side === 'buy' ? 'Buy' : 'Sell';
     const isOwnAd = currentUser && offer.createdByUserId === getCurrentUserId();
-    const payments = offer.payments
+    const offerPayments = getOfferPayments(offer);
+    const payments = offerPayments
       .map((method, paymentIndex) => `<span class="pay-chip pay-chip-${paymentIndex % 4}">${escapeHtml(method)}</span>`)
       .join(' ');
     const quantity = `${formatNumber(offer.available)} ${offer.asset}`;
@@ -2686,7 +2698,7 @@ function renderOffers(data, append) {
     const repOrders = rep.completedOrders != null ? rep.completedOrders : (offer.orders || 0);
     const repRate = rep.completionRate != null ? rep.completionRate : (offer.completionRate || 100);
     const repTime = rep.avgReleaseMinutes != null ? rep.avgReleaseMinutes + ' min' : (offer.orders > 500 ? '10 min' : offer.orders > 100 ? '15 min' : '20 min');
-    const paymentGate = offer.payments.map(m => `<span class="gt-pay">${escapeHtml(m)}</span>`).join('');
+    const paymentGate = offerPayments.map(m => `<span class="gt-pay">${escapeHtml(m)}</span>`).join('');
 
     cardsHtml.push(`
       <article class="gt-card">
@@ -6613,7 +6625,7 @@ window.deleteMobAd = async function(offerId) {
     el = document.getElementById('bfCompletedOrds');
     if (el) el.textContent = offer.orders || 0;
     var pm = document.getElementById('bfPayMethod');
-    if (pm) pm.innerHTML = (offer.payments || ['UPI']).map(function(m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
+    if (pm) pm.innerHTML = getOfferPayments(offer).map(function(m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
     var pi = document.getElementById('bfPayInput');
     if (pi) { pi.value = offer.minLimit || ''; bfUpdateCalc(); }
     el = document.getElementById('bfBuyHint'); if (el) el.textContent = '';

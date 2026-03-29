@@ -54,6 +54,20 @@ function normalizeP2PKycStatus(rawStatus) {
   return 'NOT_SUBMITTED';
 }
 
+function isOfferApprovedForTrading(offer = {}) {
+  const moderationStatus = String(offer.moderationStatus || 'APPROVED').trim().toUpperCase();
+  return moderationStatus === 'APPROVED';
+}
+
+function getOfferPayments(offer = {}) {
+  if (!Array.isArray(offer.payments)) {
+    return [];
+  }
+  return offer.payments
+    .map((method) => String(method || '').trim())
+    .filter((method) => method.length > 0);
+}
+
 function broadcastOrderParticipantEvent(broadcastUserEvent, order, eventName, payload) {
   if (typeof broadcastUserEvent !== 'function' || !order) {
     return;
@@ -146,6 +160,9 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       if (!offer) {
         return res.status(404).json({ success: false, message: 'Ad not found.' });
       }
+      if (!isOfferApprovedForTrading(offer)) {
+        return res.status(400).json({ success: false, message: 'Ad is not approved for trading.' });
+      }
 
       const isDemo = offer.isDemo === true || String(offer.environment || '').trim().toLowerCase() === 'demo';
       const fundingSource = String(offer.fundingSource || '').trim().toLowerCase();
@@ -210,11 +227,10 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
 
       // KYC gate removed — all logged-in users can place orders
 
+      const offerPayments = getOfferPayments(offer);
       const selectedPaymentMethod = String(req.body.paymentMethod || '').trim();
-      const exactPayment = Array.isArray(offer.payments)
-        ? offer.payments.find((method) => method.toLowerCase() === selectedPaymentMethod.toLowerCase())
-        : null;
-      const paymentMethod = exactPayment || (Array.isArray(offer.payments) && offer.payments[0]) || 'UPI';
+      const exactPayment = offerPayments.find((method) => method.toLowerCase() === selectedPaymentMethod.toLowerCase());
+      const paymentMethod = exactPayment || offerPayments[0] || 'UPI';
       if (selectedPaymentMethod && !exactPayment) {
         return res.status(400).json({ success: false, message: 'Selected payment method is not available for this ad.' });
       }
@@ -321,6 +337,7 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
           code: String(error.code || 'P2P_ORDER_CREATE_FAILED')
         });
       }
+      console.error('[p2p-order-controller] createOrder unexpected error:', error);
       return res.status(500).json({ success: false, message: 'Server error while creating order.' });
     }
   }
