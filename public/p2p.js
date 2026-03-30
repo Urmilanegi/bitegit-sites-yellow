@@ -5933,6 +5933,49 @@ function closeMobScreen(fromId, toId) {
   });
 })();
 
+// ── Trading Data (More →) ──
+function openTradingDataScreen() {
+  var s = document.getElementById('mobTradingDataScreen');
+  var p = document.getElementById('mobProfileScreen');
+  if (!s) return;
+  if (p) p.classList.add('hidden');
+  s.classList.remove('hidden');
+
+  // Copy 30D data from profile
+  var map30 = {
+    profileThirtyDayTradesMobile: 'td30dTrades',
+    profileCompletionRateMobile: 'td30dCompletion',
+    profileAvgReleaseTimeMobile: 'td30dRelease',
+    profileAvgPaymentTimeMobile: 'td30dPayment',
+    profile30dBuyCount: 'td30dBuy',
+    profile30dSellCount: 'td30dSell'
+  };
+  Object.entries(map30).forEach(function(kv) {
+    var src = document.getElementById(kv[0]);
+    var dst = document.getElementById(kv[1]);
+    if (src && dst) dst.textContent = src.textContent;
+  });
+
+  // Load all-time data from server
+  fetch('/api/p2p/me', { credentials: 'include' })
+    .then(function(r) { return r.ok ? r.json() : {}; })
+    .then(function(d) {
+      var u = d.user || d;
+      var el;
+      var totalBuy = Number(u.totalBuyTrades || u.p2pStats?.totalBuyTrades || 0);
+      var totalSell = Number(u.totalSellTrades || u.p2pStats?.totalSellTrades || 0);
+      var totalTrades = totalBuy + totalSell;
+      if ((el = document.getElementById('tdAllTrades'))) el.textContent = totalTrades;
+      if ((el = document.getElementById('tdAllBuy'))) el.textContent = totalBuy;
+      if ((el = document.getElementById('tdAllSell'))) el.textContent = totalSell;
+      if ((el = document.getElementById('tdPlatformFeedback'))) el.textContent = (u.feedbackRate || u.p2pStats?.feedbackRate || '100') + '%';
+      if ((el = document.getElementById('tdRegisteredOn'))) {
+        var dt = u.createdAt || u.registeredAt;
+        el.textContent = dt ? new Date(dt).toISOString().slice(0,10).replace(/-/g,'/') : '--';
+      }
+    }).catch(function() {});
+}
+
 // ── Settings ──
 function openProfileSettingsScreen() {
   var s = document.getElementById('mobProfileSettingsScreen');

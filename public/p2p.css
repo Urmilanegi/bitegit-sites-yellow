@@ -2742,6 +2742,235 @@ body.mob-screen-open .p2p-secondary-nav {
 }
 .mob-arrow { margin-left: auto; color: var(--p2p-muted); font-size: 1rem; }
 
+/* ═══════════════════════════════════════════════════
+   BYBIT-STYLE PROFILE PAGE
+   ═══════════════════════════════════════════════════ */
+
+/* ── Profile Hero ── */
+.byt-profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px 12px;
+}
+
+.byt-profile-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.byt-profile-info { flex: 1; min-width: 0; }
+
+.byt-profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.byt-profile-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.byt-edit-icon {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.45);
+  flex-shrink: 0;
+}
+
+.byt-profile-deposit {
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+  margin: 3px 0 8px;
+}
+
+/* ── Verification chips ── */
+.byt-verify-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.byt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.35);
+  cursor: default;
+}
+
+.byt-chip.verified {
+  color: #16c784;
+}
+
+/* ── Stats block ── */
+.byt-stats-block {
+  padding: 8px 18px 6px;
+}
+
+.byt-stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 0;
+}
+
+.byt-stat-label {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  font-weight: 400;
+}
+
+.byt-stat-val {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.byt-stat-right {
+  text-align: right;
+}
+
+.byt-stat-right strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  display: block;
+}
+
+.byt-stat-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+}
+
+.byt-more-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 0 4px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.45);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.byt-more-link:hover { color: #fff; }
+
+/* ── Menu lists ── */
+.byt-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 6px solid #0a0a0a;
+}
+
+.byt-menu-list-gap {
+  border-top: 6px solid #0a0a0a;
+}
+
+.byt-menu-list li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  cursor: pointer;
+  background: #000;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.15s;
+}
+
+.byt-menu-list li:last-child { border-bottom: none; }
+.byt-menu-list li:hover { background: rgba(255,255,255,0.02); }
+.byt-menu-list li:active { background: rgba(255,255,255,0.04); }
+
+.byt-menu-icon {
+  width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.55);
+  flex-shrink: 0;
+}
+
+.byt-menu-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.byt-arrow {
+  color: rgba(255,255,255,0.2);
+  font-size: 18px;
+  margin-left: auto;
+}
+
+/* ── Trading Data Screen ── */
+.byt-tdata-wrap {
+  padding: 4px 18px 40px;
+}
+
+.byt-tdata-heading {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  margin: 20px 0 12px;
+}
+
+.byt-tdata-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.byt-tdata-row > span {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+}
+
+.byt-tdata-row > strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.byt-tdata-right {
+  text-align: right;
+}
+
+.byt-tdata-right strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  display: block;
+}
+
+.byt-tdata-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+}
+
 /* ── Profile Settings ── */
 .p2p-settings-section { margin-bottom: 1rem; }
 .p2p-settings-label { font-size: 0.75rem; color: #6b8a91; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 0.4rem; display: block; }
