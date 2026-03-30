@@ -992,7 +992,11 @@ function getOrderBucketByStatus(status) {
 
 function isOngoingOrderStatus(status) {
   const normalized = normalizeStatusForUi(status);
-  return normalized === 'CREATED' || normalized === 'PAID' || normalized === 'DISPUTED';
+  return normalized === 'CREATED' ||
+    normalized === 'PENDING' ||
+    normalized === 'PAID' ||
+    normalized === 'PAYMENT_SENT' ||
+    normalized === 'DISPUTED';
 }
 
 function storeOrderForMobile(order) {
@@ -1048,7 +1052,12 @@ function getAllCachedParticipantOrders() {
 }
 
 function getMobileOrdersSnapshot() {
-  return getAllCachedParticipantOrders().filter((order) => isOngoingOrderStatus(order.status));
+  const allOrders = getAllCachedParticipantOrders();
+  const ongoingOrders = allOrders.filter((order) => isOngoingOrderStatus(order.status));
+  if (ongoingOrders.length) {
+    return ongoingOrders;
+  }
+  return allOrders.slice(0, 8);
 }
 
 function getProfileOrdersSnapshot() {
@@ -2847,7 +2856,7 @@ var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
 var _orderFlowWarmStartedAt = 0;
-var _ORDER_FLOW_VERSION = '20260329b';
+var _ORDER_FLOW_VERSION = '20260330c';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
 
 function _consumeOrdersFocusState() {
@@ -3194,7 +3203,7 @@ async function submitDealOrder() {
 function renderLiveOrders(orders) {
   const incomingOrders = Array.isArray(orders) ? orders : [];
   const currentUserId = String(currentUser?.id || '').trim();
-  const hydratedOrders = _ordMergeById(incomingOrders, _ordLoadSavedSnapshots({ activeOnly: true }));
+  const hydratedOrders = _ordMergeById(incomingOrders, _ordLoadSavedSnapshots({ activeOnly: false }));
   const participantOrders = hydratedOrders
     .map((order) => {
       if (!order || typeof order !== 'object') {
@@ -4843,10 +4852,7 @@ function fetchOrdersSafe() {
     if (cached.length) {
       _ordRenderAll(cached, true);
     } else {
-      var snapshots = _ordLoadSavedSnapshots({ activeOnly: true });
-      if (!snapshots.length) {
-        snapshots = _ordLoadSavedSnapshots({ activeOnly: false });
-      }
+      var snapshots = _ordLoadSavedSnapshots({ activeOnly: false });
       if (snapshots.length) {
         _ordRenderAll(snapshots, false);
       } else {
@@ -4912,13 +4918,13 @@ function fetchOrdersSafe() {
     if (myReqId !== _ordReqId) return; // race check after json parse
     var mergedOrders = _ordExtractBootstrapOrders(data);
     if (!mergedOrders.length) {
-      var recoveredOrders = _ordMergeById(_ordLoadSavedSnapshots({ activeOnly: true }), _ordCachedEndedOrders());
+      var recoveredOrders = _ordMergeById(_ordLoadSavedSnapshots({ activeOnly: false }), _ordCachedEndedOrders());
       if (!recoveredOrders.length) {
         recoveredOrders = _ordLoadSavedSnapshots({ activeOnly: false });
       }
       _ordRenderAll(recoveredOrders, false);
     } else {
-      _ordRenderAll(_ordMergeById(mergedOrders, _ordLoadSavedSnapshots({ activeOnly: true })), false);
+      _ordRenderAll(_ordMergeById(mergedOrders, _ordLoadSavedSnapshots({ activeOnly: false })), false);
       _fetchOrderHistoryInBackground(myReqId);
     }
     _ordDrainQueuedRefresh();

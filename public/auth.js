@@ -115,6 +115,13 @@ function setStatus(message, type = '') {
   }
 }
 
+function redirectToResolvedTarget(delayMs = 120) {
+  const target = resolveSafeRedirect(redirectTo);
+  window.setTimeout(() => {
+    window.location.replace(target);
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
 function setAuthQrOpen(open) {
   if (!authQrModal) {
     return;
@@ -569,11 +576,17 @@ async function handleSubmit(event) {
 
   let endpoint = '/auth/login';
   let payload = { email, password };
+  const requiresCaptcha = state.mode === MODE_SIGNUP;
+
+  if (!requiresCaptcha) {
+    setLoading(true);
+  }
 
   if (state.mode === MODE_SIGNUP) {
     const captchaPayload = await requestSignupCaptcha(email);
     if (!captchaPayload) {
       setStatus('Security verification is required to create your account.', 'error');
+      setLoading(false);
       return;
     }
     endpoint = '/auth/register';
@@ -584,7 +597,9 @@ async function handleSubmit(event) {
   }
 
   try {
-    setLoading(true);
+    if (requiresCaptcha) {
+      setLoading(true);
+    }
     const { response, data } = await postJson(endpoint, payload);
 
     if (!response.ok) {
@@ -600,14 +615,12 @@ async function handleSubmit(event) {
       }
       window.setTimeout(() => {
         setMode(MODE_LOGIN);
-      }, 450);
+      }, 180);
       return;
     }
 
     setStatus(data?.message || 'Success', 'success');
-    window.setTimeout(() => {
-      window.location.href = redirectTo;
-    }, 450);
+    redirectToResolvedTarget(120);
   } catch (_) {
     setStatus('Network error. Please try again.', 'error');
   } finally {
