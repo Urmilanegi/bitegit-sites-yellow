@@ -204,6 +204,13 @@ function registerAdminRoutes(app, deps) {
   router.get('/p2p/ads', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'list_ads' }, adminControllers.listP2PAds));
   router.post('/p2p/ads/:offerId/review', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'review_ad' }, adminControllers.reviewP2PAd));
   router.get('/p2p/disputes', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'list_disputes' }, adminControllers.listP2PDisputes));
+  router.get('/p2p/appeals', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'list_appeals' }, async (req, res) => {
+    try {
+      const db = require('mongoose').connection.db;
+      const appeals = await db.collection('p2pAppeals').find({}).sort({ createdAt: -1 }).limit(100).toArray();
+      return res.json({ appeals });
+    } catch (e) { return res.status(500).json({ message: 'Server error.' }); }
+  }));
   router.get('/p2p/orders/:orderId', protect(ROLE_GROUPS.COMPLIANCE), withLogging({ module: 'p2p', action: 'get_order' }, adminControllers.getP2POrder));
   router.post('/p2p/orders/:orderId/messages', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'support_message' }, adminControllers.sendP2POrderMessage));
   router.post('/p2p/orders/:orderId/release', protect(ROLE_GROUPS.OPS), withLogging({ module: 'p2p', action: 'manual_release_escrow' }, adminControllers.manualReleaseP2POrder));

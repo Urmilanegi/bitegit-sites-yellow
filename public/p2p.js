@@ -3481,7 +3481,7 @@ function updateOrderUi(order) {
     setPaymentPanelOpen(false);
   }
 
-  // Dispute button: show when PAID (buyer waiting for release) or DISPUTED
+  // Dispute button
   if (disputeBtn) {
     var isDisputed = normalizedStatus === 'DISPUTED';
     var canDispute = isPaid && !isClosed;
@@ -3493,6 +3493,120 @@ function updateOrderUi(order) {
       disputeBtn.classList.add('hidden');
     }
   }
+
+  // Toggle active vs closed action sets
+  var activeActions = document.getElementById('orderActiveActions');
+  var closedActions = document.getElementById('orderClosedActions');
+  if (activeActions && closedActions) {
+    if (isClosed) {
+      activeActions.classList.add('hidden');
+      closedActions.classList.remove('hidden');
+      // Show rating modal for completed orders (once)
+      if (isReleased && !window._ratingShownFor?.[activeOrderId]) {
+        if (!window._ratingShownFor) window._ratingShownFor = {};
+        window._ratingShownFor[activeOrderId] = true;
+        setTimeout(function(){ showRatingModal(); }, 600);
+      }
+    } else {
+      activeActions.classList.remove('hidden');
+      closedActions.classList.add('hidden');
+    }
+  }
+}
+
+// ── Rating ──
+var _selectedStars = 0;
+function showRatingModal() {
+  _selectedStars = 0;
+  var modal = document.getElementById('ratingModal');
+  var stars = document.querySelectorAll('#ratingStars [data-star]');
+  var msg = document.getElementById('ratingMsg');
+  var comment = document.getElementById('ratingComment');
+  if (comment) comment.value = '';
+  if (msg) msg.textContent = '';
+  stars.forEach(function(s){ s.style.color = '#555'; });
+  if (modal) modal.classList.remove('hidden');
+}
+document.addEventListener('click', function(e) {
+  var star = e.target.closest('#ratingStars [data-star]');
+  if (!star) return;
+  _selectedStars = parseInt(star.dataset.star);
+  document.querySelectorAll('#ratingStars [data-star]').forEach(function(s){
+    s.style.color = parseInt(s.dataset.star) <= _selectedStars ? '#f0b90b' : '#555';
+  });
+});
+(function(){
+  var btn = document.getElementById('ratingSubmitBtn');
+  if (!btn) return;
+  btn.addEventListener('click', async function(){
+    if (!_selectedStars || !activeOrderId) return;
+    var msg = document.getElementById('ratingMsg');
+    var comment = (document.getElementById('ratingComment') || {}).value || '';
+    btn.disabled = true; btn.textContent = 'Submitting...';
+    try {
+      var res = await fetch('/api/p2p/orders/' + activeOrderId + '/rate', {
+        method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ stars: _selectedStars, comment: comment.trim() })
+      });
+      var d = await res.json();
+      if (res.ok) {
+        if (msg) { msg.style.color='#16c784'; msg.textContent='Rating submitted!'; }
+        setTimeout(function(){ document.getElementById('ratingModal').classList.add('hidden'); }, 800);
+      } else {
+        if (msg) { msg.style.color='#f6465d'; msg.textContent = d.message || 'Failed'; }
+      }
+    } catch(e) { if (msg) { msg.style.color='#f6465d'; msg.textContent='Network error'; } }
+    btn.disabled = false; btn.textContent = 'Submit';
+  });
+})();
+
+// ── Appeal / Order Inquiry ──
+(function(){
+  var inquiryBtn = document.getElementById('orderInquiryBtn');
+  if (inquiryBtn) inquiryBtn.addEventListener('click', function(){
+    var modal = document.getElementById('appealModal');
+    var msg = document.getElementById('appealMsg');
+    if (msg) msg.textContent = '';
+    if (modal) modal.classList.remove('hidden');
+  });
+  var submitBtn = document.getElementById('appealSubmitBtn');
+  if (!submitBtn) return;
+  submitBtn.addEventListener('click', async function(){
+    var reason = (document.getElementById('appealReason') || {}).value;
+    var desc = (document.getElementById('appealDescription') || {}).value || '';
+    var msg = document.getElementById('appealMsg');
+    if (!reason) { if (msg) { msg.style.color='#f6465d'; msg.textContent='Select a reason'; } return; }
+    if (desc.trim().length < 10) { if (msg) { msg.style.color='#f6465d'; msg.textContent='Describe your issue (min 10 chars)'; } return; }
+    // Collect images
+    var files = (document.getElementById('appealImages') || {}).files || [];
+    var images = [];
+    for (var i = 0; i < Math.min(files.length, 3); i++) {
+      images.push(await fileToBase64(files[i]));
+    }
+    submitBtn.disabled = true; submitBtn.textContent = 'Submitting...';
+    try {
+      var res = await fetch('/api/p2p/orders/' + activeOrderId + '/appeal', {
+        method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ reason: reason, description: desc.trim(), images: images })
+      });
+      var d = await res.json();
+      if (res.ok) {
+        if (msg) { msg.style.color='#16c784'; msg.textContent='Appeal submitted! Admin will review.'; }
+        setTimeout(function(){ document.getElementById('appealModal').classList.add('hidden'); }, 1500);
+      } else {
+        if (msg) { msg.style.color='#f6465d'; msg.textContent = d.message || 'Failed'; }
+      }
+    } catch(e) { if (msg) { msg.style.color='#f6465d'; msg.textContent='Network error'; } }
+    submitBtn.disabled = false; submitBtn.textContent = 'Submit Appeal';
+  });
+})();
+function fileToBase64(file) {
+  return new Promise(function(resolve){
+    var reader = new FileReader();
+    reader.onload = function(){ resolve(reader.result); };
+    reader.onerror = function(){ resolve(''); };
+    reader.readAsDataURL(file);
+  });
 }
 
 async function fetchMessages(options = {}) {

@@ -1195,10 +1195,18 @@
 
       <!-- Action footer -->
       <footer style="padding:0.85rem 1.1rem;flex-shrink:0;display:grid;gap:0.5rem;padding-bottom:calc(0.85rem + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,0.07);">
-        <button id="markPaidBtn" type="button" style="width:100%;padding:0.9rem;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:'Manrope',sans-serif;">Pay</button>
-        <div style="display:flex;gap:0.5rem;">
-          <button id="cancelOrderBtn" type="button" style="flex:1;padding:0.75rem;background:rgba(255,255,255,0.06);color:#fff;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Manrope',sans-serif;">Cancel</button>
-          <button id="disputeBtn" type="button" class="hidden" style="flex:1;padding:0.75rem;background:rgba(246,70,93,0.12);color:#f6465d;border:1px solid rgba(246,70,93,0.3);border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Manrope',sans-serif;">Raise Dispute</button>
+        <!-- Active order buttons -->
+        <div id="orderActiveActions">
+          <button id="markPaidBtn" type="button" style="width:100%;padding:0.9rem;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:'Manrope',sans-serif;">Pay</button>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+            <button id="cancelOrderBtn" type="button" style="flex:1;padding:0.75rem;background:rgba(255,255,255,0.06);color:#fff;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Manrope',sans-serif;">Cancel</button>
+            <button id="disputeBtn" type="button" class="hidden" style="flex:1;padding:0.75rem;background:rgba(246,70,93,0.12);color:#f6465d;border:1px solid rgba(246,70,93,0.3);border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;font-family:'Manrope',sans-serif;">Raise Dispute</button>
+          </div>
+        </div>
+        <!-- Closed order buttons -->
+        <div id="orderClosedActions" class="hidden">
+          <button id="placeNewOrderBtn" type="button" onclick="window.location.hash='p2p'" style="width:100%;padding:0.9rem;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:'Manrope',sans-serif;">Place a new order</button>
+          <button id="orderInquiryBtn" type="button" style="width:100%;padding:0.7rem;background:none;color:#8a97ae;border:none;font-size:0.88rem;font-weight:600;cursor:pointer;margin-top:0.3rem;">Order inquiry</button>
         </div>
       </footer>
     </section>
@@ -1224,6 +1232,48 @@
           I have not paid the seller
         </label>
         <button id="cancelConfirmBtn" type="button" class="cancel-confirm-btn" disabled>Confirm Cancel</button>
+      </div>
+    </section>
+
+    <!-- Rating modal (after order completed) -->
+    <section id="ratingModal" class="cancel-modal hidden" aria-hidden="true">
+      <div class="cancel-backdrop" onclick="document.getElementById('ratingModal').classList.add('hidden')"></div>
+      <div class="cancel-panel" role="dialog" style="max-width:340px;">
+        <div class="cancel-panel-head"><h3>Rate this trade</h3><button type="button" aria-label="Close" onclick="document.getElementById('ratingModal').classList.add('hidden')">✕</button></div>
+        <div style="text-align:center;padding:1rem 0.5rem;">
+          <div id="ratingStars" style="display:flex;justify-content:center;gap:0.5rem;font-size:2rem;cursor:pointer;">
+            <span data-star="1" style="color:#555;">★</span><span data-star="2" style="color:#555;">★</span><span data-star="3" style="color:#555;">★</span><span data-star="4" style="color:#555;">★</span><span data-star="5" style="color:#555;">★</span>
+          </div>
+          <input id="ratingComment" type="text" placeholder="Comment (optional)" maxlength="300" style="width:100%;margin-top:1rem;padding:0.7rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;font-size:0.85rem;box-sizing:border-box;" />
+          <p id="ratingMsg" style="font-size:0.8rem;min-height:1rem;margin:0.5rem 0;"></p>
+          <button id="ratingSubmitBtn" type="button" style="width:100%;padding:0.8rem;background:#00B4D8;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:0.9rem;cursor:pointer;margin-top:0.3rem;">Submit</button>
+          <button type="button" onclick="document.getElementById('ratingModal').classList.add('hidden')" style="width:100%;padding:0.7rem;background:none;color:#8a97ae;border:none;font-size:0.85rem;cursor:pointer;margin-top:0.3rem;">Skip</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Appeal / Order Inquiry modal -->
+    <section id="appealModal" class="cancel-modal hidden" aria-hidden="true">
+      <div class="cancel-backdrop" onclick="document.getElementById('appealModal').classList.add('hidden')"></div>
+      <div class="cancel-panel" role="dialog" style="max-width:380px;">
+        <div class="cancel-panel-head"><h3>Order Inquiry / Appeal</h3><button type="button" aria-label="Close" onclick="document.getElementById('appealModal').classList.add('hidden')">✕</button></div>
+        <div style="padding:0.8rem;">
+          <label style="font-size:0.82rem;color:#8a97ae;display:block;margin-bottom:0.3rem;">Reason</label>
+          <select id="appealReason" style="width:100%;padding:0.7rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;font-size:0.85rem;box-sizing:border-box;">
+            <option value="">Select reason</option>
+            <option value="Payment sent but order cancelled">Payment sent but order cancelled</option>
+            <option value="Seller did not release crypto">Seller did not release crypto</option>
+            <option value="Wrong amount received">Wrong amount received</option>
+            <option value="Scam / fraud">Scam / fraud</option>
+            <option value="Other">Other</option>
+          </select>
+          <label style="font-size:0.82rem;color:#8a97ae;display:block;margin:0.8rem 0 0.3rem;">Description</label>
+          <textarea id="appealDescription" rows="3" maxlength="1000" placeholder="Describe your issue..." style="width:100%;padding:0.7rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:#fff;font-size:0.85rem;resize:none;box-sizing:border-box;"></textarea>
+          <label style="font-size:0.82rem;color:#8a97ae;display:block;margin:0.8rem 0 0.3rem;">Evidence (screenshots)</label>
+          <input id="appealImages" type="file" accept="image/*" multiple style="font-size:0.8rem;color:#8a97ae;" />
+          <p id="appealMsg" style="font-size:0.8rem;min-height:1rem;margin:0.5rem 0;"></p>
+          <button id="appealSubmitBtn" type="button" style="width:100%;padding:0.8rem;background:#00B4D8;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:0.9rem;cursor:pointer;">Submit Appeal</button>
+        </div>
       </div>
     </section>
 

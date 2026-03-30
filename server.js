@@ -4035,6 +4035,36 @@ app.post('/api/p2p/orders/:orderId/rate', requiresP2PUser, async (req, res) => {
   }
 });
 
+// ── Order Appeal ─────────────────────────────────────────────────────────────
+app.post('/api/p2p/orders/:orderId/appeal', requiresP2PUser, async (req, res) => {
+  try {
+    const { reason, description, images } = req.body;
+    if (!reason) return res.status(400).json({ message: 'Reason is required.' });
+    if (!description || description.length < 10) return res.status(400).json({ message: 'Description too short.' });
+    const order = await repos.getP2POrderById(req.params.orderId);
+    if (!order) return res.status(404).json({ message: 'Order not found.' });
+    if (!isParticipant(order, req.p2pUser.id)) return res.status(403).json({ message: 'Not a participant.' });
+    const appealDoc = {
+      orderId: order.id || order._id,
+      orderReference: order.reference,
+      userId: req.p2pUser.id,
+      userEmail: req.p2pUser.email || req.p2pUser.username,
+      reason,
+      description: description.slice(0, 1000),
+      images: Array.isArray(images) ? images.slice(0, 3) : [],
+      status: 'PENDING',
+      createdAt: new Date()
+    };
+    const db = mongoose.connection.db;
+    await db.collection('p2pAppeals').insertOne(appealDoc);
+    console.log(`[Appeal] Order ${order.reference} by ${req.p2pUser.id}: ${reason}`);
+    return res.json({ success: true, message: 'Appeal submitted.' });
+  } catch (e) {
+    console.error('Appeal error:', e.message);
+    return res.status(500).json({ message: 'Server error.' });
+  }
+});
+
 // ── Email verification OTP ────────────────────────────────────────────────────
 app.post('/api/p2p/verify-email/send', requiresP2PUser, async (req, res) => {
   try {
