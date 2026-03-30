@@ -395,7 +395,7 @@ function statusClass(status) {
     PAID: 'status-paid',
     RELEASED: 'status-released',
     CANCELLED: 'status-cancelled',
-    DISPUTED: 'status-paid',
+    DISPUTED: 'status-disputed',
     EXPIRED: 'status-expired'
   };
   return map[normalizeStatusForUi(status)] || 'status-created';
@@ -2856,8 +2856,18 @@ var _OFFERS_CACHE_TTL_MS = 25 * 1000;
 var _P2P_SELECTED_AD_CACHE_KEY = 'p2p_selected_ad';
 var _orderFlowWarmPromise = null;
 var _orderFlowWarmStartedAt = 0;
-var _ORDER_FLOW_VERSION = '20260330c';
+var _ORDER_FLOW_VERSION = '20260330d';
 var _P2P_ORDERS_FOCUS_KEY = 'p2p_orders_focus_state';
+
+function _rememberOrdersFocusState(main, sub) {
+  try {
+    sessionStorage.setItem(_P2P_ORDERS_FOCUS_KEY, JSON.stringify({
+      main: String(main || 'pending').trim().toLowerCase() || 'pending',
+      sub: String(sub || 'inprogress').trim().toLowerCase() || 'inprogress',
+      ts: Date.now()
+    }));
+  } catch (_) {}
+}
 
 function _consumeOrdersFocusState() {
   try {
@@ -2893,6 +2903,51 @@ function _buildOrderFlowUrl(params) {
   var qs = new URLSearchParams(params || {});
   qs.set('v', _ORDER_FLOW_VERSION);
   return '/p2p-order-flow.html?' + qs.toString();
+}
+
+function _getKnownCurrentUserOrders() {
+  return _ordMergeById(
+    getAllCachedParticipantOrders(),
+    _ordMergeById(
+      _ordAllOrders,
+      _ordMergeById(_loadOrdCache(), _ordLoadSavedSnapshots({ activeOnly: false }))
+    )
+  ).filter(function(order) {
+    return _ordBelongsToCurrentUser(order);
+  });
+}
+
+function _getBuyerBlockedOrderForCreation() {
+  return _getKnownCurrentUserOrders().find(function(order) {
+    if (getOrderRole(order) !== 'buyer') {
+      return false;
+    }
+    return normalizeStatusForUi(order.status) === 'DISPUTED';
+  }) || null;
+}
+
+function _getBuyerOrderCreationBlockMessage(order) {
+  if (!order) {
+    return 'You already have an active order. Complete it first.';
+  }
+  return normalizeStatusForUi(order.status) === 'DISPUTED'
+    ? 'You already have an order under appeal. Complete or cancel that dispute order first.'
+    : 'You already have an active order. Complete it first.';
+}
+
+function _redirectToDisputeOrders() {
+  _rememberOrdersFocusState('pending', 'dispute');
+  if (typeof closeOrderModal === 'function') {
+    closeOrderModal();
+  }
+  if (typeof showMobScreen === 'function') {
+    showMobScreen('mobOrdersScreen');
+  }
+  setTimeout(function() {
+    switchOrdMain('pending');
+    switchOrdSub('dispute');
+    fetchOrdersSafe();
+  }, 60);
 }
 
 function _buildOffersCacheKey(params) {
@@ -3062,6 +3117,14 @@ async function createOrder(offerId, options = {}) {
   if (!currentUser) {
     requireLoginNotice();
     throw new Error('Please login first.');
+  }
+
+  const blockedOrder = _getBuyerBlockedOrderForCreation();
+  if (blockedOrder) {
+    const error = new Error(_getBuyerOrderCreationBlockMessage(blockedOrder));
+    error.code = normalizeStatusForUi(blockedOrder.status) === 'DISPUTED' ? 'DISPUTE_ORDER_ACTIVE' : 'ACTIVE_ORDER_EXISTS';
+    error.order = blockedOrder;
+    throw error;
   }
 
   const offer = offersMap.get(String(offerId || '').trim());
@@ -3414,7 +3477,9 @@ function updateOrderUi(order) {
   }
   if (paymentInstructions) {
     paymentInstructions.textContent =
-      'Transfer exact amount from your own account and click “I have paid”.';
+      normalizedSt === 'DISPUTED'
+        ? 'This order is under appeal. Wait for support to review the dispute.'
+        : 'Transfer exact amount from your own account and click “I have paid”.';
   }
 
   remainingSeconds = Number(order.remainingSeconds || 0);
@@ -3425,15 +3490,27 @@ function updateOrderUi(order) {
 
   const isCreated = normalizedStatus === 'CREATED';
   const isPaid = normalizedStatus === 'PAID';
+  const isDisputed = normalizedStatus === 'DISPUTED';
   const isReleased = normalizedStatus === 'RELEASED';
   const isClosed = ['RELEASED', 'CANCELLED', 'EXPIRED'].includes(normalizedStatus);
 
   if (markPaidBtn) {
+    markPaidBtn.style.background = '';
+    markPaidBtn.style.color = '';
+    markPaidBtn.style.borderColor = '';
     if (activeOrderRole === 'seller' && isPaid) {
       markPaidBtn.dataset.action = 'release';
       markPaidBtn.textContent = 'Release';
       markPaidBtn.disabled = false;
       markPaidBtn.classList.add('release-mode');
+    } else if (isDisputed) {
+      markPaidBtn.dataset.action = 'none';
+      markPaidBtn.textContent = 'Appealing';
+      markPaidBtn.disabled = true;
+      markPaidBtn.classList.remove('release-mode');
+      markPaidBtn.style.background = 'rgba(246,70,93,0.12)';
+      markPaidBtn.style.color = '#f6465d';
+      markPaidBtn.style.borderColor = 'rgba(246,70,93,0.35)';
     } else if (activeOrderRole === 'buyer' && isCreated) {
       markPaidBtn.dataset.action = 'pay';
       markPaidBtn.textContent = 'Pay';
@@ -3458,9 +3535,18 @@ function updateOrderUi(order) {
   }
 
   if (cancelOrderBtn) {
+    cancelOrderBtn.textContent = isDisputed ? 'Under Appeal' : 'Cancel Order';
+    cancelOrderBtn.style.background = '';
+    cancelOrderBtn.style.color = '';
+    cancelOrderBtn.style.borderColor = '';
     const canCancel = isCreated;
-    cancelOrderBtn.disabled = !canCancel;
-    cancelOrderBtn.style.opacity = canCancel ? '1' : '0.4';
+    cancelOrderBtn.disabled = isDisputed || !canCancel;
+    cancelOrderBtn.style.opacity = canCancel && !isDisputed ? '1' : '0.4';
+    if (isDisputed) {
+      cancelOrderBtn.style.background = 'rgba(246,70,93,0.08)';
+      cancelOrderBtn.style.color = '#f6465d';
+      cancelOrderBtn.style.borderColor = 'rgba(246,70,93,0.35)';
+    }
   }
   if (paidConfirmBtn) {
     paidConfirmBtn.disabled = !(activeOrderRole === 'buyer' && isCreated);
@@ -3479,6 +3565,9 @@ function updateOrderUi(order) {
     } else if (normalizedStatus === 'PAID' && activeOrderRole === 'buyer') {
       timerLabel.textContent = 'Waiting for seller to release';
       timerLabel.style.color = '#fff';
+    } else if (normalizedStatus === 'DISPUTED') {
+      timerLabel.textContent = 'Appeal under review';
+      timerLabel.style.color = '#f6465d';
     } else {
       timerLabel.textContent = '';
     }
@@ -3486,18 +3575,17 @@ function updateOrderUi(order) {
   if (chatInput) {
     chatInput.disabled = isClosed;
   }
-  if (isClosed || isPaid || activeOrderRole !== 'buyer') {
+  if (isClosed || isPaid || isDisputed || activeOrderRole !== 'buyer') {
     setPaymentPanelOpen(false);
   }
 
   // Dispute button
   if (disputeBtn) {
-    var isDisputed = normalizedStatus === 'DISPUTED';
     var canDispute = isPaid && !isClosed;
     if (canDispute || isDisputed) {
       disputeBtn.classList.remove('hidden');
       disputeBtn.disabled = isDisputed;
-      disputeBtn.textContent = isDisputed ? 'Dispute Active' : 'Raise Dispute';
+      disputeBtn.textContent = isDisputed ? 'Appeal Active' : 'Raise Dispute';
     } else {
       disputeBtn.classList.add('hidden');
     }
@@ -3573,6 +3661,10 @@ document.addEventListener('click', function(e) {
 (function(){
   var inquiryBtn = document.getElementById('orderInquiryBtn');
   if (inquiryBtn) inquiryBtn.addEventListener('click', function(){
+    if (normalizeStatusForUi(activeOrderSnapshot?.status) === 'DISPUTED') {
+      _redirectToDisputeOrders();
+      return;
+    }
     var modal = document.getElementById('appealModal');
     var msg = document.getElementById('appealMsg');
     if (msg) msg.textContent = '';
@@ -3600,8 +3692,15 @@ document.addEventListener('click', function(e) {
       });
       var d = await res.json();
       if (res.ok) {
-        if (msg) { msg.style.color='#16c784'; msg.textContent='Appeal submitted! Admin will review.'; }
-        setTimeout(function(){ document.getElementById('appealModal').classList.add('hidden'); }, 1500);
+        if (d.order) {
+          activeOrderSnapshot = d.order;
+          updateOrderUi(d.order);
+        }
+        if (msg) { msg.style.color='#16c784'; msg.textContent='Appeal submitted. Redirecting to dispute orders...'; }
+        setTimeout(function(){
+          document.getElementById('appealModal').classList.add('hidden');
+          _redirectToDisputeOrders();
+        }, 1000);
       } else {
         if (msg) { msg.style.color='#f6465d'; msg.textContent = d.message || 'Failed'; }
       }
@@ -7278,7 +7377,11 @@ window.deleteMobAd = async function(offerId) {
         return;
       }
       if (hint) hint.textContent = '';
-      // Check 1 active order limit
+      var blockedOrder = _getBuyerBlockedOrderForCreation();
+      if (blockedOrder) {
+        if (hint) hint.textContent = _getBuyerOrderCreationBlockMessage(blockedOrder);
+        return;
+      }
       var hasActive = _ordAllOrders.some(function(o) {
         return ['CREATED','PENDING','PAID','PAYMENT_SENT'].indexOf((o.status || '').toUpperCase()) !== -1;
       });

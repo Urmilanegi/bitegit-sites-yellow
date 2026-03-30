@@ -831,6 +831,7 @@
             <span style="font-size:12px;color:rgba(255,255,255,0.4);">Admin is reviewing this order</span>
           </div>
         </div>
+        <button id="chatAppealingBtn" type="button" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.32);color:#ef4444;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:default;pointer-events:none;flex-shrink:0;">Appealing</button>
       </div>
       <!-- DISPUTE button: shown in PAYMENT_SENT state for both parties -->
       <div id="chatDisputeRow" style="display:none;padding:4px 0 6px;justify-content:flex-end;">
@@ -1183,7 +1184,7 @@
   var _appealDraft = { images: [] };
   var _orderSseConnected = false;
   var _chatWarmPromise = null;
-  var ORDER_FLOW_PAGE_VERSION = '20260330c';
+  var ORDER_FLOW_PAGE_VERSION = '20260330d';
   var CHAT_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
   var CHAT_CACHE_KEY_PREFIX = 'p2p_order_msgs_';
   var ORDERS_FOCUS_STATE_KEY = 'p2p_orders_focus_state';
@@ -1597,6 +1598,10 @@
     return isBuyerWaitingReleaseStatus(s) || ['DISPUTED', 'RELEASED', 'COMPLETED'].indexOf(s) !== -1;
   }
 
+  function isDisputedCurrentOrder(status) {
+    return getCurrentOrderStatus(status) === 'DISPUTED';
+  }
+
   function canCancelCurrentOrder(status) {
     var s = getCurrentOrderStatus(status);
     if (isSeller) {
@@ -1609,6 +1614,10 @@
   }
 
   function showCancelBlockedMessage() {
+    if (isDisputedCurrentOrder()) {
+      showToast('This order is already under appeal. Wait for the dispute to be completed or cancelled.');
+      return;
+    }
     showToast('This order cannot be cancelled from your side. File an appeal if you need help.');
   }
 
@@ -1617,9 +1626,28 @@
     return true;
   }
 
+  function getOrdersFocusForStatus(status) {
+    var s = getCurrentOrderStatus(status);
+    if (s === 'DISPUTED') {
+      return { main: 'pending', sub: 'dispute' };
+    }
+    if (s === 'RELEASED' || s === 'COMPLETED') {
+      return { main: 'ended', sub: 'completed' };
+    }
+    if (s === 'CANCELLED' || s === 'EXPIRED') {
+      return { main: 'ended', sub: 'canceled' };
+    }
+    return { main: 'pending', sub: 'inprogress' };
+  }
+
   function returnToOrdersScreen(mainTab, subTab) {
     rememberOrdersFocus(mainTab, subTab);
     navTo('/p2p#orders');
+  }
+
+  function returnToCurrentOrderBucket(status) {
+    var focus = getOrdersFocusForStatus(status);
+    returnToOrdersScreen(focus.main, focus.sub);
   }
 
   function cacheCurrentOrder() {
@@ -1666,6 +1694,19 @@
     btnEl.dataset.paidLocked = '1';
   }
 
+  function _applyUnderAppealButton(btnEl, label) {
+    if (!btnEl) return;
+    btnEl.textContent = label || 'Under Appeal';
+    btnEl.style.background = 'rgba(239,68,68,0.12)';
+    btnEl.style.color = '#ef4444';
+    btnEl.style.border = '1px solid rgba(239,68,68,0.3)';
+    btnEl.style.cursor = 'default';
+    btnEl.style.pointerEvents = 'none';
+    btnEl.disabled = true;
+    btnEl.dataset.paidLocked = '0';
+    btnEl.dataset.appealLocked = '1';
+  }
+
   function _resetPaidLockButton(btnEl, label) {
     if (!btnEl) return;
     btnEl.textContent = label;
@@ -1676,13 +1717,17 @@
     btnEl.style.pointerEvents = '';
     btnEl.disabled = false;
     btnEl.dataset.paidLocked = '0';
+    btnEl.dataset.appealLocked = '0';
   }
 
   function resetTransferScreenPaidState() {
     var tfBtn = document.getElementById('tfPaidBtn');
     var tfCancelBtn = document.getElementById('tfCancelBtn');
     _resetPaidLockButton(tfBtn, 'Paid');
-    if (tfCancelBtn) tfCancelBtn.style.display = '';
+    if (tfCancelBtn) {
+      tfCancelBtn.style.display = '';
+      _resetPaidLockButton(tfCancelBtn, 'Cancel');
+    }
   }
 
   function resetOrderScreenState() {
@@ -1695,12 +1740,18 @@
     _resetPaidLockButton(nextBtn, 'Continue to Pay');
     if (cancelBtn) {
       cancelBtn.style.display = '';
-      cancelBtn.textContent = 'Cancel';
+      _resetPaidLockButton(cancelBtn, 'Cancel');
     }
   }
 
   function syncBuyerPaidUi(status) {
     if (isSeller) return;
+    if (isDisputedCurrentOrder(status)) {
+      _stopPaidCountdown();
+      updateOrderScreenForStatus(status);
+      updateTransferScreenForDispute();
+      return;
+    }
     if (!isBuyerWaitingReleaseStatus(status)) {
       _stopPaidCountdown();
       resetOrderScreenState();
@@ -1743,7 +1794,17 @@
     _applyPaidLockButton(tfBtn);
     if (tfCancelBtn) {
       tfCancelBtn.style.display = '';
-      tfCancelBtn.textContent = 'Cancel';
+      _resetPaidLockButton(tfCancelBtn, 'Cancel');
+    }
+  }
+
+  function updateTransferScreenForDispute() {
+    var tfBtn = document.getElementById('tfPaidBtn');
+    var tfCancelBtn = document.getElementById('tfCancelBtn');
+    _applyUnderAppealButton(tfBtn, 'Appealing');
+    if (tfCancelBtn) {
+      tfCancelBtn.style.display = '';
+      _applyUnderAppealButton(tfCancelBtn, 'Under Appeal');
     }
   }
 
@@ -1751,10 +1812,24 @@
   function updateOrderScreenForStatus(status) {
     var s = String(status || '').toUpperCase();
     var isPaid = s === 'PAID' || s === 'PAYMENT_SENT';
+    var isDisputed = s === 'DISPUTED';
     var heading = document.querySelector('#screen-order-generated .page-heading h1');
     var timerRow = document.querySelector('#screen-order-generated .page-heading .timer-row');
     var nextBtn = document.getElementById('ogNextBtn');
     var cancelBtn = document.getElementById('ogCancelBtn');
+    if (!isSeller && isDisputed) {
+      if (heading) heading.innerHTML = 'Order is under appeal.<br>Wait for support review.';
+      if (timerRow) timerRow.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
+        '<div style="width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0;animation:_ordPulse 1.2s ease-in-out infinite;"></div>' +
+        '<span style="color:#ef4444;font-size:14px;font-weight:600;">Appeal submitted. This order has moved to dispute review.</span></div>' +
+        '<style>@keyframes _ordPulse{0%,100%{opacity:.5}50%{opacity:1}}</style>';
+      _applyUnderAppealButton(nextBtn, 'Appealing');
+      if (cancelBtn) {
+        cancelBtn.style.display = '';
+        _applyUnderAppealButton(cancelBtn, 'Under Appeal');
+      }
+      return;
+    }
     if (!isSeller && isPaid) {
       if (heading) heading.innerHTML = 'Payment sent — waiting for seller to release.';
       if (timerRow) timerRow.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
@@ -1764,8 +1839,61 @@
       _applyPaidLockButton(nextBtn);
       if (cancelBtn) {
         cancelBtn.style.display = '';
-        cancelBtn.textContent = 'Cancel';
+        _resetPaidLockButton(cancelBtn, 'Cancel');
       }
+    }
+  }
+
+  function _styleSummaryPrimaryButton(btn, mode) {
+    if (!btn) return;
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.boxShadow = '';
+    if (mode === 'appeal') {
+      btn.style.background = '#ef4444';
+      btn.style.color = '#fff';
+      btn.style.boxShadow = '0 18px 34px rgba(239,68,68,0.22)';
+    }
+  }
+
+  function setStatusSummaryScreen(status, options) {
+    var opts = options || {};
+    var s = getCurrentOrderStatus(status);
+    var heading = document.querySelector('#screen-canceled .page-heading h1');
+    var sub = document.querySelector('#screen-canceled .page-heading div');
+    var primaryBtn = document.getElementById('placeNewOrderBtn');
+    var inquiryBtn = document.getElementById('orderInquiryBtn');
+
+    if (heading) {
+      heading.textContent = opts.heading || (
+        s === 'DISPUTED' ? 'Under Appeal' :
+        (s === 'RELEASED' || s === 'COMPLETED') ? 'Order Completed' :
+        'Canceled'
+      );
+    }
+    if (sub) {
+      sub.textContent = opts.subtext || (
+        s === 'DISPUTED'
+          ? 'Appeal submitted successfully. We moved this order to the dispute queue for review.'
+          : (s === 'RELEASED' || s === 'COMPLETED')
+            ? (isSeller ? 'You have released the funds successfully.' : 'Crypto has been credited to your wallet.')
+            : 'Order is canceled. Do not initiate another payment.'
+      );
+    }
+
+    if (primaryBtn) {
+      primaryBtn.style.display = '';
+      primaryBtn.textContent = s === 'DISPUTED' ? 'View appeal' : 'Place a new order';
+      _styleSummaryPrimaryButton(primaryBtn, s === 'DISPUTED' ? 'appeal' : '');
+    }
+
+    if (inquiryBtn) {
+      inquiryBtn.style.display = '';
+      inquiryBtn.textContent = s === 'DISPUTED' ? 'Open dispute chat' : 'Order inquiry';
+    }
+
+    if (s === 'RELEASED' || s === 'COMPLETED') {
+      if (primaryBtn) primaryBtn.style.display = 'none';
     }
   }
 
@@ -1787,23 +1915,14 @@
       setTimeout(function() { setupChatForRole(status); }, 200);
     } else if (status === 'CANCELLED' || status === 'EXPIRED') {
       showScreen('screen-canceled');
-      var h1c = document.querySelector('#screen-canceled .page-heading h1');
-      var subc = document.querySelector('#screen-canceled .page-heading div');
       var cancelledByMe = currentOrder && currentOrder.cancelledByRole && currentOrder.cancelledByRole === (isSeller ? 'seller' : 'buyer');
-      if (h1c) h1c.textContent = 'Canceled';
-      if (subc) subc.textContent = cancelledByMe ? "You've cancelled the order." : 'Order is canceled. Do not initiate another payment.';
-      // Show "Place a new order" only for cancelled
-      var pnoBtn = document.getElementById('placeNewOrderBtn');
-      if (pnoBtn) pnoBtn.style.display = '';
+      setStatusSummaryScreen(status, {
+        heading: 'Canceled',
+        subtext: cancelledByMe ? "You've cancelled the order." : 'Order is canceled. Do not initiate another payment.'
+      });
       syncOrderUrl('screen-canceled');
     } else if (status === 'RELEASED' || status === 'COMPLETED') {
-      // Always set screen-canceled content for completed orders
-      var h1r = document.querySelector('#screen-canceled .page-heading h1');
-      var subr = document.querySelector('#screen-canceled .page-heading div');
-      if (h1r) h1r.textContent = 'Order Completed';
-      if (subr) subr.textContent = isSeller ? 'You have released the funds successfully.' : 'Crypto has been credited to your wallet.';
-      var pnoBtn2 = document.getElementById('placeNewOrderBtn');
-      if (pnoBtn2) pnoBtn2.style.display = 'none';
+      setStatusSummaryScreen(status);
       if (forceOpenChat) {
         openChat('screen-canceled');
         setTimeout(function() { setupChatForRole(status); }, 100);
@@ -1959,7 +2078,7 @@
 
     // Screen 2: Order Generated
     document.getElementById('ogBackBtn').addEventListener('click', function() {
-      if (shouldReturnToOrdersOnBack()) { returnToOrdersScreen('pending', 'inprogress'); return; }
+      if (shouldReturnToOrdersOnBack()) { returnToCurrentOrderBucket(); return; }
       showScreen('screen-buy');
     });
     document.getElementById('ogChatBtn').addEventListener('click', function() { openChat('screen-order-generated'); });
@@ -2049,8 +2168,21 @@
     // Order Inquiry button (post-completion dispute)
     document.getElementById('chatOrderInquiryBtn').addEventListener('click', function() { _doFileAppeal(); });
     document.getElementById('chatOrderInquiryBtn').addEventListener('touchend', function(e) { e.preventDefault(); _doFileAppeal(); });
-    bindIfPresent('orderInquiryBtn', 'click', function() { _doFileAppeal(); });
-    bindIfPresent('orderInquiryBtn', 'touchend', function(e) { e.preventDefault(); _doFileAppeal(); });
+    bindIfPresent('orderInquiryBtn', 'click', function() {
+      if (isDisputedCurrentOrder()) {
+        openChat('screen-canceled');
+        return;
+      }
+      _doFileAppeal();
+    });
+    bindIfPresent('orderInquiryBtn', 'touchend', function(e) {
+      e.preventDefault();
+      if (isDisputedCurrentOrder()) {
+        openChat('screen-canceled');
+        return;
+      }
+      _doFileAppeal();
+    });
 
     bindIfPresent('appealCloseBtn', 'click', function() { _setAppealModalOpen(false); });
     bindIfPresent('appealCancelBtn', 'click', function() { _setAppealModalOpen(false); });
@@ -2128,19 +2260,18 @@
 
     // Screen 7: Canceled
     document.getElementById('canceledBackBtn').addEventListener('click', function() {
-      var status = String((currentOrder && currentOrder.status) || '').toUpperCase();
       if (shouldReturnToOrdersOnBack()) {
-        if (status === 'RELEASED' || status === 'COMPLETED') {
-          returnToOrdersScreen('ended', 'completed');
-        } else {
-          returnToOrdersScreen('ended', 'canceled');
-        }
+        returnToCurrentOrderBucket();
         return;
       }
       navTo('/p2p');
     });
     document.getElementById('cnChatBtn').addEventListener('click', function() { openChat('screen-canceled'); });
     document.getElementById('placeNewOrderBtn').addEventListener('click', function() {
+      if (isDisputedCurrentOrder()) {
+        returnToOrdersScreen('pending', 'dispute');
+        return;
+      }
       currentOrder = null;
       if (timerInterval) clearInterval(timerInterval);
       showScreen('screen-buy');
@@ -2632,12 +2763,7 @@
     rememberOrdersFocus('ended', 'canceled');
     showToast('Order expired');
     showScreen('screen-canceled');
-    var h1 = document.querySelector('#screen-canceled .page-heading h1');
-    var sub = document.querySelector('#screen-canceled .page-heading div');
-    if (h1) h1.textContent = 'Canceled';
-    if (sub) sub.textContent = 'Order is canceled. Do not initiate another payment.';
-    var pnoBtn = document.getElementById('placeNewOrderBtn');
-    if (pnoBtn) pnoBtn.style.display = '';
+    setStatusSummaryScreen('EXPIRED');
   }
 
   async function _handleOrderExpired() {
@@ -2718,7 +2844,7 @@
 
   function goBack() {
     if (shouldReturnToOrdersOnBack()) {
-      returnToOrdersScreen('pending', 'inprogress');
+      returnToCurrentOrderBucket();
       return;
     }
     navTo('/p2p');
@@ -2741,7 +2867,7 @@
       return;
     }
     if (shouldReturnToOrdersOnBack()) {
-      returnToOrdersScreen('pending', 'inprogress');
+      returnToCurrentOrderBucket();
     } else {
       navTo('/p2p');
     }
@@ -2802,6 +2928,7 @@
     var receiveAmountEl = document.getElementById('chatReceiveAmount');
     var waitingHelpEl = document.getElementById('chatWaitingHelp');
     var cancelOrAppealBtn = document.getElementById('chatCancelOrAppealBtn');
+    var appealingBtn = document.getElementById('chatAppealingBtn');
 
     // Reset all
     [payBar, waitBar, sellerWaitBar, sellerReleaseBar, completedBar, disputedBar, disputeRow, noticeBar].forEach(function(el) {
@@ -2810,6 +2937,9 @@
     if (cancelOrAppealBtn) {
       cancelOrAppealBtn.style.display = 'none';
       cancelOrAppealBtn.textContent = 'Cancel';
+    }
+    if (appealingBtn) {
+      appealingBtn.textContent = 'Appealing';
     }
     if (receiveAmountEl && currentOrder) {
       receiveAmountEl.textContent = fmtCrypto(currentOrder.cryptoAmount || currentOrder.assetAmount || currentOrder.escrowAmount || 0, 4);
@@ -2877,6 +3007,39 @@
 
   // File appeal / raise dispute
   var _appealInFlight = false;
+  var _appealRedirectTimer = null;
+
+  function _clearAppealRedirectTimer() {
+    if (_appealRedirectTimer) {
+      clearTimeout(_appealRedirectTimer);
+      _appealRedirectTimer = null;
+    }
+  }
+
+  function _finalizeAppealState(nextOrder, message) {
+    _clearAppealRedirectTimer();
+    currentOrder = Object.assign({}, currentOrder || {}, nextOrder || {}, {
+      status: 'DISPUTED',
+      updatedAt: new Date().toISOString()
+    });
+    cacheCurrentOrder();
+    renderOrderDetails();
+    syncBuyerPaidUi('DISPUTED');
+    setStatusSummaryScreen('DISPUTED');
+    showScreen('screen-canceled');
+    syncOrderUrl('screen-canceled');
+    setupChatForRole('DISPUTED');
+    chatRenderedIds = {};
+    var chatMessagesEl = document.getElementById('chatMessages');
+    if (chatMessagesEl) chatMessagesEl.innerHTML = '';
+    pollNewMessages();
+    rememberOrdersFocus('pending', 'dispute');
+    showToast(message || 'Appeal submitted. Redirecting to dispute orders...');
+    _appealRedirectTimer = setTimeout(function() {
+      returnToOrdersScreen('pending', 'dispute');
+    }, 1100);
+  }
+
   function _resetAppealDraft() {
     _appealDraft = { images: [] };
     var typeInput = document.getElementById('appealTypeInput');
@@ -2985,16 +3148,8 @@
       });
       var data = await res.json().catch(function() { return {}; });
       if (res.ok && data.order) {
-        currentOrder = data.order;
-        cacheCurrentOrder();
-        syncOrderUrl();
         _setAppealModalOpen(false);
-        showToast('Appeal filed. Support will review shortly.');
-        setupChatForRole(currentOrder.status);
-        chatRenderedIds = {};
-        var chatMessagesEl = document.getElementById('chatMessages');
-        if (chatMessagesEl) chatMessagesEl.innerHTML = '';
-        pollNewMessages();
+        _finalizeAppealState(data.order, 'Appeal submitted. Redirecting to dispute orders...');
       } else {
         showToast(data.message || 'Failed to file appeal. Try again.');
       }
@@ -3059,12 +3214,10 @@
         pollNewMessages();
         setTimeout(function() {
           showScreen('screen-canceled');
-          var h1 = document.querySelector('#screen-canceled .page-heading h1');
-          var sub = document.querySelector('#screen-canceled .page-heading div');
-          if (h1) h1.textContent = 'Order Completed';
-          if (sub) sub.textContent = 'You have released the funds successfully.';
-          var pnob = document.getElementById('placeNewOrderBtn');
-          if (pnob) pnob.style.display = 'none';
+          setStatusSummaryScreen('RELEASED', {
+            heading: 'Order Completed',
+            subtext: 'You have released the funds successfully.'
+          });
         }, 1200);
       } else {
         showToast(data.message || 'Release failed');
@@ -3505,14 +3658,16 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ action: 'dispute', reason: fullReason })
+        body: JSON.stringify({
+          action: 'dispute',
+          reason: fullReason,
+          appealType: reason,
+          appealReason: details || reason
+        })
       });
       if (res.ok) {
         var data = await res.json();
-        if (data.order) currentOrder = data.order;
-        showToast('Dispute raised. Admin will review within 24 hours.');
-        setupChatForRole('DISPUTED');
-        pollNewMessages();
+        _finalizeAppealState(data.order, 'Appeal submitted. Redirecting to dispute orders...');
       } else {
         var err = await res.json().catch(function() { return {}; });
         showToast(err.message || 'Could not raise dispute. Try again.');

@@ -100,7 +100,7 @@ function statusClass(status) {
     RELEASED: 'status-released',
     CANCELLED: 'status-cancelled',
     EXPIRED: 'status-expired',
-    DISPUTED: 'status-paid'
+    DISPUTED: 'status-disputed'
   };
   return map[normalizeStatus(status)] || 'status-created';
 }

@@ -3861,7 +3861,12 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
       updatedOrder = await walletService.releaseOrder(req.params.orderId, req.p2pUser);
     } else if (action === 'dispute') {
       const disputeReason = req.body.reason ? String(req.body.reason).slice(0, 500) : '';
-      updatedOrder = await walletService.setOrderDisputed(req.params.orderId, req.p2pUser, { reason: disputeReason });
+      updatedOrder = await walletService.setOrderDisputed(req.params.orderId, req.p2pUser, {
+        reason: disputeReason,
+        appealType: String(req.body.appealType || '').trim(),
+        appealReason: String(req.body.appealReason || '').trim(),
+        appealImages: Array.isArray(req.body.appealImages) ? req.body.appealImages.slice(0, 3) : []
+      });
     } else {
       return res.status(400).json({ message: 'Invalid action.' });
     }
@@ -4057,8 +4062,34 @@ app.post('/api/p2p/orders/:orderId/appeal', requiresP2PUser, async (req, res) =>
     };
     const db = mongoose.connection.db;
     await db.collection('p2pAppeals').insertOne(appealDoc);
+    const updatedOrder = await walletService.setOrderDisputed(req.params.orderId, req.p2pUser, {
+      reason: String(reason || '').slice(0, 500),
+      appealType: String(reason || '').trim(),
+      appealReason: description.slice(0, 1000),
+      appealImages: Array.isArray(images) ? images.slice(0, 3) : []
+    });
+    const normalizedOrder = safeNormalizeOrderState(updatedOrder, {
+      route: 'appeal-submit',
+      userId: req.p2pUser.id
+    });
+    if (!normalizedOrder) {
+      return res.status(500).json({ message: 'Order data is invalid.' });
+    }
+    const normalizedMessages = toClientMessages(updatedOrder.messages || []);
+    broadcastOrderEvent(updatedOrder.id, 'order_update', { order: normalizedOrder });
+    broadcastOrderEvent(updatedOrder.id, 'message_update', { messages: normalizedMessages });
+    broadcastOrderParticipantEvent(updatedOrder, 'order_updated', {
+      orderId: updatedOrder.id,
+      reference: updatedOrder.reference,
+      status: normalizeOrderStatus(updatedOrder.status)
+    });
     console.log(`[Appeal] Order ${order.reference} by ${req.p2pUser.id}: ${reason}`);
-    return res.json({ success: true, message: 'Appeal submitted.' });
+    return res.json({
+      success: true,
+      message: 'Appeal submitted. Redirecting to dispute orders.',
+      order: normalizedOrder,
+      messages: normalizedMessages
+    });
   } catch (e) {
     console.error('Appeal error:', e.message);
     return res.status(500).json({ message: 'Server error.' });

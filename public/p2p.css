@@ -1011,6 +1011,11 @@ body.p2p-kyc-open { overflow: hidden; }
   color: #8fd3ff;
 }
 
+.status-disputed {
+  background: rgba(246, 70, 93, 0.18);
+  color: #ff8ea0;
+}
+
 .status-released {
   background: rgba(25, 210, 127, 0.18);
   color: #6bebb4;
