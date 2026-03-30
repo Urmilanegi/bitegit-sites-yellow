@@ -1,36 +1,38 @@
 <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" fill="none">
   <defs>
-    <linearGradient id="g" x1="65" y1="60" x2="410" y2="440" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#00ddd0"/>
-      <stop offset="100%" stop-color="#00aadc"/>
+    <linearGradient id="g" x1="15" y1="15" x2="485" y2="485" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00e8d8"/>
+      <stop offset="100%" stop-color="#00a8e0"/>
     </linearGradient>
-    <mask id="bm">
+    <!-- Global mask: cuts chevron void + B bump holes -->
+    <mask id="gm">
       <rect width="500" height="500" fill="white"/>
-      <!-- upper bump inner D-hole -->
-      <rect x="154" y="82" width="152" height="122" rx="12" fill="black"/>
-      <!-- mid gap between bumps (cuts through spine too) -->
-      <rect x="130" y="226" width="270" height="28" fill="black"/>
-      <!-- lower bump inner D-hole (shorter — stops before bump bottom) -->
-      <rect x="154" y="272" width="158" height="82" rx="12" fill="black"/>
-      <!-- square notch — center-left of spine in gap zone -->
-      <rect x="130" y="204" width="46" height="46" fill="black"/>
+      <!-- Chevron inner void (triangle pointing left) -->
+      <polygon points="0,82 224,252 0,422" fill="black"/>
+      <!-- Upper bump inner D-hole -->
+      <path d="M256,52 L336,52 Q436,52 436,132 Q436,212 336,212 L256,212 Z" fill="black"/>
+      <!-- Gap between bumps -->
+      <rect x="224" y="224" width="260" height="26" fill="black"/>
+      <!-- Lower bump inner D-hole -->
+      <path d="M256,268 L344,268 Q452,268 452,360 Q452,450 344,450 L256,450 Z" fill="black"/>
     </mask>
   </defs>
 
-  <!-- Left standalone capsule (same width as spine, vertically centered) -->
-  <rect x="62" y="148" width="52" height="204" rx="26" fill="url(#g)"/>
+  <g mask="url(#gm)" fill="url(#g)">
+    <!-- CHEVRON ">" — upper arm -->
+    <polygon points="15,15 245,236 218,280 10,72"/>
+    <!-- CHEVRON ">" — lower arm -->
+    <polygon points="218,280 245,264 15,485 10,428"/>
 
-  <!-- B shape — spine extends full height including rectangular tail below lower bump -->
-  <g mask="url(#bm)" fill="url(#g)">
-    <!-- Spine: full height — bottom portion becomes the rectangular tail -->
-    <rect x="130" y="60" width="54" height="380" rx="8"/>
+    <!-- B — full-height spine -->
+    <rect x="222" y="15" width="46" height="470" rx="8"/>
 
-    <!-- Upper bump: D shape — perfect semicircle on right -->
-    <rect x="176" y="60" width="172" height="164"/>
-    <rect x="266" y="60" width="122" height="164" rx="82"/>
+    <!-- B — upper D bump (spine to right) -->
+    <rect x="260" y="15" width="148" height="218"/>
+    <rect x="320" y="15" width="160" height="218" rx="109"/>
 
-    <!-- Lower bump: D shape, SHORTER — ends at y=382, spine continues to y=440 -->
-    <rect x="176" y="254" width="180" height="128"/>
-    <rect x="264" y="254" width="128" height="128" rx="64"/>
+    <!-- B — lower D bump (slightly taller/wider) -->
+    <rect x="260" y="250" width="166" height="235"/>
+    <rect x="330" y="250" width="160" height="235" rx="117"/>
   </g>
 </svg>
