@@ -1030,10 +1030,17 @@
     <section id="authModal" class="p2p-auth-modal hidden" aria-hidden="true">
       <div id="authBackdrop" class="p2p-auth-backdrop"></div>
       <div class="p2p-auth-panel" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+
+        <!-- Tab switcher -->
+        <div id="authTabs" style="display:flex;gap:0;margin-bottom:1.2rem;border-bottom:1.5px solid rgba(255,255,255,0.08);">
+          <button id="authTabLogin" type="button" onclick="switchAuthTab('login')" style="flex:1;background:none;border:none;border-bottom:2.5px solid #00c2b2;color:#fff;font-size:0.95rem;font-weight:700;padding:0.55rem 0;cursor:pointer;font-family:'Manrope',sans-serif;margin-bottom:-1.5px;transition:color 0.15s,border-color 0.15s;">Login</button>
+          <button id="authTabSignup" type="button" onclick="switchAuthTab('signup')" style="flex:1;background:none;border:none;border-bottom:2.5px solid transparent;color:rgba(255,255,255,0.4);font-size:0.95rem;font-weight:700;padding:0.55rem 0;cursor:pointer;font-family:'Manrope',sans-serif;margin-bottom:-1.5px;transition:color 0.15s,border-color 0.15s;">Sign Up</button>
+        </div>
+
         <!-- Login step -->
         <div id="authStepLogin">
-          <h3 id="authTitle">P2P Login</h3>
-          <p>Enter your email and password to continue.</p>
+          <h3 id="authTitle" style="display:none;">P2P Login</h3>
+          <p style="font-size:0.83rem;color:#8a97ae;margin:0 0 1rem;">Enter your email and password to continue.</p>
           <input id="emailInput" type="email" placeholder="Enter email" autocomplete="email" />
           <input id="passwordInput" type="password" placeholder="Enter password" autocomplete="current-password" />
           <div class="p2p-auth-actions">
@@ -1042,6 +1049,33 @@
           </div>
           <p style="text-align:center;margin-top:0.7rem;"><button id="forgotPasswordLink" type="button" style="background:none;border:none;color:#00c2b2;font-size:0.82rem;cursor:pointer;text-decoration:underline;">Forgot Password?</button></p>
         </div>
+
+        <!-- Signup step 1: email + password -->
+        <div id="authStepSignup" style="display:none;">
+          <p style="font-size:0.83rem;color:#8a97ae;margin:0 0 1rem;">Create your P2P account. A verification code will be sent to your email.</p>
+          <input id="signupEmailInput" type="email" placeholder="Enter email" autocomplete="email" />
+          <input id="signupPasswordInput" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" />
+          <input id="signupConfirmInput" type="password" placeholder="Confirm password" autocomplete="new-password" />
+          <p id="signupMsg" style="font-size:0.8rem;color:#f6465d;min-height:1.2em;margin:4px 0;"></p>
+          <div class="p2p-auth-actions">
+            <button id="signupSendOtpBtn" type="button">Send Code</button>
+            <button id="closeAuthBtn2" type="button" class="p2p-sec-btn" onclick="setAuthModalOpen(false)">Close</button>
+          </div>
+        </div>
+
+        <!-- Signup step 2: OTP verify -->
+        <div id="authStepSignupOtp" style="display:none;">
+          <p style="font-size:0.83rem;color:#8a97ae;margin:0 0 0.3rem;">Enter the 6-digit code sent to your email.</p>
+          <p id="signupOtpEmailLabel" style="font-size:0.8rem;color:#00c2b2;margin:0 0 1rem;word-break:break-all;"></p>
+          <input id="signupOtpInput" type="text" placeholder="6-digit code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+          <p id="signupOtpMsg" style="font-size:0.8rem;color:#f6465d;min-height:1.2em;margin:4px 0;"></p>
+          <div class="p2p-auth-actions">
+            <button id="signupVerifyBtn" type="button">Create Account</button>
+            <button type="button" class="p2p-sec-btn" onclick="switchAuthTab('signup')">Back</button>
+          </div>
+          <p style="text-align:center;margin-top:0.6rem;"><button id="signupResendBtn" type="button" style="background:none;border:none;color:#00c2b2;font-size:0.8rem;cursor:pointer;text-decoration:underline;">Resend code</button></p>
+        </div>
+
         <!-- Forgot password step -->
         <div id="authStepForgot" style="display:none;">
           <h3>Reset Password</h3>

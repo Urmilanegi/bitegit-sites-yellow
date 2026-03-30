@@ -2294,19 +2294,16 @@ function initTheme() {
   applyTheme(storedTheme, false);
 }
 
-function setAuthModalOpen(open) {
-  if (open) { window.location.href = '/auth'; return; }
-  if (!authModal) {
+function setAuthModalOpen(open, opts) {
+  if (open) {
+    var returnTo = (opts && opts.returnTo) || window.location.pathname + window.location.hash;
+    var target = '/auth?redirect=' + encodeURIComponent(returnTo || '/p2p');
+    window.location.href = target;
     return;
   }
-
-  if (open) {
-    authModal.classList.remove('hidden');
-    authModal.setAttribute('aria-hidden', 'false');
-  } else {
-    authModal.classList.add('hidden');
-    authModal.setAttribute('aria-hidden', 'true');
-  }
+  if (!authModal) return;
+  authModal.classList.add('hidden');
+  authModal.setAttribute('aria-hidden', 'true');
   syncBodyInteractionState();
 }
 
@@ -6814,8 +6811,7 @@ function initMobPostAdScreen() {
     var meta = document.getElementById('mobAdCreateMeta');
     var btn = document.getElementById('mobAdCreateBtn');
     if (!currentUser) {
-      if (meta) meta.textContent = 'Please login first.';
-      authModal && authModal.classList.remove('hidden');
+      setAuthModalOpen(true);
       return;
     }
     var payload = {
