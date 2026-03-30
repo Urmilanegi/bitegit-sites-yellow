@@ -168,7 +168,7 @@
         <div class="p2p-alert-bar" id="p2pAlertBar">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f7a723" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <span>Do not share personal contact details. Always verify payment information independently.</span>
-          <button onclick="document.getElementById('p2pAlertBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:#f7a723;cursor:pointer;font-size:1rem;padding:0 4px;line-height:1;">✕</button>
+          <button onclick="document.getElementById('p2pAlertBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:#f7a723;cursor:pointer;font-size:1rem;padding:6px 10px;line-height:1;min-width:32px;min-height:32px;-webkit-tap-highlight-color:transparent;">✕</button>
         </div>
 
         <!-- Desktop table -->
@@ -1121,10 +1121,10 @@
 
         <!-- Status + timer -->
         <div style="margin-bottom:1.1rem;">
-          <h2 id="orderTitle" style="margin:0 0 0.3rem;font-size:1.05rem;font-weight:700;line-height:1.4;color:#fff;">Waiting for seller to release crypto</h2>
+          <h2 id="orderTitle" style="margin:0 0 0.3rem;font-size:1.05rem;font-weight:700;line-height:1.4;color:#fff;"></h2>
           <p style="margin:0;font-size:0.81rem;color:rgba(255,255,255,0.45);">
-            <span id="orderTimerLabel" style="margin-right:4px;">Pay before timer expires</span>
-            <strong id="orderTimer" style="color:#f0b90b;font-size:1rem;letter-spacing:0.04em;">15:00</strong>
+            <span id="orderTimerLabel" style="margin-right:4px;"></span>
+            <strong id="orderTimer" style="color:#f0b90b;font-size:1rem;letter-spacing:0.04em;"></strong>
           </p>
         </div>
 
@@ -1132,7 +1132,7 @@
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:1rem;margin-bottom:0.85rem;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;">
             <div style="display:flex;align-items:center;gap:0.6rem;">
-              <div id="orderMerchantAvatar" style="width:32px;height:32px;border-radius:50%;background:#f0b90b;color:#000;font-weight:800;font-size:0.88rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">S</div>
+              <div id="orderMerchantAvatar" style="width:32px;height:32px;border-radius:50%;background:#f0b90b;color:#000;font-weight:800;font-size:0.88rem;display:none;align-items:center;justify-content:center;flex-shrink:0;"></div>
               <div>
                 <div style="display:flex;align-items:center;gap:0.35rem;">
                   <h3 id="orderMerchant" style="margin:0;font-size:0.88rem;font-weight:700;color:#fff;"></h3>
@@ -1141,7 +1141,7 @@
                 <p id="orderCounterpartyMeta" style="margin:0;font-size:0.72rem;color:rgba(255,255,255,0.4);"></p>
               </div>
             </div>
-            <strong id="orderStatus" class="status-pill status-created" style="font-size:0.72rem;">CREATED</strong>
+            <strong id="orderStatus" class="status-pill" style="font-size:0.72rem;"></strong>
           </div>
         </div>
 
@@ -1204,7 +1204,7 @@
           </div>
         </div>
         <!-- Closed order buttons -->
-        <div id="orderClosedActions" class="hidden">
+        <div id="orderClosedActions" class="hidden" style="display:none;">
           <button id="placeNewOrderBtn" type="button" onclick="window.location.hash='p2p'" style="width:100%;padding:0.9rem;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:'Manrope',sans-serif;">Place a new order</button>
           <button id="orderInquiryBtn" type="button" style="width:100%;padding:0.7rem;background:none;color:#8a97ae;border:none;font-size:0.88rem;font-weight:600;cursor:pointer;margin-top:0.3rem;">Order inquiry</button>
         </div>
@@ -1512,7 +1512,7 @@
     <!-- KYC Under Review Screen -->
     <div id="kycUnderReviewScreen" class="mob-screen" style="display:none;z-index:600;">
       <div class="mob-screen-head">
-        <button class="mob-back-btn" onclick="var ks=document.getElementById('kycUnderReviewScreen'); if(ks)ks.style.display='none'; var ps=document.getElementById('mobProfileScreen'); if(ps){ps.classList.remove('hidden');ps.style.setProperty('display','flex','important');ps.style.flexDirection='column';} document.body.classList.add('mob-screen-open','mob-profile-open'); document.body.dataset.mobileTab='profile'; history.replaceState(null,'','/p2p#profile');" aria-label="Back">
+        <button class="mob-back-btn" onclick="var ks=document.getElementById('kycUnderReviewScreen'); if(ks)ks.style.setProperty('display','none','important'); var ps=document.getElementById('mobProfileScreen'); if(ps){ps.classList.remove('hidden');ps.style.setProperty('display','flex','important');ps.style.flexDirection='column';} document.body.classList.add('mob-screen-open','mob-profile-open'); document.body.dataset.mobileTab='profile'; history.replaceState(null,'','/p2p#profile');" aria-label="Back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <h2>KYC Status</h2>
@@ -1532,7 +1532,7 @@
             <li>You can trade once approved</li>
           </ul>
         </div>
-        <button onclick="var ks=document.getElementById('kycUnderReviewScreen'); if(ks)ks.style.display='none'; var ps=document.getElementById('mobProfileScreen'); if(ps){ps.classList.remove('hidden');ps.style.setProperty('display','flex','important');ps.style.flexDirection='column';} document.body.classList.add('mob-screen-open','mob-profile-open'); document.body.dataset.mobileTab='profile'; if(window.setMobileNavActive)setMobileNavActive('profile'); if(window.loadProfilePanel)loadProfilePanel(); history.replaceState(null,'','/p2p#profile');" class="mob-kyc-fp-btn" style="margin-top:0.5rem;background:linear-gradient(96deg,#00c2b2,#0099a8);box-shadow:0 2px 14px rgba(0,194,178,0.3);">Got it</button>
+        <button onclick="var ks=document.getElementById('kycUnderReviewScreen'); if(ks)ks.style.setProperty('display','none','important'); var ps=document.getElementById('mobProfileScreen'); if(ps){ps.classList.remove('hidden');ps.style.setProperty('display','flex','important');ps.style.flexDirection='column';} document.body.classList.add('mob-screen-open','mob-profile-open'); document.body.dataset.mobileTab='profile'; if(window.setMobileNavActive)setMobileNavActive('profile'); if(window.loadProfilePanel)loadProfilePanel(); history.replaceState(null,'','/p2p#profile');" class="mob-kyc-fp-btn" style="margin-top:0.5rem;background:linear-gradient(96deg,#00c2b2,#0099a8);box-shadow:0 2px 14px rgba(0,194,178,0.3);">Got it</button>
       </div>
     </div>
 

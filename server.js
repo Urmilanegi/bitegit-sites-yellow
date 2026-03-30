@@ -1369,21 +1369,30 @@ async function getP2PUserFromRequest(req) {
   const token = cookies[P2P_USER_COOKIE_NAME];
 
   if (repos && token) {
-    const session = await repos.getP2PUserSession(token);
-    if (session && session.expiresAt) {
-      if (new Date(session.expiresAt).getTime() < Date.now()) {
-        await repos.deleteP2PUserSession(token);
-      } else {
-        const expiresAt = Date.now() + P2P_USER_TTL_MS;
-        await repos.refreshP2PUserSession(token, expiresAt);
-
-        return normalizeP2PUserObject({
-          id: session.userId,
-          username: session.username,
-          email: session.email,
-          role: tokenService.normalizeRole(session.role || 'USER'),
-          expiresAt
-        });
+    // In-memory session cache (5 min) to avoid hitting DB on every request
+    if (!global._p2pSessionCache) global._p2pSessionCache = new Map();
+    const cached = global._p2pSessionCache.get(token);
+    if (cached && cached._cacheExp > Date.now() && cached.expiresAt && new Date(cached.expiresAt).getTime() > Date.now()) {
+      return normalizeP2PUserObject({ id: cached.userId, username: cached.username, email: cached.email, role: tokenService.normalizeRole(cached.role || 'USER'), expiresAt: cached.expiresAt });
+    }
+    try {
+      const session = await repos.getP2PUserSession(token);
+      if (session && session.expiresAt) {
+        if (new Date(session.expiresAt).getTime() < Date.now()) {
+          await repos.deleteP2PUserSession(token).catch(() => {});
+          global._p2pSessionCache.delete(token);
+        } else {
+          const expiresAt = Date.now() + P2P_USER_TTL_MS;
+          repos.refreshP2PUserSession(token, expiresAt).catch(() => {}); // fire-and-forget
+          // Cache for 5 min
+          global._p2pSessionCache.set(token, { ...session, expiresAt, _cacheExp: Date.now() + 5 * 60 * 1000 });
+          return normalizeP2PUserObject({ id: session.userId, username: session.username, email: session.email, role: tokenService.normalizeRole(session.role || 'USER'), expiresAt });
+        }
+      }
+    } catch (_sessionErr) {
+      // DB temporarily unavailable — check cache with extended grace period
+      if (cached && cached.expiresAt && new Date(cached.expiresAt).getTime() > Date.now()) {
+        return normalizeP2PUserObject({ id: cached.userId, username: cached.username, email: cached.email, role: tokenService.normalizeRole(cached.role || 'USER'), expiresAt: cached.expiresAt });
       }
     }
   }
@@ -2180,7 +2189,13 @@ app.post('/api/p2p/logout', async (req, res) => {
 });
 
 app.get('/api/p2p/me', async (req, res) => {
-  const user = normalizeP2PUserObject(await getP2PUserFromRequest(req));
+  let user;
+  try {
+    user = normalizeP2PUserObject(await getP2PUserFromRequest(req));
+  } catch (_meErr) {
+    // DB error on auth lookup — don't log user out, return 503 so client retries
+    return res.status(503).json({ error: 'Service temporarily unavailable', retry: true });
+  }
 
   if (!user) {
     return res.json({ loggedIn: false, user: null });

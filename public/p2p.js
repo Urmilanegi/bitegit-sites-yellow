@@ -2488,7 +2488,11 @@ async function loadCurrentUser() {
   let _networkErr = false; // true only on real network/parse failure
   try {
     const response = await fetch('/api/p2p/me', { credentials: 'include' });
+    // Treat 5xx as network error — don't log out on server hiccups
+    if (!response.ok && response.status >= 500) { _networkErr = true; throw new Error('server_error'); }
     const data = await response.json();
+    // Server explicitly says retry (e.g. DB cold start)
+    if (data && data.retry) { _networkErr = true; throw new Error('retry'); }
     var normalizedUser = normalizeCurrentUserPayload(data.user);
     if (data.loggedIn && normalizedUser) {
       var _prevId = getCurrentUserId();
@@ -3446,6 +3450,7 @@ function updateOrderUi(order) {
   var merchantAvatar = document.getElementById('orderMerchantAvatar');
   if (merchantAvatar) {
     merchantAvatar.textContent = String(counterpartyName || 'S').slice(0, 1).toUpperCase();
+    merchantAvatar.style.display = 'flex';
   }
   // Update order title based on status
   var normalizedSt = normalizeStatusForUi(order.status);
@@ -3526,6 +3531,13 @@ function updateOrderUi(order) {
       markPaidBtn.textContent = 'Released';
       markPaidBtn.disabled = true;
       markPaidBtn.classList.remove('release-mode');
+    } else if (activeOrderRole === 'seller' && isCreated) {
+      markPaidBtn.dataset.action = 'none';
+      markPaidBtn.textContent = 'Awaiting Payment';
+      markPaidBtn.disabled = true;
+      markPaidBtn.classList.remove('release-mode');
+      markPaidBtn.style.background = 'rgba(255,255,255,0.04)';
+      markPaidBtn.style.color = 'rgba(255,255,255,0.35)';
     } else {
       markPaidBtn.dataset.action = 'none';
       markPaidBtn.textContent = 'Pay';
@@ -3535,17 +3547,24 @@ function updateOrderUi(order) {
   }
 
   if (cancelOrderBtn) {
-    cancelOrderBtn.textContent = isDisputed ? 'Under Appeal' : 'Cancel Order';
     cancelOrderBtn.style.background = '';
     cancelOrderBtn.style.color = '';
     cancelOrderBtn.style.borderColor = '';
-    const canCancel = isCreated;
-    cancelOrderBtn.disabled = isDisputed || !canCancel;
-    cancelOrderBtn.style.opacity = canCancel && !isDisputed ? '1' : '0.4';
-    if (isDisputed) {
-      cancelOrderBtn.style.background = 'rgba(246,70,93,0.08)';
-      cancelOrderBtn.style.color = '#f6465d';
-      cancelOrderBtn.style.borderColor = 'rgba(246,70,93,0.35)';
+    // Only buyer can cancel; seller sees a hidden/disabled state
+    const canCancel = isCreated && activeOrderRole === 'buyer';
+    if (activeOrderRole === 'seller') {
+      // Seller never gets a Cancel button — hide it completely
+      cancelOrderBtn.classList.add('hidden');
+    } else {
+      cancelOrderBtn.classList.remove('hidden');
+      cancelOrderBtn.textContent = isDisputed ? 'Under Appeal' : 'Cancel Order';
+      cancelOrderBtn.disabled = isDisputed || !canCancel;
+      cancelOrderBtn.style.opacity = canCancel && !isDisputed ? '1' : '0.4';
+      if (isDisputed) {
+        cancelOrderBtn.style.background = 'rgba(246,70,93,0.08)';
+        cancelOrderBtn.style.color = '#f6465d';
+        cancelOrderBtn.style.borderColor = 'rgba(246,70,93,0.35)';
+      }
     }
   }
   if (paidConfirmBtn) {
@@ -3581,8 +3600,9 @@ function updateOrderUi(order) {
 
   // Dispute button
   if (disputeBtn) {
-    var canDispute = isPaid && !isClosed;
-    if (canDispute || isDisputed) {
+    var isParticipant = activeOrderRole === 'buyer' || activeOrderRole === 'seller';
+    var canDispute = isPaid && !isClosed && isParticipant;
+    if (canDispute || (isDisputed && isParticipant)) {
       disputeBtn.classList.remove('hidden');
       disputeBtn.disabled = isDisputed;
       disputeBtn.textContent = isDisputed ? 'Appeal Active' : 'Raise Dispute';
@@ -3657,19 +3677,16 @@ document.addEventListener('click', function(e) {
   });
 })();
 
-// ── Appeal / Order Inquiry ──
-(function(){
-  var inquiryBtn = document.getElementById('orderInquiryBtn');
-  if (inquiryBtn) inquiryBtn.addEventListener('click', function(){
-    if (normalizeStatusForUi(activeOrderSnapshot?.status) === 'DISPUTED') {
-      _redirectToDisputeOrders();
-      return;
-    }
+// ── Appeal / Order Inquiry ── (event delegation so dynamic buttons work)
+document.addEventListener('click', function(e) {
+  if (e.target && (e.target.id === 'orderInquiryBtn' || e.target.closest('#orderInquiryBtn'))) {
     var modal = document.getElementById('appealModal');
     var msg = document.getElementById('appealMsg');
     if (msg) msg.textContent = '';
     if (modal) modal.classList.remove('hidden');
-  });
+  }
+});
+(function(){
   var submitBtn = document.getElementById('appealSubmitBtn');
   if (!submitBtn) return;
   submitBtn.addEventListener('click', async function(){
@@ -4347,6 +4364,9 @@ function _ordCard(order) {
   var chatUrl  = _buildOrderFlowUrl({ orderId: ordId, source: 'orders', openChat: '1' });
   var status = String(order.status || '').toUpperCase();
   var isEnded = ['RELEASED','COMPLETED','CANCELLED','CANCELED','EXPIRED'].indexOf(status) !== -1;
+  var _statusLabel = { CREATED:'In Progress', PAYMENT_SENT:'Payment Sent', PAID:'Payment Sent', RELEASED:'Completed', COMPLETED:'Completed', CANCELLED:'Cancelled', CANCELED:'Cancelled', EXPIRED:'Expired', DISPUTED:'Disputed' }[status] || status;
+  var _statusColor = { CREATED:'#f0b90b', PAYMENT_SENT:'#00b4d8', PAID:'#00b4d8', RELEASED:'#2ebd85', COMPLETED:'#2ebd85', CANCELLED:'rgba(255,255,255,0.35)', CANCELED:'rgba(255,255,255,0.35)', EXPIRED:'rgba(255,255,255,0.35)', DISPUTED:'#f6465d' }[status] || '#fff';
+  var statusBadge = '<span style="font-size:11px;font-weight:600;color:'+_statusColor+';">'+_statusLabel+'</span>';
   var chatBtn = '<a href="'+chatUrl+'" class="ord-open-link" data-order-id="'+rawIdAttr+'" data-open-chat="1" data-url="'+chatUrl+'" style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:5px 12px;color:rgba(255,255,255,0.8);font-size:12px;text-decoration:none;-webkit-tap-highlight-color:rgba(240,185,11,0.15);">'+
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</a>';
   // Amount + chat row:
@@ -4365,11 +4385,11 @@ function _ordCard(order) {
         chatBtn+
       '</div>';
   return '<article class="ord-open-link" data-order-id="'+rawIdAttr+'" data-open-chat="0" data-url="'+orderUrl+'" role="button" tabindex="0" style="display:block;text-decoration:none;color:inherit;padding:16px;border-bottom:1px solid rgba(255,255,255,0.06);-webkit-tap-highlight-color:rgba(255,255,255,0.04);cursor:pointer;">'+
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">'+
       '<span style="font-size:15px;font-weight:700;"><span style="color:'+sideColor+';">'+side+'</span> '+(order.asset||'USDT')+'</span>'+
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'+
+      statusBadge+
     '</div>'+
-    '<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:10px;">'+dt+'</div>'+
+    '<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:10px;">'+dt+'</div>'+
     '<div style="display:flex;justify-content:space-between;align-items:flex-end;">'+
       '<div style="display:flex;flex-direction:column;gap:3px;">'+
         '<span style="font-size:12px;color:rgba(255,255,255,0.5);">Price <span style="color:rgba(255,255,255,0.85);">₹'+fmt(order.price||0)+'</span></span>'+
@@ -6916,7 +6936,13 @@ window.deleteMobAd = async function(offerId) {
     if (back) { e.preventDefault(); hideMobScreens(); return; }
     // Open Payment Methods from profile menu
     var pmRow = e.target.closest('[data-open-payment]');
-    if (pmRow) { if (window._pmJustClosed && Date.now() - window._pmJustClosed < 500) return; e.preventDefault(); openPaymentMethodsScreen(); return; }
+    if (pmRow) {
+      if (window._pmJustClosed && Date.now() - window._pmJustClosed < 500) return;
+      e.preventDefault();
+      window._pmJustOpened = Date.now();
+      openPaymentMethodsScreen();
+      return;
+    }
     // Open KYC from profile menu
     var kycRow = e.target.closest('[data-open-kyc]');
     if (kycRow) { e.preventDefault(); openKycScreen(); return; }
@@ -6937,7 +6963,11 @@ window.deleteMobAd = async function(offerId) {
   // iOS touchend — ensures taps work inside fixed/overflow elements
   document.addEventListener('touchend', function(e) {
     var pmRow = e.target.closest('[data-open-payment]');
-    if (pmRow) { if (window._pmJustClosed && Date.now() - window._pmJustClosed < 500) return; e.preventDefault(); openPaymentMethodsScreen(); return; }
+    if (pmRow) {
+      if (window._pmJustClosed && Date.now() - window._pmJustClosed < 500) return;
+      if (window._pmJustOpened && Date.now() - window._pmJustOpened < 500) return;
+      e.preventDefault(); openPaymentMethodsScreen(); return;
+    }
     var kycRow = e.target.closest('[data-open-kyc]');
     if (kycRow) { e.preventDefault(); openKycScreen(); return; }
     var kycNext = e.target.closest('[data-kyc-next]');
