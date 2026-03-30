@@ -4611,7 +4611,7 @@ async function boot() {
     validateStartupConfig();
     tokenService.ensureJwtSecret();
     const mongoConfig = getMongoConfig();
-    console.log(`MongoDB target URI: ${mongoConfig.maskedUri}`);
+    console.log(`MongoDB target URI (${mongoConfig.uriSource || 'unknown'}): ${mongoConfig.maskedUri}`);
     console.log('Environment loader: dotenv');
 
     await retryStartupStep('MongoDB connection', () => connectToMongo());
@@ -4677,8 +4677,79 @@ async function boot() {
     const otpAuthConfig = readAuthOtpConfig();
     const geetestService = createGeetestService(otpAuthConfig.geetest);
 
+    const buildFallbackOtpAuthService = () =>
+      createRepoFallbackOtpAuthService({
+        repos,
+        tokenService,
+        geetestService,
+        authEmailService,
+        buildP2PUserFromEmail,
+        otpConfig: otpAuthConfig.otp
+      });
+
+    if (otpAuthConfig.mysql.enabled) {
+      try {
+        otpAuthStore = createMySqlAuthStore(otpAuthConfig.mysql);
+        await otpAuthStore.initialize();
+        const otpEmailService = createOtpEmailService(otpAuthConfig.smtp);
+        otpAuthService = createOtpAuthService({
+          store: otpAuthStore,
+          geetestService,
+          emailService: otpEmailService,
+          tokenService,
+          otpConfig: otpAuthConfig.otp
+        });
+        console.log('[auth-otp] Modular OTP auth enabled with MySQL + Geetest + SMTP');
+
+        try {
+          const cursor = collections.p2pCredentials.find(
+            {},
+            {
+              projection: {
+                email: 1,
+                passwordHash: 1,
+                role: 1,
+                emailVerified: 1,
+                userId: 1,
+                username: 1,
+                kycStatus: 1
+              }
+            }
+          );
+          let syncedCredentials = 0;
+          for await (const credential of cursor) {
+            if (!credential?.email || !credential?.passwordHash) {
+              continue;
+            }
+            await otpAuthStore.setP2PCredential(credential.email, credential.passwordHash, {
+              role: credential.role,
+              emailVerified: credential.emailVerified,
+              userId: credential.userId,
+              username: credential.username,
+              kycStatus: credential.kycStatus
+            });
+            syncedCredentials += 1;
+          }
+          console.log(`[auth-otp] Synced ${syncedCredentials} Mongo credential(s) into MySQL auth store`);
+        } catch (syncError) {
+          console.warn('[auth-otp] Credential sync to MySQL auth store skipped:', syncError?.message || syncError);
+        }
+      } catch (error) {
+        otpAuthStore = null;
+        otpAuthService = buildFallbackOtpAuthService();
+        console.error(
+          '[auth-otp] MySQL initialization failed. Falling back to repository OTP auth:',
+          error?.message || error
+        );
+      }
+    } else {
+      otpAuthService = buildFallbackOtpAuthService();
+      console.log('[auth-otp] MySQL config missing; fallback OTP auth enabled with repository store + Geetest + SMTP.');
+    }
+
     registerAuthRoutes(app, {
       repos,
+      authStore: otpAuthStore,
       walletService,
       authMiddleware,
       tokenService,
@@ -4707,42 +4778,6 @@ async function boot() {
         });
       }
     });
-
-    const buildFallbackOtpAuthService = () =>
-      createRepoFallbackOtpAuthService({
-        repos,
-        tokenService,
-        geetestService,
-        authEmailService,
-        buildP2PUserFromEmail,
-        otpConfig: otpAuthConfig.otp
-      });
-
-    if (otpAuthConfig.mysql.enabled) {
-      try {
-        otpAuthStore = createMySqlAuthStore(otpAuthConfig.mysql);
-        await otpAuthStore.initialize();
-        const otpEmailService = createOtpEmailService(otpAuthConfig.smtp);
-        otpAuthService = createOtpAuthService({
-          store: otpAuthStore,
-          geetestService,
-          emailService: otpEmailService,
-          tokenService,
-          otpConfig: otpAuthConfig.otp
-        });
-        console.log('[auth-otp] Modular OTP auth enabled with MySQL + Geetest + SMTP');
-      } catch (error) {
-        otpAuthStore = null;
-        otpAuthService = buildFallbackOtpAuthService();
-        console.error(
-          '[auth-otp] MySQL initialization failed. Falling back to repository OTP auth:',
-          error?.message || error
-        );
-      }
-    } else {
-      otpAuthService = buildFallbackOtpAuthService();
-      console.log('[auth-otp] MySQL config missing; fallback OTP auth enabled with repository store + Geetest + SMTP.');
-    }
 
     registerOtpAuthRoutes(app, {
       otpAuthService,

@@ -531,7 +531,12 @@ async function handleSendOtp() {
     const statusMsg = data?.message || 'Verification code sent.';
     setStatus(statusMsg, 'success');
     const ttl = Number(data?.expiresInSeconds || 600);
-    setOtpHelp(`Code sent. Valid for ${Math.max(1, Math.floor(ttl / 60))} minutes.`);
+    if (data?.debugOtpCode && otpInput) {
+      otpInput.value = String(data.debugOtpCode).trim();
+      setOtpHelp(`Code sent. Valid for ${Math.max(1, Math.floor(ttl / 60))} minutes. Demo OTP: ${data.debugOtpCode}`);
+    } else {
+      setOtpHelp(`Code sent. Valid for ${Math.max(1, Math.floor(ttl / 60))} minutes.`);
+    }
     startOtpCooldown(OTP_RESEND_WAIT_SECONDS);
   } catch (_) {
     setStatus('Network error while sending verification code.', 'error');

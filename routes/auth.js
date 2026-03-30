@@ -61,9 +61,14 @@ function isValidOtpCode(code) {
   return /^\d{6}$/.test(String(code || '').trim());
 }
 
+function isTruthyEnvFlag(...values) {
+  return values.some((value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase()));
+}
+
 function registerAuthRoutes(app, deps) {
   const {
     repos,
+    authStore = null,
     walletService,
     authMiddleware,
     tokenService,
@@ -80,6 +85,9 @@ function registerAuthRoutes(app, deps) {
     onLoginSuccess = null,
     enableLegacyOtpEndpoints = true
   } = deps;
+
+  const credentialStore = authStore || repos;
+  const otpStore = authStore || repos;
 
   const loginLimiter = createIpRateLimiter({
     windowMs: 10 * 60 * 1000,
@@ -106,6 +114,7 @@ function registerAuthRoutes(app, deps) {
   const PASSWORD_RESET_OTP_PURPOSE = 'password_reset';
   const REGISTER_EMAIL_VERIFY_PURPOSE = 'register_email_verify';
   const REGISTER_EMAIL_VERIFY_TTL_MS = 5 * 60 * 1000;
+  const allowDebugOtp = isTruthyEnvFlag(process.env.ALLOW_DEV_OTP, process.env.ALLOW_DEMO_OTP);
 
   function runDetached(task) {
     Promise.resolve()
@@ -138,13 +147,22 @@ function registerAuthRoutes(app, deps) {
   }
 
   async function verifyCredentialPassword(password, storedHash) {
-    if (typeof repos.verifyPasswordAsync === 'function') {
+    if (credentialStore && typeof credentialStore.verifyPasswordAsync === 'function') {
+      return credentialStore.verifyPasswordAsync(password, storedHash);
+    }
+    if (credentialStore && typeof credentialStore.verifyPassword === 'function') {
+      return credentialStore.verifyPassword(password, storedHash);
+    }
+    if (repos && typeof repos.verifyPasswordAsync === 'function') {
       return repos.verifyPasswordAsync(password, storedHash);
     }
-    return repos.verifyPassword(password, storedHash);
+    return repos ? repos.verifyPassword(password, storedHash) : false;
   }
 
   async function persistRefreshToken(user, refreshToken, expiresAtMs) {
+    if (!repos || typeof repos.saveRefreshToken !== 'function') {
+      return;
+    }
     const tokenHash = tokenService.hashRefreshToken(refreshToken);
     await repos.saveRefreshToken({
       userId: user.id,
@@ -203,6 +221,102 @@ function registerAuthRoutes(app, deps) {
     clearCookie(res, cookieNames.refreshToken);
   }
 
+  function hashPasswordValue(password) {
+    if (credentialStore && typeof credentialStore.hashPassword === 'function') {
+      return credentialStore.hashPassword(password);
+    }
+    return repos.hashPassword(password);
+  }
+
+  async function getCredential(email) {
+    if (!credentialStore || typeof credentialStore.getP2PCredential !== 'function') {
+      return null;
+    }
+    return credentialStore.getP2PCredential(email);
+  }
+
+  async function setCredential(email, passwordHash, options = {}) {
+    if (!credentialStore || typeof credentialStore.setP2PCredential !== 'function') {
+      throw new Error('Credential store is unavailable');
+    }
+    return credentialStore.setP2PCredential(email, passwordHash, options);
+  }
+
+  async function updateCredentialPassword(email, passwordHash) {
+    if (!credentialStore || typeof credentialStore.updateP2PCredentialPassword !== 'function') {
+      throw new Error('Credential store is unavailable');
+    }
+    return credentialStore.updateP2PCredentialPassword(email, passwordHash);
+  }
+
+  async function updateCredentialProfile(email, payload = {}, options = {}) {
+    if (!credentialStore || typeof credentialStore.updateP2PCredentialProfile !== 'function') {
+      return null;
+    }
+    return credentialStore.updateP2PCredentialProfile(email, payload, options);
+  }
+
+  async function touchCredentialLogin(email, loginMeta = {}) {
+    if (!credentialStore || typeof credentialStore.touchP2PCredentialLogin !== 'function') {
+      return;
+    }
+    await credentialStore.touchP2PCredentialLogin(email, loginMeta);
+  }
+
+  async function upsertOtpRecord(contact, otpState, options = {}) {
+    if (!otpStore || typeof otpStore.upsertSignupOtp !== 'function') {
+      throw new Error('OTP store is unavailable');
+    }
+    return otpStore.upsertSignupOtp(contact, otpState, options);
+  }
+
+  async function getOtpRecord(contact, options = {}) {
+    if (!otpStore || typeof otpStore.getSignupOtp !== 'function') {
+      return null;
+    }
+    return otpStore.getSignupOtp(contact, options);
+  }
+
+  async function deleteOtpRecord(contact, options = {}) {
+    if (!otpStore || typeof otpStore.deleteSignupOtp !== 'function') {
+      return;
+    }
+    await otpStore.deleteSignupOtp(contact, options);
+  }
+
+  async function ensureWalletSafe(user) {
+    if (!walletService || typeof walletService.ensureWallet !== 'function') {
+      return;
+    }
+    try {
+      await walletService.ensureWallet(user.id, { username: user.username });
+    } catch (_) {
+      // Wallet bootstrap is best-effort for auth flows.
+    }
+  }
+
+  async function createLegacySessionSafe(email, role, credential) {
+    if (authStore || typeof createLegacyP2PUserSession !== 'function') {
+      return null;
+    }
+    try {
+      return await createLegacyP2PUserSession(email, role, credential);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function deleteRefreshTokensByUserIdSafe(userId) {
+    if (!repos || typeof repos.deleteRefreshTokensByUserId !== 'function') {
+      return;
+    }
+    try {
+      await repos.deleteRefreshTokensByUserId(userId);
+    } catch (_) {
+      // Password reset should not fail just because refresh-token cleanup timed out.
+    }
+  }
+
   async function sendOtpEmail(contact, purpose, options = {}) {
     const code = createOtpCode();
     const effectiveOtpTtlMs = Math.max(60 * 1000, Number(options.ttlMs || otpTtlMs || 0));
@@ -217,7 +331,7 @@ function registerAuthRoutes(app, deps) {
           : {}
     };
 
-    await repos.upsertSignupOtp(contact, otpState, { purpose });
+    await upsertOtpRecord(contact, otpState, { purpose });
 
     const expiresInMinutes = Math.max(1, Math.floor(effectiveOtpTtlMs / (60 * 1000)));
     let sendResult = { delivered: false, reason: 'missing_email_provider_config' };
@@ -249,7 +363,16 @@ function registerAuthRoutes(app, deps) {
       };
     }
 
-    await repos.deleteSignupOtp(contact, { purpose });
+    if (allowDebugOtp) {
+      return {
+        message: 'Verification code generated in debug mode.',
+        delivery: 'debug',
+        expiresInSeconds: Math.floor(effectiveOtpTtlMs / 1000),
+        debugOtpCode: code
+      };
+    }
+
+    await deleteOtpRecord(contact, { purpose });
     const failureReason = String(sendResult.reason || 'email_provider_unavailable').trim();
     return {
       error: true,
@@ -260,7 +383,7 @@ function registerAuthRoutes(app, deps) {
   }
 
   async function verifyOtp(contact, code, purpose) {
-    const otpState = await repos.getSignupOtp(contact, { purpose });
+    const otpState = await getOtpRecord(contact, { purpose });
     if (!otpState) {
       return {
         ok: false,
@@ -270,7 +393,7 @@ function registerAuthRoutes(app, deps) {
 
     const expiresAtMs = new Date(otpState.expiresAt).getTime();
     if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now()) {
-      await repos.deleteSignupOtp(contact, { purpose });
+      await deleteOtpRecord(contact, { purpose });
       return {
         ok: false,
         message: 'Verification code expired. Please request a new code.'
@@ -280,14 +403,14 @@ function registerAuthRoutes(app, deps) {
     if (String(otpState.code || '').trim() !== String(code || '').trim()) {
       const attempts = Number(otpState.attempts || 0) + 1;
       if (attempts >= 5) {
-        await repos.deleteSignupOtp(contact, { purpose });
+        await deleteOtpRecord(contact, { purpose });
         return {
           ok: false,
           message: 'Too many failed attempts. Request a new code.'
         };
       }
 
-      await repos.upsertSignupOtp(
+      await upsertOtpRecord(
         contact,
         {
           ...otpState,
@@ -306,7 +429,7 @@ function registerAuthRoutes(app, deps) {
       otpState.payload && typeof otpState.payload === 'object' && otpState.payload !== null
         ? otpState.payload
         : {};
-    await repos.deleteSignupOtp(contact, { purpose });
+    await deleteOtpRecord(contact, { purpose });
     return { ok: true, payload };
   }
 
@@ -318,7 +441,7 @@ function registerAuthRoutes(app, deps) {
     }
 
     try {
-      const existing = await repos.getP2PCredential(email);
+      const existing = await getCredential(email);
       if (existing) {
         return res.status(409).json({ message: 'Account already exists. Please login.' });
       }
@@ -355,7 +478,7 @@ function registerAuthRoutes(app, deps) {
     }
 
     try {
-      const existing = await repos.getP2PCredential(email);
+      const existing = await getCredential(email);
       if (!existing) {
         return res.json({
           message: 'If an account exists, a verification code has been sent.',
@@ -400,12 +523,12 @@ function registerAuthRoutes(app, deps) {
     }
 
     try {
-      const existing = await repos.getP2PCredential(email);
+      const existing = await getCredential(email);
       if (existing && Boolean(existing.emailVerified)) {
         return res.status(409).json({ message: 'Account already exists. Please login.' });
       }
 
-      const passwordHash = repos.hashPassword(password);
+      const passwordHash = hashPasswordValue(password);
       const result = await sendOtpEmail(email, REGISTER_EMAIL_VERIFY_PURPOSE, {
         ttlMs: REGISTER_EMAIL_VERIFY_TTL_MS,
         payload: {
@@ -466,22 +589,20 @@ function registerAuthRoutes(app, deps) {
         return res.status(400).json({ message: 'Registration session expired. Please sign up again.' });
       }
 
-      const existing = await repos.getP2PCredential(email);
+      const existing = await getCredential(email);
       if (existing && Boolean(existing.emailVerified)) {
         return res.status(409).json({ message: 'Email already verified. Please login.' });
       }
 
-      await repos.setP2PCredential(email, passwordHash, {
+      await setCredential(email, passwordHash, {
         role: String(payload.role || 'USER').trim().toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER',
         emailVerified: true
       });
 
-      const credential = await repos.getP2PCredential(email);
+      const credential = await getCredential(email);
       const user = buildUserFromCredential(email, 'USER', credential);
-      if (typeof repos.updateP2PCredentialProfile === 'function') {
-        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
-      }
-      await walletService.ensureWallet(user.id, { username: user.username });
+      await updateCredentialProfile(email, {}, { userId: user.id });
+      runDetached(() => ensureWalletSafe(user));
 
       await safeAuditLog({
         userId: user.id,
@@ -572,30 +693,30 @@ function registerAuthRoutes(app, deps) {
         return res.status(400).json({ message: otpResult.message });
       }
 
-      let credential = await repos.getP2PCredential(email);
+      let credential = await getCredential(email);
       if (!credential) {
         const randomPassword = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        await repos.setP2PCredential(email, repos.hashPassword(randomPassword), {
+        await setCredential(email, hashPasswordValue(randomPassword), {
           role: 'USER',
           emailVerified: true
         });
-        credential = await repos.getP2PCredential(email);
+        credential = await getCredential(email);
       }
 
       const role = tokenService.normalizeRole(credential?.role || 'USER');
       const user = buildUserFromCredential(email, role, credential);
-      if (typeof repos.updateP2PCredentialProfile === 'function') {
-        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
-      }
-      await walletService.ensureWallet(user.id, { username: user.username });
+      await updateCredentialProfile(email, {}, { userId: user.id });
+      runDetached(() => ensureWalletSafe(user));
       const tokenPair = await createAndReturnTokens(res, user);
 
-      if (typeof createLegacyP2PUserSession === 'function') {
-        const legacySession = await createLegacyP2PUserSession(email, role, credential);
-        setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
+      {
+        const legacySession = await createLegacySessionSafe(email, role, credential);
+        if (legacySession) {
+          setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
+        }
       }
 
-      await repos.touchP2PCredentialLogin(email, {
+      await touchCredentialLogin(email, {
         ipAddress,
         userAgent,
         deviceLabel: userAgent
@@ -666,7 +787,7 @@ function registerAuthRoutes(app, deps) {
     }
 
     try {
-      const credential = await repos.getP2PCredential(email);
+      const credential = await getCredential(email);
       const passwordMatches =
         credential && credential.passwordHash
           ? await verifyCredentialPassword(password, credential.passwordHash)
@@ -684,31 +805,23 @@ function registerAuthRoutes(app, deps) {
 
       const role = tokenService.normalizeRole(credential.role || 'USER');
       const user = buildUserFromCredential(email, role, credential);
-      if (typeof repos.updateP2PCredentialProfile === 'function') {
-        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
-      }
+      await updateCredentialProfile(email, {}, { userId: user.id });
       const previousLoginIp = String(credential.lastLoginIp || '').trim();
       const previousUserAgent = String(credential.lastUserAgent || '').trim();
       const hasLoginHistory = Boolean(previousLoginIp || previousUserAgent);
       const isNewDeviceLogin =
         hasLoginHistory && (previousLoginIp !== ipAddress || previousUserAgent !== userAgent);
 
-      // Run token creation and legacy session in parallel (both needed for cookies)
-      const [tokenPair, legacySession] = await Promise.all([
-        createAndReturnTokens(res, user),
-        typeof createLegacyP2PUserSession === 'function'
-          ? createLegacyP2PUserSession(email, role, credential)
-          : Promise.resolve(null)
-      ]);
-
+      const tokenPair = await createAndReturnTokens(res, user);
+      const legacySession = await createLegacySessionSafe(email, role, credential);
       if (legacySession) {
         setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
       }
 
       // Fire-and-forget background tasks — don't block the response
       Promise.all([
-        walletService.ensureWallet(user.id, { username: user.username }),
-        repos.touchP2PCredentialLogin(email, { ipAddress, userAgent, deviceLabel: userAgent }),
+        ensureWalletSafe(user),
+        touchCredentialLogin(email, { ipAddress, userAgent, deviceLabel: userAgent }),
         safeAuditLog({ userId: user.id, action: 'login_success', ipAddress, metadata: { email, role: user.role } }),
         safeOnLoginSuccess({ user, ipAddress, userAgent }),
         isNewDeviceLogin && authEmailService && typeof authEmailService.sendNewDeviceLoginAlert === 'function'
@@ -801,7 +914,7 @@ function registerAuthRoutes(app, deps) {
         });
       }
 
-      const existing = await repos.getP2PCredential(email);
+      const existing = await getCredential(email);
       if (existing) {
         await safeAuditLog({
           userId: '',
@@ -823,23 +936,23 @@ function registerAuthRoutes(app, deps) {
         return res.status(400).json({ message: otpResult.message });
       }
 
-      await repos.setP2PCredential(email, repos.hashPassword(password), {
+      await setCredential(email, hashPasswordValue(password), {
         role: 'USER',
         emailVerified: true
       });
 
-      const credential = await repos.getP2PCredential(email);
+      const credential = await getCredential(email);
       const user = buildUserFromCredential(email, 'USER', credential);
-      if (typeof repos.updateP2PCredentialProfile === 'function') {
-        await repos.updateP2PCredentialProfile(email, {}, { userId: user.id });
-      }
-      await walletService.ensureWallet(user.id, { username: user.username });
+      await updateCredentialProfile(email, {}, { userId: user.id });
+      runDetached(() => ensureWalletSafe(user));
 
       const tokenPair = await createAndReturnTokens(res, user);
 
-      if (typeof createLegacyP2PUserSession === 'function') {
-        const legacySession = await createLegacyP2PUserSession(email, 'USER', credential);
-        setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
+      {
+        const legacySession = await createLegacySessionSafe(email, 'USER', credential);
+        if (legacySession) {
+          setCookie(res, cookieNames.legacyP2PSession, legacySession.token, Math.floor(p2pUserTtlMs / 1000));
+        }
       }
 
       await safeAuditLog({
@@ -897,7 +1010,7 @@ function registerAuthRoutes(app, deps) {
     }
 
     try {
-      const credential = await repos.getP2PCredential(email);
+      const credential = await getCredential(email);
       if (!credential) {
         return res.status(400).json({ message: 'Unable to reset password for this account.' });
       }
@@ -913,8 +1026,8 @@ function registerAuthRoutes(app, deps) {
         return res.status(400).json({ message: otpResult.message });
       }
 
-      await repos.updateP2PCredentialPassword(email, repos.hashPassword(nextPassword));
-      await repos.deleteRefreshTokensByUserId(buildUserFromCredential(email, credential.role || 'USER', credential).id);
+      await updateCredentialPassword(email, hashPasswordValue(nextPassword));
+      await deleteRefreshTokensByUserIdSafe(buildUserFromCredential(email, credential.role || 'USER', credential).id);
 
       await safeAuditLog({
         userId: buildUserFromCredential(email, credential.role || 'USER', credential).id,
