@@ -90,10 +90,11 @@ body.p2p-kyc-open { overflow: hidden; }
 .p2p-brand-mark { display: none; }
 
 .cf-brand-logo-svg {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   display: block;
+  filter: drop-shadow(0 0 10px rgba(29, 218, 255, 0.18));
 }
 
 .p2p-brand-word {

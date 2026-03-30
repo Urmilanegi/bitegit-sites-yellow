@@ -67,10 +67,11 @@ body.auth-page {
 .auth-brand-mark { display: none; }
 
 .cf-brand-logo-svg {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   display: block;
+  filter: drop-shadow(0 0 10px rgba(29, 218, 255, 0.18));
 }
 
 .auth-brand-word,
