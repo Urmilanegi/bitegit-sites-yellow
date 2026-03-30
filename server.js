@@ -956,10 +956,40 @@ function appendSetCookie(res, cookieValue) {
   res.setHeader('Set-Cookie', [existing, cookieValue]);
 }
 
+function getRequestCookieContext(res) {
+  const req = res?.req || null;
+  const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  const hostHeader = String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  const rawHost = hostHeader.replace(/^\[/, '').replace(/\]$/, '');
+  const hostname = rawHost.split(':')[0].trim();
+  const isHttpsRequest = Boolean(req?.secure) || forwardedProto === 'https';
+  const isLocalHost =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname.endsWith('.local') ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+  return {
+    isHttpsRequest,
+    isLocalHost
+  };
+}
+
 function setCookie(res, key, value, maxAgeSeconds, options = {}) {
   const sameSite = options.sameSite || 'Lax';
   const pathValue = options.path || '/';
-  const secure = options.secure === undefined ? IS_PRODUCTION : Boolean(options.secure);
+  const requestedSecure = options.secure === undefined ? IS_PRODUCTION : Boolean(options.secure);
+  const cookieContext = getRequestCookieContext(res);
+  const secure = cookieContext.isLocalHost && !cookieContext.isHttpsRequest ? false : requestedSecure;
   const httpOnly = options.httpOnly === undefined ? true : Boolean(options.httpOnly);
   const cookieParts = [
     `${key}=${encodeURIComponent(String(value || ''))}`,
