@@ -64,6 +64,10 @@ const orderTime = document.getElementById('orderTime');
 const markPaidBtn = document.getElementById('markPaidBtn');
 const cancelOrderBtn = document.getElementById('cancelOrderBtn');
 const disputeBtn = document.getElementById('disputeBtn');
+const releaseBtn = document.getElementById('releaseBtn');
+const sellerDisputeBtn = document.getElementById('sellerDisputeBtn');
+const orderBuyerActions = document.getElementById('orderBuyerActions');
+const orderSellerActions = document.getElementById('orderSellerActions');
 const paymentPanel = document.getElementById('paymentPanel');
 const paymentAmountDisplay = document.getElementById('paymentAmountDisplay');
 const paymentMethodDisplay = document.getElementById('paymentMethodDisplay');
@@ -3496,110 +3500,64 @@ function updateOrderUi(order) {
   const isReleased = normalizedStatus === 'RELEASED';
   const isClosed = ['RELEASED', 'CANCELLED', 'EXPIRED'].includes(normalizedStatus);
 
-  if (markPaidBtn) {
+  var isBuyer  = activeOrderRole === 'buyer';
+  var isSeller = activeOrderRole === 'seller';
+
+  // ── Show the right section, hide the others ──────────────────────────
+  var _show = function(el) { if (el) el.style.setProperty('display','grid','important'); };
+  var _hide = function(el) { if (el) el.style.setProperty('display','none','important'); };
+  var closedActions = document.getElementById('orderClosedActions');
+
+  if (isClosed) {
+    _hide(orderBuyerActions);
+    _hide(orderSellerActions);
+    _show(closedActions);
+    if (isReleased && !window._ratingShownFor?.[activeOrderId]) {
+      if (!window._ratingShownFor) window._ratingShownFor = {};
+      window._ratingShownFor[activeOrderId] = true;
+      setTimeout(function(){ showRatingModal(); }, 600);
+    }
+  } else if (isBuyer) {
+    _show(orderBuyerActions);
+    _hide(orderSellerActions);
+    _hide(closedActions);
+  } else if (isSeller) {
+    _hide(orderBuyerActions);
+    _show(orderSellerActions);
+    _hide(closedActions);
+  } else {
+    // Role unknown — hide all action buttons until order loads properly
+    _hide(orderBuyerActions);
+    _hide(orderSellerActions);
+    _hide(closedActions);
+  }
+
+  // ── BUYER buttons ────────────────────────────────────────────────────
+  if (markPaidBtn && isBuyer) {
     markPaidBtn.style.background = '';
     markPaidBtn.style.color = '';
-    markPaidBtn.style.borderColor = '';
-    if (activeOrderRole === 'seller' && isPaid) {
-      markPaidBtn.dataset.action = 'release';
-      markPaidBtn.textContent = 'Release';
-      markPaidBtn.disabled = false;
-      markPaidBtn.classList.add('release-mode');
+    if (isCreated) {
+      markPaidBtn.textContent = 'Pay'; markPaidBtn.disabled = false;
+      markPaidBtn.style.background = '#fff'; markPaidBtn.style.color = '#000';
+    } else if (isPaid) {
+      markPaidBtn.textContent = 'Payment Sent'; markPaidBtn.disabled = true;
+      markPaidBtn.style.background = 'rgba(0,180,216,0.15)'; markPaidBtn.style.color = '#00b4d8';
     } else if (isDisputed) {
-      markPaidBtn.dataset.action = 'none';
-      markPaidBtn.textContent = 'Appealing';
-      markPaidBtn.disabled = true;
-      markPaidBtn.classList.remove('release-mode');
-      markPaidBtn.style.background = 'rgba(246,70,93,0.12)';
-      markPaidBtn.style.color = '#f6465d';
-      markPaidBtn.style.borderColor = 'rgba(246,70,93,0.35)';
-    } else if (activeOrderRole === 'buyer' && isCreated) {
-      markPaidBtn.dataset.action = 'pay';
-      markPaidBtn.textContent = 'Pay';
-      markPaidBtn.disabled = false;
-      markPaidBtn.classList.remove('release-mode');
-    } else if (activeOrderRole === 'buyer' && isPaid) {
-      markPaidBtn.dataset.action = 'none';
-      markPaidBtn.textContent = 'Payment Sent';
-      markPaidBtn.disabled = true;
-      markPaidBtn.classList.remove('release-mode');
-    } else if (isReleased) {
-      markPaidBtn.dataset.action = 'none';
-      markPaidBtn.textContent = 'Released';
-      markPaidBtn.disabled = true;
-      markPaidBtn.classList.remove('release-mode');
-    } else if (activeOrderRole === 'seller' && isCreated) {
-      markPaidBtn.dataset.action = 'none';
-      markPaidBtn.textContent = 'Awaiting Payment';
-      markPaidBtn.disabled = true;
-      markPaidBtn.classList.remove('release-mode');
-      markPaidBtn.style.background = 'rgba(255,255,255,0.04)';
-      markPaidBtn.style.color = 'rgba(255,255,255,0.35)';
+      markPaidBtn.textContent = 'Appeal Active'; markPaidBtn.disabled = true;
+      markPaidBtn.style.background = 'rgba(246,70,93,0.12)'; markPaidBtn.style.color = '#f6465d';
     } else {
-      markPaidBtn.dataset.action = 'none';
-      markPaidBtn.textContent = 'Pay';
-      markPaidBtn.disabled = true;
-      markPaidBtn.classList.remove('release-mode');
+      markPaidBtn.textContent = 'Payment Sent'; markPaidBtn.disabled = true;
     }
   }
-
-  if (cancelOrderBtn) {
-    cancelOrderBtn.style.background = '';
-    cancelOrderBtn.style.color = '';
-    cancelOrderBtn.style.borderColor = '';
-    // Only buyer can cancel; seller sees a hidden/disabled state
-    const canCancel = isCreated && activeOrderRole === 'buyer';
-    if (activeOrderRole === 'seller') {
-      // Seller never gets a Cancel button — hide it completely
-      cancelOrderBtn.classList.add('hidden');
-    } else {
-      cancelOrderBtn.classList.remove('hidden');
-      cancelOrderBtn.textContent = isDisputed ? 'Under Appeal' : 'Cancel Order';
-      cancelOrderBtn.disabled = isDisputed || !canCancel;
-      cancelOrderBtn.style.opacity = canCancel && !isDisputed ? '1' : '0.4';
-      if (isDisputed) {
-        cancelOrderBtn.style.background = 'rgba(246,70,93,0.08)';
-        cancelOrderBtn.style.color = '#f6465d';
-        cancelOrderBtn.style.borderColor = 'rgba(246,70,93,0.35)';
-      }
-    }
+  if (cancelOrderBtn && isBuyer) {
+    cancelOrderBtn.style.cssText = '';
+    cancelOrderBtn.textContent = 'Cancel Order';
+    cancelOrderBtn.disabled = !isCreated || isDisputed;
+    cancelOrderBtn.style.opacity = (isCreated && !isDisputed) ? '1' : '0.4';
   }
-  if (paidConfirmBtn) {
-    paidConfirmBtn.disabled = !(activeOrderRole === 'buyer' && isCreated);
-  }
-
-  // Update timer label to reflect current state contextually
-  var timerLabel = document.getElementById('orderTimerLabel');
-  if (timerLabel) {
-    if (normalizedStatus === 'CREATED' && activeOrderRole === 'buyer') {
-      timerLabel.textContent = 'Pay before timer expires';
-    } else if (normalizedStatus === 'CREATED' && activeOrderRole === 'seller') {
-      timerLabel.textContent = 'Waiting for buyer payment';
-    } else if (normalizedStatus === 'PAID' && activeOrderRole === 'seller') {
-      timerLabel.textContent = 'Release payment to buyer';
-      timerLabel.style.color = '#f0b90b';
-    } else if (normalizedStatus === 'PAID' && activeOrderRole === 'buyer') {
-      timerLabel.textContent = 'Waiting for seller to release';
-      timerLabel.style.color = '#fff';
-    } else if (normalizedStatus === 'DISPUTED') {
-      timerLabel.textContent = 'Appeal under review';
-      timerLabel.style.color = '#f6465d';
-    } else {
-      timerLabel.textContent = '';
-    }
-  }
-  if (chatInput) {
-    chatInput.disabled = isClosed;
-  }
-  if (isClosed || isPaid || isDisputed || activeOrderRole !== 'buyer') {
-    setPaymentPanelOpen(false);
-  }
-
-  // Dispute button
-  if (disputeBtn) {
-    var isParticipant = activeOrderRole === 'buyer' || activeOrderRole === 'seller';
-    var canDispute = isPaid && !isClosed && isParticipant;
-    if (canDispute || (isDisputed && isParticipant)) {
+  if (disputeBtn && isBuyer) {
+    var canDisputeBuyer = isPaid && !isClosed;
+    if (canDisputeBuyer || isDisputed) {
       disputeBtn.classList.remove('hidden');
       disputeBtn.disabled = isDisputed;
       disputeBtn.textContent = isDisputed ? 'Appeal Active' : 'Raise Dispute';
@@ -3607,25 +3565,52 @@ function updateOrderUi(order) {
       disputeBtn.classList.add('hidden');
     }
   }
+  if (paidConfirmBtn) {
+    paidConfirmBtn.disabled = !(isBuyer && isCreated);
+  }
 
-  // Toggle active vs closed action sets
-  var activeActions = document.getElementById('orderActiveActions');
-  var closedActions = document.getElementById('orderClosedActions');
-  if (activeActions && closedActions) {
-    if (isClosed) {
-      activeActions.classList.add('hidden');
-      closedActions.classList.remove('hidden');
-      // Show rating modal for completed orders (once)
-      if (isReleased && !window._ratingShownFor?.[activeOrderId]) {
-        if (!window._ratingShownFor) window._ratingShownFor = {};
-        window._ratingShownFor[activeOrderId] = true;
-        setTimeout(function(){ showRatingModal(); }, 600);
-      }
+  // ── SELLER buttons ────────────────────────────────────────────────────
+  if (releaseBtn && isSeller) {
+    releaseBtn.style.cssText = '';
+    if (isPaid && !isDisputed) {
+      releaseBtn.textContent = 'Release Crypto'; releaseBtn.disabled = false;
+      releaseBtn.style.background = '#2ebd85'; releaseBtn.style.color = '#fff';
+    } else if (isDisputed) {
+      releaseBtn.textContent = 'Appeal Active'; releaseBtn.disabled = true;
+      releaseBtn.style.background = 'rgba(246,70,93,0.12)'; releaseBtn.style.color = '#f6465d';
+    } else if (isCreated) {
+      releaseBtn.textContent = 'Awaiting Payment'; releaseBtn.disabled = true;
+      releaseBtn.style.background = 'rgba(255,255,255,0.04)'; releaseBtn.style.color = 'rgba(255,255,255,0.35)';
     } else {
-      activeActions.classList.remove('hidden');
-      closedActions.classList.add('hidden');
+      releaseBtn.textContent = 'Released'; releaseBtn.disabled = true;
+      releaseBtn.style.background = 'rgba(255,255,255,0.04)'; releaseBtn.style.color = 'rgba(255,255,255,0.35)';
     }
   }
+  if (sellerDisputeBtn && isSeller) {
+    var canDisputeSeller = isPaid && !isClosed;
+    if (canDisputeSeller || isDisputed) {
+      sellerDisputeBtn.classList.remove('hidden');
+      sellerDisputeBtn.disabled = isDisputed;
+      sellerDisputeBtn.textContent = isDisputed ? 'Appeal Active' : 'Raise Dispute';
+    } else {
+      sellerDisputeBtn.classList.add('hidden');
+    }
+  }
+
+  // ── Timer label ───────────────────────────────────────────────────────
+  var timerLabel = document.getElementById('orderTimerLabel');
+  if (timerLabel) {
+    timerLabel.style.color = '';
+    if (isCreated && isBuyer)        { timerLabel.textContent = 'Pay before timer expires'; }
+    else if (isCreated && isSeller)  { timerLabel.textContent = 'Waiting for buyer payment'; }
+    else if (isPaid && isSeller)     { timerLabel.textContent = 'Release payment to buyer'; timerLabel.style.color = '#f0b90b'; }
+    else if (isPaid && isBuyer)      { timerLabel.textContent = 'Waiting for seller to release'; }
+    else if (isDisputed)             { timerLabel.textContent = 'Appeal under review'; timerLabel.style.color = '#f6465d'; }
+    else                             { timerLabel.textContent = ''; }
+  }
+
+  if (chatInput) chatInput.disabled = isClosed;
+  if (isClosed || isPaid || isDisputed || !isBuyer) setPaymentPanelOpen(false);
 }
 
 // ── Rating ──
@@ -5387,23 +5372,41 @@ if (closeModalBtn) {
 if (closeModalBackdrop) {
   closeModalBackdrop.addEventListener('click', closeOrderModal);
 }
+// Buyer: "Pay" button — opens payment panel
 if (markPaidBtn) {
-  markPaidBtn.addEventListener('click', async () => {
-    const action = markPaidBtn.dataset.action;
-    markPaidBtn.style.transform = 'scale(0.95)';
-    markPaidBtn.style.transition = 'transform 0.1s ease';
-    setTimeout(function() { markPaidBtn.style.transform = ''; }, 150);
-    if (action === 'release') {
-      try {
-        await updateOrderStatus('release');
-      } catch (error) {
-        // Status message already updated by updateOrderStatus.
-      }
-      return;
+  markPaidBtn.addEventListener('click', () => {
+    if (markPaidBtn.disabled) return;
+    if (activeOrderRole === 'buyer') setPaymentPanelOpen(true);
+  });
+}
+// Seller: "Release Crypto" button
+if (releaseBtn) {
+  releaseBtn.addEventListener('click', async () => {
+    if (releaseBtn.disabled) return;
+    releaseBtn.disabled = true;
+    var orig = releaseBtn.innerHTML;
+    releaseBtn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:13px;height:13px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:ord-spin 0.7s linear infinite;display:inline-block;"></span>Releasing…</span>';
+    var prevSnap = activeOrderSnapshot ? { ...activeOrderSnapshot } : null;
+    if (activeOrderSnapshot) { activeOrderSnapshot = { ...activeOrderSnapshot, status: 'RELEASED' }; updateOrderUi(activeOrderSnapshot); }
+    try {
+      await updateOrderStatus('release');
+    } catch (err) {
+      if (prevSnap) { activeOrderSnapshot = prevSnap; updateOrderUi(activeOrderSnapshot); }
+      releaseBtn.disabled = false; releaseBtn.innerHTML = orig;
     }
-    if (action === 'pay') {
-      setPaymentPanelOpen(true);
-      return;
+  });
+}
+// Seller: "Raise Dispute" button
+if (sellerDisputeBtn) {
+  sellerDisputeBtn.addEventListener('click', async () => {
+    if (sellerDisputeBtn.disabled) return;
+    if (!confirm('Are you sure you want to raise a dispute? An admin will review this order.')) return;
+    sellerDisputeBtn.disabled = true; sellerDisputeBtn.textContent = 'Raising...';
+    try {
+      await updateOrderStatus('dispute');
+    } catch (err) {
+      sellerDisputeBtn.disabled = false; sellerDisputeBtn.textContent = 'Raise Dispute';
+      alert(err.message || 'Failed to raise dispute.');
     }
   });
 }
