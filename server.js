@@ -2561,12 +2561,71 @@ app.put('/api/p2p/notifications', requiresP2PUser, async (req, res) => {
 });
 
 // ── Follow / Block ──
+// ── Block / Unblock user ──────────────────────────────────────────────
+app.post('/api/p2p/block/:userId', requiresP2PUser, async (req, res) => {
+  try {
+    const targetId = String(req.params.userId || '').trim();
+    if (!targetId || targetId === String(req.p2pUser.id)) {
+      return res.status(400).json({ message: 'Invalid user.' });
+    }
+    const creds = getCollections().p2pCredentials;
+    await creds.updateOne(
+      { userId: String(req.p2pUser.id) },
+      { $addToSet: { blockedUserIds: targetId } }
+    );
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ message: 'Failed to block user.' }); }
+});
+
+app.post('/api/p2p/unblock/:userId', requiresP2PUser, async (req, res) => {
+  try {
+    const targetId = String(req.params.userId || '').trim();
+    const creds = getCollections().p2pCredentials;
+    await creds.updateOne(
+      { userId: String(req.p2pUser.id) },
+      { $pull: { blockedUserIds: targetId } }
+    );
+    return res.json({ ok: true });
+  } catch { return res.status(500).json({ message: 'Failed to unblock user.' }); }
+});
+
+// GET blocked list
+app.get('/api/p2p/blocked', requiresP2PUser, async (req, res) => {
+  try {
+    const creds = getCollections().p2pCredentials;
+    const me = await creds.findOne(
+      { userId: String(req.p2pUser.id) },
+      { projection: { blockedUserIds: 1 } }
+    );
+    const ids = me?.blockedUserIds || [];
+    if (!ids.length) return res.json([]);
+    const users = await creds
+      .find({ userId: { $in: ids } }, { projection: { userId: 1, username: 1, email: 1 } })
+      .toArray();
+    return res.json(users);
+  } catch { return res.json([]); }
+});
+
+// Legacy GET /api/p2p/follow
 app.get('/api/p2p/follow', requiresP2PUser, async (req, res) => {
+  if (req.query.type === 'blocked') {
+    try {
+      const creds = getCollections().p2pCredentials;
+      const me = await creds.findOne(
+        { userId: String(req.p2pUser.id) }, { projection: { blockedUserIds: 1 } }
+      );
+      const ids = me?.blockedUserIds || [];
+      if (!ids.length) return res.json([]);
+      const users = await creds
+        .find({ userId: { $in: ids } }, { projection: { userId: 1, username: 1, email: 1 } })
+        .toArray();
+      return res.json(users.map(u => ({ _id: u.userId, nickname: u.username, email: u.email })));
+    } catch { return res.json([]); }
+  }
   try {
     const User = mongoose.model('User');
-    const type = req.query.type === 'blocked' ? 'blocked' : 'following';
-    const me = await User.findById(req.p2pUser.id).select('following blocked').lean();
-    const ids = type === 'blocked' ? (me?.blocked || []) : (me?.following || []);
+    const me = await User.findById(req.p2pUser.id).select('following').lean();
+    const ids = me?.following || [];
     if (!ids.length) return res.json([]);
     const users = await User.find({ _id: { $in: ids } }).select('nickname email totalTrades').lean();
     return res.json(users);
@@ -2575,10 +2634,16 @@ app.get('/api/p2p/follow', requiresP2PUser, async (req, res) => {
 
 app.delete('/api/p2p/follow/:userId', requiresP2PUser, async (req, res) => {
   try {
+    if (req.query.type === 'blocked') {
+      const creds = getCollections().p2pCredentials;
+      await creds.updateOne(
+        { userId: String(req.p2pUser.id) },
+        { $pull: { blockedUserIds: req.params.userId } }
+      );
+      return res.json({ ok: true });
+    }
     const User = mongoose.model('User');
-    const type = req.query.type === 'blocked' ? 'blocked' : 'following';
-    const field = type === 'blocked' ? 'blocked' : 'following';
-    await User.findByIdAndUpdate(req.p2pUser.id, { $pull: { [field]: req.params.userId } });
+    await User.findByIdAndUpdate(req.p2pUser.id, { $pull: { following: req.params.userId } });
     return res.json({ ok: true });
   } catch { return res.status(500).json({ error: 'Failed' }); }
 });

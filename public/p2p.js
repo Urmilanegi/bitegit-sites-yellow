@@ -61,6 +61,9 @@ const orderPayment = document.getElementById('orderPayment');
 const orderParticipants = document.getElementById('orderParticipants');
 const orderTime = document.getElementById('orderTime');
 
+const blockUserBtn = document.getElementById('blockUserBtn');
+let _counterpartyUserId = '';  // set when order loads, used by block button
+
 const markPaidBtn = document.getElementById('markPaidBtn');
 const cancelOrderBtn = document.getElementById('cancelOrderBtn');
 const disputeBtn = document.getElementById('disputeBtn');
@@ -3458,6 +3461,16 @@ function updateOrderUi(order) {
       ? order.sellerUsername || order.advertiser || 'Seller'
       : order.buyerUsername || 'Buyer';
 
+  // Track counterparty userId for block button
+  _counterpartyUserId = activeOrderRole === 'buyer'
+    ? (order.sellerUserId || '')
+    : (order.buyerUserId || '');
+  if (blockUserBtn) {
+    blockUserBtn.style.display = _counterpartyUserId ? 'inline-block' : 'none';
+    blockUserBtn.textContent = 'Block';
+    blockUserBtn.disabled = false;
+  }
+
   orderRef.textContent = order.reference;
   orderStatus.className = `status-pill ${statusClass(order.status)}`;
   orderStatus.textContent = statusLabel(order.status).toUpperCase();
@@ -5419,6 +5432,30 @@ if (markPaidBtn) {
     if (activeOrderRole === 'buyer') setPaymentPanelOpen(true);
   });
 }
+// Block user button (visible on order page for both roles)
+if (blockUserBtn) {
+  blockUserBtn.addEventListener('click', async function() {
+    if (!_counterpartyUserId) return;
+    if (!confirm('Block this user? Their ads will be hidden from you and you won\'t be matched together.')) return;
+    blockUserBtn.disabled = true;
+    blockUserBtn.textContent = 'Blocking…';
+    try {
+      const r = await fetch('/api/p2p/block/' + encodeURIComponent(_counterpartyUserId), {
+        method: 'POST', credentials: 'include'
+      });
+      if (r.ok) {
+        blockUserBtn.textContent = 'Blocked';
+        blockUserBtn.style.background = 'rgba(246,70,93,0.25)';
+      } else {
+        blockUserBtn.disabled = false;
+        blockUserBtn.textContent = 'Block';
+      }
+    } catch {
+      blockUserBtn.disabled = false;
+      blockUserBtn.textContent = 'Block';
+    }
+  });
+}
 // Seller: "Release Crypto" button
 if (releaseBtn) {
   releaseBtn.addEventListener('click', async () => {
@@ -6492,7 +6529,11 @@ function loadFollowList(type, tabEl) {
 }
 
 function removeFollow(userId, type) {
-  fetch('/api/p2p/follow/' + userId + '?type=' + type, { method: 'DELETE', credentials: 'include' })
+  var url = type === 'blocked'
+    ? '/api/p2p/unblock/' + encodeURIComponent(userId)
+    : '/api/p2p/follow/' + encodeURIComponent(userId) + '?type=' + type;
+  var method = type === 'blocked' ? 'POST' : 'DELETE';
+  fetch(url, { method: method, credentials: 'include' })
     .then(function(){ loadFollowList(type, null); })
     .catch(function(){});
 }
