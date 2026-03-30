@@ -1,36 +1,36 @@
 <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" fill="none">
   <defs>
-    <linearGradient id="g" x1="72" y1="60" x2="410" y2="442" gradientUnits="userSpaceOnUse">
+    <linearGradient id="g" x1="60" y1="60" x2="440" y2="440" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#00e5d0"/>
       <stop offset="100%" stop-color="#00b8e6"/>
     </linearGradient>
     <mask id="bm">
       <rect width="500" height="500" fill="white"/>
-      <!-- upper bump inner C-hole -->
-      <rect x="198" y="80" width="122" height="100" rx="14" fill="black"/>
-      <!-- mid horizontal gap between bumps -->
-      <rect x="152" y="223" width="248" height="20" fill="black"/>
-      <!-- lower bump inner C-hole -->
-      <rect x="198" y="272" width="140" height="122" rx="14" fill="black"/>
-      <!-- square notch left-center of spine -->
-      <rect x="152" y="205" width="38" height="38" fill="black"/>
+      <!-- upper bump inner D-hole -->
+      <rect x="156" y="82" width="148" height="130" rx="15" fill="black"/>
+      <!-- mid gap between bumps -->
+      <rect x="130" y="228" width="250" height="18" fill="black"/>
+      <!-- lower bump inner D-hole -->
+      <rect x="156" y="264" width="168" height="154" rx="15" fill="black"/>
+      <!-- square notch mid-left of spine -->
+      <rect x="130" y="210" width="42" height="42" fill="black"/>
     </mask>
   </defs>
 
-  <!-- Left standalone capsule bar -->
-  <rect x="72" y="170" width="54" height="162" rx="27" fill="url(#g)"/>
+  <!-- Left standalone capsule — same width as spine -->
+  <rect x="60" y="152" width="54" height="196" rx="27" fill="url(#g)"/>
 
-  <!-- B shape — spine + two bumps, masked for cutouts -->
+  <!-- B shape -->
   <g mask="url(#bm)" fill="url(#g)">
     <!-- Full-height spine -->
-    <rect x="152" y="60" width="58" height="382" rx="15"/>
-    <!-- Upper bump rectangle body -->
-    <rect x="200" y="60" width="138" height="181"/>
-    <!-- Upper bump rounded right cap -->
-    <rect x="258" y="60" width="116" height="181" rx="58"/>
-    <!-- Lower bump rectangle body -->
-    <rect x="200" y="241" width="154" height="201"/>
-    <!-- Lower bump rounded right cap -->
-    <rect x="276" y="241" width="134" height="201" rx="67"/>
+    <rect x="130" y="60" width="54" height="380" rx="10"/>
+    <!-- Upper bump body -->
+    <rect x="176" y="60" width="182" height="168"/>
+    <!-- Upper bump semicircular right cap -->
+    <rect x="270" y="60" width="116" height="168" rx="84"/>
+    <!-- Lower bump body (slightly larger) -->
+    <rect x="176" y="246" width="202" height="194"/>
+    <!-- Lower bump semicircular right cap -->
+    <rect x="282" y="246" width="136" height="194" rx="97"/>
   </g>
 </svg>
