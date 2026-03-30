@@ -1,0 +1,29 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <defs>
+    <linearGradient id="btg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5d4"/>
+      <stop offset="100%" stop-color="#00b4d8"/>
+    </linearGradient>
+    <mask id="bm">
+      <rect width="100" height="100" fill="white"/>
+      <!-- upper bump inner hole -->
+      <rect x="29" y="16" width="22" height="22" rx="5" fill="black"/>
+      <!-- mid gap between bumps -->
+      <rect x="28" y="45" width="55" height="7" fill="black"/>
+      <!-- lower bump inner hole -->
+      <rect x="29" y="59" width="27" height="26" rx="5" fill="black"/>
+    </mask>
+  </defs>
+  <g mask="url(#bm)" fill="url(#btg)">
+    <!-- left stem full height -->
+    <rect x="9" y="9" width="21" height="82" rx="10.5"/>
+    <!-- upper bump horizontal base -->
+    <rect x="20" y="9" width="40" height="44"/>
+    <!-- upper bump rounded right cap -->
+    <rect x="46" y="9" width="28" height="44" rx="22"/>
+    <!-- lower bump horizontal base -->
+    <rect x="20" y="52" width="44" height="39"/>
+    <!-- lower bump rounded right cap -->
+    <rect x="50" y="52" width="32" height="39" rx="19.5"/>
+  </g>
+</svg>

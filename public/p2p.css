@@ -87,12 +87,13 @@ body.p2p-kyc-open { overflow: hidden; }
   text-decoration: none;
 }
 
-.p2p-brand-mark {
+.p2p-brand-mark { display: none; }
+
+.cf-brand-logo-svg {
   width: 26px;
   height: 26px;
-  background: var(--p2p-brand);
-  border-radius: 6px;
-  display: inline-block;
+  flex-shrink: 0;
+  display: block;
 }
 
 .p2p-brand-word {

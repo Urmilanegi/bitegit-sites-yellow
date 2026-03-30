@@ -154,7 +154,14 @@ a {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 0.45rem;
+}
+
+.cf-brand-logo-svg {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: block;
 }
 
 .cf-brand-logo {
