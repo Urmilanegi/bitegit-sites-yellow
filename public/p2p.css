@@ -1176,17 +1176,18 @@ body.p2p-kyc-open { overflow: hidden; }
 
 .p2p-ad-submit {
   justify-self: start;
-  min-height: 40px;
-  padding: 0 1.5rem;
+  min-height: 42px;
+  padding: 0 1.8rem;
   border-radius: 999px;
   border: none;
-  background: linear-gradient(95deg, var(--p2p-green), #36da96);
-  color: #071309;
-  font-weight: 700;
+  background: linear-gradient(135deg, #00f5f5 0%, #00c8ff 100%);
+  color: #000;
+  font-weight: 800;
   font-size: 0.88rem;
   cursor: pointer;
   font-family: 'Manrope', sans-serif;
   transition: opacity 0.2s;
+  box-shadow: 0 4px 16px rgba(0, 200, 255, 0.25);
 }
 
 .p2p-ad-submit:hover { opacity: 0.85; }
@@ -1840,13 +1841,14 @@ body.p2p-kyc-open { overflow: hidden; }
   min-height: 42px;
   border-radius: 10px;
   border: none;
-  background: var(--p2p-accent);
-  color: #201500;
+  background: linear-gradient(135deg, #00f5f5 0%, #00c8ff 100%);
+  color: #000;
   font-size: 0.9rem;
   font-weight: 700;
   padding: 0 1.2rem;
   cursor: pointer;
   font-family: 'Manrope', sans-serif;
+  box-shadow: 0 4px 16px rgba(0, 200, 255, 0.25);
 }
 
 #kycSubmitBtn:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -1995,10 +1997,13 @@ body.p2p-kyc-open { overflow: hidden; }
   color: var(--p2p-muted);
   font-size: 0;
   transition: color 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .p2p-mobile-bottom-nav a.active { color: var(--p2p-brand); }
-.p2p-mobile-bottom-nav a:hover { color: var(--p2p-text); }
+@media (hover: hover) {
+  .p2p-mobile-bottom-nav a:hover { color: var(--p2p-text); }
+}
 
 .p2p-mobile-bottom-nav .nav-icon {
   font-size: 1.2rem;
@@ -2663,7 +2668,7 @@ body.mob-screen-open .p2p-secondary-nav {
   padding: 1rem;
   border-right: 1px solid rgba(255,255,255,0.07);
   border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: linear-gradient(180deg, rgba(17,18,24,0.94), rgba(9,10,14,0.98));
+  background: #000;
 }
 
 .mob-stats-grid > div:nth-child(even) { border-right: none; }
@@ -2728,10 +2733,13 @@ body.mob-screen-open .p2p-secondary-nav {
   font-size: 0.9rem;
   color: var(--p2p-text);
   cursor: pointer;
-  background: #0b0c10;
+  background: #000;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.mob-menu-list li:hover { background: rgba(255,255,255,0.03); }
+@media (hover: hover) {
+  .mob-menu-list li:hover { background: rgba(255,255,255,0.04); }
+}
 .mob-arrow { margin-left: auto; color: var(--p2p-muted); font-size: 1rem; }
 
 /* ── Profile Settings ── */
@@ -3586,14 +3594,16 @@ body.mob-screen-open .p2p-secondary-nav {
 .mob-ad-submit-btn {
   width: 100%;
   padding: 0.85rem;
-  background: linear-gradient(96deg, #00c2b2, #0099a8);
-  color: #fff;
+  background: linear-gradient(135deg, #00f5f5 0%, #00c8ff 100%);
+  color: #000;
   border: none;
   border-radius: 10px;
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   margin-top: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 200, 255, 0.25);
+  -webkit-tap-highlight-color: transparent;
 }
 .mob-ad-submit-btn:disabled { opacity: 0.6; }
 .mob-ad-meta {
