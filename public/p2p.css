@@ -2093,6 +2093,15 @@ body.p2p-kyc-open { overflow: hidden; }
   padding-bottom: calc(76px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
+  /* Subtle slide-in + fade animation */
+  transform: translateX(20px);
+  opacity: 0;
+  transition: transform 0.22s ease-out, opacity 0.18s ease;
+  will-change: transform, opacity;
+}
+.mob-screen.mob-screen-visible {
+  transform: translateX(0);
+  opacity: 1;
 }
 
 .mob-screen::-webkit-scrollbar {

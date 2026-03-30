@@ -5434,13 +5434,25 @@ if (paidConfirmBtn) {
       return;
     }
     paidConfirmBtn.disabled = true;
+    // Optimistic UI — close panel and show payment-sent state immediately
+    setPaymentPanelOpen(false);
+    var _prevSnap = activeOrderSnapshot ? { ...activeOrderSnapshot } : null;
+    if (activeOrderSnapshot) {
+      activeOrderSnapshot = { ...activeOrderSnapshot, status: 'PAYMENT_SENT' };
+      updateOrderUi(activeOrderSnapshot);
+    }
     try {
       await updateOrderStatus('mark_paid');
-      setPaymentPanelOpen(false);
     } catch (error) {
-      // Status message already updated by updateOrderStatus.
+      // Revert optimistic state on failure
+      if (_prevSnap) {
+        activeOrderSnapshot = _prevSnap;
+        updateOrderUi(activeOrderSnapshot);
+      }
+      setPaymentPanelOpen(true);
+      paidConfirmBtn.disabled = false;
     } finally {
-      if (!['PAID', 'RELEASED', 'CANCELLED', 'EXPIRED'].includes(normalizeStatusForUi(activeOrderSnapshot?.status))) {
+      if (!['PAID', 'PAYMENT_SENT', 'RELEASED', 'CANCELLED', 'EXPIRED'].includes(normalizeStatusForUi(activeOrderSnapshot?.status))) {
         paidConfirmBtn.disabled = false;
       }
     }
@@ -5476,12 +5488,24 @@ if (cancelConfirmBtn) {
     }
     const selectedReason = cancelReasonForm?.querySelector('input[name="cancelReason"]:checked')?.value || '';
     cancelConfirmBtn.disabled = true;
+    // Optimistic UI — immediately close modal and show cancelled state
+    setCancelModalOpen(false);
+    setPaymentPanelOpen(false);
+    var _prevSnapshot = activeOrderSnapshot ? { ...activeOrderSnapshot } : null;
+    if (activeOrderSnapshot) {
+      activeOrderSnapshot = { ...activeOrderSnapshot, status: 'CANCELLED' };
+      updateOrderUi(activeOrderSnapshot);
+    }
     try {
       await updateOrderStatus('cancel', { reason: selectedReason });
-      setCancelModalOpen(false);
-      setPaymentPanelOpen(false);
     } catch (error) {
-      // Status message already updated by updateOrderStatus.
+      // Revert optimistic UI on failure
+      if (_prevSnapshot) {
+        activeOrderSnapshot = _prevSnapshot;
+        updateOrderUi(activeOrderSnapshot);
+      }
+      setCancelModalOpen(true);
+      if (chatState) chatState.textContent = error.message || 'Cancel failed. Try again.';
     } finally {
       refreshCancelConfirmState();
     }
@@ -6862,9 +6886,14 @@ window.deleteMobAd = async function(offerId) {
   var profileFlowScreens = new Set(['mobProfileScreen', 'mobPaymentMethodsScreen', 'mobPaymentMethodTypesScreen', 'mobPaymentMethodFormScreen']);
   function showMobScreen(screenId) {
     var all = document.querySelectorAll('.mob-screen');
-    all.forEach(function(s){ s.style.display = 'none'; });
+    all.forEach(function(s){ s.style.display = 'none'; s.classList.remove('mob-screen-visible'); });
     var el = document.getElementById(screenId);
-    if (el) { el.style.setProperty('display','flex','important'); el.style.flexDirection = 'column'; }
+    if (el) {
+      el.style.setProperty('display','flex','important');
+      el.style.flexDirection = 'column';
+      // Trigger slide-in animation (double rAF ensures display change is flushed first)
+      requestAnimationFrame(function() { requestAnimationFrame(function() { el.classList.add('mob-screen-visible'); }); });
+    }
     if (profileFlowScreens.has(screenId) || screenId === 'mobOrdersScreen' || screenId === 'mobPostAdScreen') {
       document.body.classList.add('mob-screen-open');
       if (profileFlowScreens.has(screenId)) {
@@ -6896,7 +6925,7 @@ window.deleteMobAd = async function(offerId) {
   function hideMobScreens() {
     stopOrdPolling();
     var all = document.querySelectorAll('.mob-screen');
-    all.forEach(function(s){ s.style.display = 'none'; });
+    all.forEach(function(s){ s.style.display = 'none'; s.classList.remove('mob-screen-visible'); });
     document.body.classList.remove('mob-screen-open', 'mob-profile-open');
     document.body.dataset.mobileTab = 'p2p';
     setMobileNavActive('p2p');

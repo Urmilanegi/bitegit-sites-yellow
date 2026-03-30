@@ -1947,6 +1947,7 @@ app.post('/api/p2p/login', async (req, res) => {
     const userRole = tokenService.normalizeRole(existingCredential?.role || 'USER');
 
     const { token, user } = await createP2PUserSession(email, userRole, existingCredential);
+    // Fire-and-forget credential sync — don't block login response
     if (
       typeof repos.setP2PCredential === 'function' &&
       (
@@ -1954,7 +1955,7 @@ app.post('/api/p2p/login', async (req, res) => {
         String(existingCredential?.userId || '').trim() !== String(user.id || '').trim()
       )
     ) {
-      await repos.setP2PCredential(email, existingCredential.passwordHash, {
+      repos.setP2PCredential(email, existingCredential.passwordHash, {
         role: userRole,
         username: existingCredential?.username,
         avatar: existingCredential?.avatar,
@@ -1963,11 +1964,15 @@ app.post('/api/p2p/login', async (req, res) => {
         merchantLevel: existingCredential?.merchantLevel,
         userId: user.id,
         emailVerified: true
-      });
+      }).catch(() => {});
       existingCredential.emailVerified = true;
       existingCredential.userId = user.id;
     }
-    const tokenPair = await issueAuthTokenPairForUser(user);
+    // Parallelize token issuance and KYC profile fetch — saves ~100-200ms
+    const [tokenPair, kycProfile] = await Promise.all([
+      issueAuthTokenPairForUser(user),
+      getP2PKycProfileFast(user.email)
+    ]);
     setCookie(res, P2P_USER_COOKIE_NAME, token, P2P_USER_TTL_MS / 1000);
     setP2PAuthCookies(res, tokenPair);
     runDetached(() => walletService.ensureWallet(user.id, { username: user.username }));
@@ -1981,8 +1986,6 @@ app.post('/api/p2p/login', async (req, res) => {
         role: user.role
       }
     });
-
-    const kycProfile = await getP2PKycProfileFast(user.email);
 
     return res.json({
       message: 'P2P login successful.',
