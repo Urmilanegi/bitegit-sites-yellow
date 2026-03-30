@@ -3512,6 +3512,9 @@ function updateOrderUi(order) {
     _hide(orderBuyerActions);
     _hide(orderSellerActions);
     _show(closedActions);
+    // Seller doesn't place orders — hide "Place a new order" button for them
+    var placeNewBtn = document.getElementById('placeNewOrderBtn');
+    if (placeNewBtn) placeNewBtn.style.display = isSeller ? 'none' : '';
     if (isReleased && !window._ratingShownFor?.[activeOrderId]) {
       if (!window._ratingShownFor) window._ratingShownFor = {};
       window._ratingShownFor[activeOrderId] = true;
