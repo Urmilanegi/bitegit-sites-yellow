@@ -2277,6 +2277,16 @@ body.mob-screen-open .p2p-secondary-nav {
   font-size: 0.85rem;
   font-weight: 800;
   flex-shrink: 0;
+  overflow: hidden;
+}
+.mob-payment-method-icon.mob-payment-type-svg {
+  background: none;
+}
+.mob-payment-method-icon.mob-payment-type-svg svg {
+  width: 42px;
+  height: 42px;
+  display: block;
+  border-radius: 14px;
 }
 
 .mob-payment-method-copy {
@@ -2378,8 +2388,8 @@ body.mob-screen-open .p2p-secondary-nav {
 }
 
 .mob-payment-type-chip {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
   background: linear-gradient(135deg, rgba(59,130,246,0.24), rgba(34,211,238,0.18));
   color: #8ac8ff;
@@ -2390,6 +2400,18 @@ body.mob-screen-open .p2p-secondary-nav {
   font-weight: 800;
   flex-shrink: 0;
   border: 1px solid rgba(126, 197, 255, 0.12);
+  overflow: hidden;
+}
+.mob-payment-type-svg {
+  background: none !important;
+  border: none !important;
+  padding: 0;
+}
+.mob-payment-type-svg svg {
+  width: 36px;
+  height: 36px;
+  display: block;
+  border-radius: 10px;
 }
 
 .mob-payment-type-label {

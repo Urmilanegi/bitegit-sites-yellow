@@ -244,6 +244,29 @@ const KYC_REQUIRED_CODES = new Set(['KYC_REQUIRED', 'KYC_PENDING', 'KYC_REJECTED
 const KYC_ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const KYC_MAX_FILE_SIZE = 6 * 1024 * 1024;
 const KYC_TARGET_IMAGE_BYTES = 320 * 1024;
+// SVG icon helpers for payment methods
+var PM_ICONS = {
+  UPI: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#ff9900"/><path d="M10 22L14 10l4 8 4-12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  'Bank Transfer(India)': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#00b4d8"/><path d="M7 14h18M7 24h18M9 14v10M13 14v10M19 14v10M23 14v10M8 11l8-5 8 5z" stroke="#fff" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg>',
+  Paytm: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#00baf2"/><text x="16" y="20" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" font-family="sans-serif">Pay</text></svg>',
+  PhonePe: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#5f259f"/><path d="M12 8v16M12 8l8 5v3l-8-4" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="10" r="2" fill="#fff"/></svg>',
+  'Google Pay': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#fff"/><text x="16" y="21" text-anchor="middle" font-size="14" font-weight="700" fill="#4285f4" font-family="sans-serif">G</text><rect x="9" y="14" width="3" height="6" rx="1" fill="#ea4335"/><rect x="20" y="12" width="3" height="8" rx="1" fill="#34a853"/><rect x="14.5" y="10" width="3" height="12" rx="1" fill="#fbbc05"/></svg>',
+  'Bank Transfer(Union Bank)': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#e8590c"/><path d="M7 14h18M7 24h18M9 14v10M13 14v10M19 14v10M23 14v10M8 11l8-5 8 5z" stroke="#fff" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg>',
+  GoPay: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#00aed6"/><circle cx="16" cy="16" r="8" fill="#fff" opacity="0.3"/><text x="16" y="20" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" font-family="sans-serif">Go</text></svg>',
+  'Bank Jago': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#ff5733"/><text x="16" y="21" text-anchor="middle" font-size="14" font-weight="800" fill="#fff" font-family="sans-serif">J</text></svg>',
+  'A-Bank': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#2d9d3a"/><circle cx="16" cy="14" r="5" fill="#fff" opacity="0.25"/><text x="16" y="21" text-anchor="middle" font-size="14" font-weight="700" fill="#fff" font-family="sans-serif">A</text></svg>',
+  NETELLER: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#83c341"/><text x="16" y="21" text-anchor="middle" font-size="14" font-weight="800" fill="#fff" font-family="sans-serif">N</text></svg>',
+  'Volet.com(Formerly Advcash)': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#5cb85c"/><text x="16" y="20" text-anchor="middle" font-size="9" font-weight="700" fill="#fff" font-family="sans-serif">volet</text></svg>',
+  Cashapp: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#00d632"/><text x="16" y="22" text-anchor="middle" font-size="16" font-weight="800" fill="#fff" font-family="sans-serif">$</text></svg>',
+  'STC PAY': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#6f42c1"/><text x="16" y="19" text-anchor="middle" font-size="8" font-weight="700" fill="#fff" font-family="sans-serif">stc</text><text x="16" y="25" text-anchor="middle" font-size="6" fill="#d4b8ff" font-family="sans-serif">pay</text></svg>',
+  'Transfers with specific bank': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#0d6efd"/><path d="M7 14h18M7 24h18M9 14v10M13 14v10M19 14v10M23 14v10M8 11l8-5 8 5z" stroke="#fff" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg>',
+  'Cash Deposit to Bank': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#198754"/><path d="M10 18h12M10 22h12M10 14h12M12 10h8" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M16 6v5M14 9l2 2 2-2" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  'Western Union': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#ffdd00"/><text x="16" y="21" text-anchor="middle" font-size="11" font-weight="800" fill="#000" font-family="sans-serif">WU</text></svg>',
+  'Faster Payment System': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#fd7e14"/><path d="M14 8l-2 10h6l-2 10 8-14h-6l4-6z" fill="#fff"/></svg>',
+  GeoPay: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#e8590c"/><circle cx="16" cy="14" r="5" stroke="#fff" stroke-width="1.5" fill="none"/><path d="M16 19v5M12 26h8" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>',
+  'Digital eRupee': '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#0d6efd"/><text x="16" y="22" text-anchor="middle" font-size="16" font-weight="700" fill="#fff" font-family="sans-serif">₹</text></svg>'
+};
+
 const PAYMENT_METHOD_OPTIONS = [
   { key: 'UPI', label: 'UPI', category: 'UPI', chip: 'UP', color: '#ff9900' },
   { key: 'Bank Transfer(India)', label: 'Bank Transfer(India)', category: 'BANK', chip: 'BK', color: '#00b4d8' },
@@ -5520,8 +5543,12 @@ function renderPaymentMethodsList(methods) {
     button.type = 'button';
     button.className = 'mob-payment-method-card';
     button.setAttribute('data-payment-edit', String(method.id || ''));
+    var iconSvg = PM_ICONS[option.key] || '';
+    var iconHtml = iconSvg
+      ? '<span class="mob-payment-method-icon mob-payment-type-svg">' + iconSvg + '</span>'
+      : '<span class="mob-payment-method-icon">' + escapeHtml(option.chip || 'PM') + '</span>';
     button.innerHTML =
-      '<span class="mob-payment-method-icon">' + escapeHtml(option.chip || 'PM') + '</span>' +
+      iconHtml +
       '<span class="mob-payment-method-copy">' +
         '<span class="mob-payment-method-title">' + escapeHtml(getPaymentMethodDisplayLabel(method)) + '</span>' +
         '<span class="mob-payment-method-subtitle">' + escapeHtml(getPaymentMethodDetailText(method)) + '</span>' +
@@ -5570,10 +5597,13 @@ function renderPaymentMethodTypes(query) {
     return;
   }
   container.innerHTML = filtered.map(function(option) {
-    var chipColor = option.color || '#888';
+    var iconSvg = PM_ICONS[option.key] || '';
+    var chipHtml = iconSvg
+      ? '<span class="mob-payment-type-chip mob-payment-type-svg">' + iconSvg + '</span>'
+      : '<span class="mob-payment-type-chip" style="background:' + (option.color || '#888') + ';color:#fff;">' + escapeHtml(option.chip || 'PM') + '</span>';
     return (
       '<button type="button" class="mob-payment-type-row" data-payment-type="' + escapeHtml(option.key) + '">' +
-        '<span class="mob-payment-type-chip" style="background:' + chipColor + ';color:#fff;">' + escapeHtml(option.chip || 'PM') + '</span>' +
+        chipHtml +
         '<span class="mob-payment-type-label">' + escapeHtml(option.label) + '</span>' +
         '<span class="mob-payment-type-arrow">›</span>' +
       '</button>'
