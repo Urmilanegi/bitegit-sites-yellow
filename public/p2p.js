@@ -1716,6 +1716,24 @@ async function loadProfilePanel(options = {}) {
     profileMeta,
     `All trades: ${totalOrdersAll} | 30D trades: ${totalOrders30d} | Cancelled: ${cancelledOrders30d.length} | Wallet: ${formatNumber(profileWalletBalance)}`
   );
+
+  // Fetch own reputation (stars + rating count) and show on profile
+  if (currentUser && getCurrentUserId()) {
+    fetch('/api/p2p/users/' + encodeURIComponent(getCurrentUserId()) + '/reputation', { credentials: 'include' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(rep) {
+        if (!rep || !currentUser) return;
+        currentUser._rep = rep;
+        var ratingRow = document.getElementById('profileRatingRow');
+        var avgStarsVal = document.getElementById('profileAvgStarsVal');
+        var ratingCountEl = document.getElementById('profileRatingCount');
+        if (ratingRow && rep.avgStars != null) {
+          ratingRow.style.display = 'block';
+          if (avgStarsVal) avgStarsVal.textContent = Number(rep.avgStars).toFixed(1);
+          if (ratingCountEl) ratingCountEl.textContent = '(' + (rep.ratingCount || 0) + ' ratings)';
+        }
+      }).catch(function() {});
+  }
 }
 
 function compressImageFileToDataUrl(file, options = {}) {
@@ -2753,7 +2771,7 @@ function renderOffers(data, append) {
             <span class="table-user-avatar">${escapeHtml(initial)}</span>
             <div>
               <p class="adv-name">${escapeHtml(offer.advertiser)} ${verificationBadge}</p>
-              <p class="adv-meta">${(offer.reputation && offer.reputation.completedOrders != null) ? offer.reputation.completedOrders : offer.orders} Orders | ${(offer.reputation && offer.reputation.completionRate != null) ? offer.reputation.completionRate : offer.completionRate}%</p>
+              <p class="adv-meta">${(offer.reputation && offer.reputation.completedOrders != null) ? offer.reputation.completedOrders : offer.orders} Orders | ${(offer.reputation && offer.reputation.completionRate != null) ? offer.reputation.completionRate : offer.completionRate}% | <span style="color:${offer.onlineStatus==='online'?'#2ebd85':offer.onlineStatus==='away'?'#f0b90b':'#888'}">${offer.onlineStatus==='online'?'● Online':offer.onlineStatus==='away'?'● Away':'● Offline'}</span></p>
             </div>
           </div>
         </td>
@@ -2778,7 +2796,10 @@ function renderOffers(data, append) {
     const rep = offer.reputation || {};
     const repOrders = rep.completedOrders != null ? rep.completedOrders : (offer.orders || 0);
     const repRate = rep.completionRate != null ? rep.completionRate : (offer.completionRate || 100);
-    const repTime = rep.avgReleaseMinutes != null ? rep.avgReleaseMinutes + ' min' : (offer.orders > 500 ? '10 min' : offer.orders > 100 ? '15 min' : '20 min');
+    const repTime = rep.avgReleaseMinutes != null ? rep.avgReleaseMinutes + ' min' : '~15 min';
+    const onlineStatus = offer.onlineStatus || 'offline';
+    const onlineDotColor = onlineStatus === 'online' ? '#2ebd85' : onlineStatus === 'away' ? '#f0b90b' : '#555';
+    const onlineLabel = onlineStatus === 'online' ? 'Online' : onlineStatus === 'away' ? 'Away' : 'Offline';
     const paymentGate = offerPayments.map(m => `<span class="gt-pay">${escapeHtml(m)}</span>`).join('');
 
     cardsHtml.push(`
@@ -2795,7 +2816,7 @@ function renderOffers(data, append) {
             <span class="gt-div">|</span>
             <span>⏱ ${repTime}</span>
           </div>
-          <div class="gt-online"><span class="gt-dot"></span>Online</div>
+          <div class="gt-online"><span class="gt-dot" style="background:${onlineDotColor};box-shadow:0 0 4px ${onlineDotColor};"></span>${onlineLabel}</div>
           <p class="gt-price">₹${formatNumber(offer.price)} <span class="gt-cur">INR</span></p>
           <div class="gt-row"><span class="gt-lbl">Quantity</span><span class="gt-val">${quantity}</span></div>
           <div class="gt-row"><span class="gt-lbl">Limit</span><span class="gt-val">₹${formatNumber(offer.minLimit)}~₹${formatNumber(offer.maxLimit)}</span></div>
@@ -3445,7 +3466,7 @@ function updateOrderUi(order) {
     orderCounterpartyName.textContent = counterpartyName;
   }
   if (orderCounterpartyMeta) {
-    orderCounterpartyMeta.textContent = 'Order with verified counterparty';
+    orderCounterpartyMeta.textContent = '';  // will be filled by renderCounterpartyReputation
   }
   // Update avatar in redesigned modal
   var merchantAvatar = document.getElementById('orderMerchantAvatar');
@@ -3922,6 +3943,21 @@ async function loadOrderDetails() {
   }
 }
 
+// ── Counterparty reputation + online status ──────────────────────────
+function renderCounterpartyReputation(rep) {
+  var meta = orderCounterpartyMeta;
+  if (!meta || !rep) return;
+  var dot = { online: '🟢', away: '🟡', offline: '⚫' }[rep.onlineStatus] || '⚫';
+  var statusText = { online: 'Online', away: 'Away', offline: 'Offline' }[rep.onlineStatus] || 'Offline';
+  var parts = [];
+  parts.push(dot + ' ' + statusText);
+  if (rep.completedOrders != null) parts.push(rep.completedOrders + ' orders');
+  if (rep.completionRate != null) parts.push(rep.completionRate + '% completion');
+  if (rep.avgStars != null) parts.push('★ ' + rep.avgStars);
+  meta.textContent = parts.join('  ·  ');
+  meta.style.color = rep.onlineStatus === 'online' ? '#2ebd85' : rep.onlineStatus === 'away' ? '#f0b90b' : 'rgba(255,255,255,0.4)';
+}
+
 function openOrder(order) {
   // Close any previous stream before opening new one
   if (orderStream) { try { orderStream.close(); } catch(e){} orderStream = null; }
@@ -4016,6 +4052,7 @@ async function openOrderById(orderId) {
       throw new Error('Only ongoing orders can be opened.');
     }
     openOrder(data.order);
+    if (data.counterparty) renderCounterpartyReputation(data.counterparty);
     await loadLiveOrders();
   } catch (error) {
     liveOrdersMeta.textContent = error.message;
@@ -5690,9 +5727,14 @@ window.addEventListener('pagehide', () => {
   // For non-logged-in users, showLoginPrompt is shown when they open the orders screen.
 })();
 
+// ── Online presence ping — marks current user as online every 60s ───
+setInterval(function() {
+  if (currentUser && document.visibilityState !== 'hidden') {
+    fetch('/api/p2p/ping', { method: 'POST', credentials: 'include' }).catch(function() {});
+  }
+}, 60 * 1000);
+
 // ── Keep Render free-tier server awake ──────────────────────────────
-// Render sleeps after 15 min idle → causes ~50s cold start next visit.
-// Ping /healthz every 13 min while tab is active to prevent that.
 setInterval(function() {
   if (document.visibilityState !== 'hidden') {
     fetch('/healthz').catch(function() {});

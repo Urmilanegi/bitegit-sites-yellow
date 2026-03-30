@@ -2163,6 +2163,39 @@ app.post('/api/p2p/reset-password', async (req, res) => {
   }
 });
 
+// ── Online presence tracking ──────────────────────────────────────────
+// In-memory map: userId → lastActiveMs (no DB write per request)
+if (!global._p2pOnlineMap) global._p2pOnlineMap = new Map();
+const ONLINE_THRESHOLD_MS  = 5  * 60 * 1000; // < 5 min  = Online
+const AWAY_THRESHOLD_MS    = 30 * 60 * 1000; // < 30 min = Away
+
+function markUserOnline(userId) {
+  if (userId) global._p2pOnlineMap.set(String(userId), Date.now());
+}
+function getUserOnlineStatus(userId) {
+  const last = global._p2pOnlineMap.get(String(userId || ''));
+  if (!last) return 'offline';
+  const diff = Date.now() - last;
+  if (diff < ONLINE_THRESHOLD_MS)  return 'online';
+  if (diff < AWAY_THRESHOLD_MS)    return 'away';
+  return 'offline';
+}
+
+// Auto-mark online on every authenticated request
+const _origRequiresP2PUser = requiresP2PUser;
+async function requiresP2PUser(req, res, next) {
+  return _origRequiresP2PUser(req, res, function(err) {
+    if (!err && req.p2pUser) markUserOnline(req.p2pUser.id);
+    next(err);
+  });
+}
+
+// Lightweight ping endpoint — client calls every 60s
+app.post('/api/p2p/ping', requiresP2PUser, (req, res) => {
+  markUserOnline(req.p2pUser.id);
+  return res.json({ ok: true });
+});
+
 app.post('/api/p2p/logout', async (req, res) => {
   const cookies = parseCookies(req);
   const token = cookies[P2P_USER_COOKIE_NAME];
@@ -3349,8 +3382,8 @@ app.get('/api/p2p/offers', async (req, res) => {
         const userId = offer.createdByUserId;
         if (!userId) return offer;
         const rep = await repos.getUserReputation(userId);
-        if (!rep) return offer;
-        return { ...offer, reputation: rep };
+        if (!rep) return { ...offer, onlineStatus: getUserOnlineStatus(userId) };
+        return { ...offer, reputation: rep, onlineStatus: getUserOnlineStatus(userId) };
       } catch (_) { return offer; }
     }));
 
@@ -3410,7 +3443,7 @@ app.get('/api/p2p/users/:userId/reputation', async (req, res) => {
   try {
     const rep = await repos.getUserReputation(req.params.userId);
     if (!rep) return res.status(404).json({ message: 'User not found.' });
-    return res.json(rep);
+    return res.json({ ...rep, onlineStatus: getUserOnlineStatus(req.params.userId) });
   } catch (err) {
     return res.status(500).json({ message: 'Server error.' });
   }
@@ -3884,7 +3917,18 @@ app.get('/api/p2p/orders/:orderId', requiresP2PUser, async (req, res) => {
     if (!normalizedOrder) {
       return res.status(500).json({ message: 'Order data is invalid.' });
     }
-    return res.json({ order: normalizedOrder });
+    // Attach counterparty online status + reputation
+    const isBuyer = String(req.p2pUser.id) === String(order.buyerUserId);
+    const counterpartyId = isBuyer ? order.sellerUserId : order.buyerUserId;
+    const [counterpartyRep] = await Promise.all([
+      counterpartyId ? repos.getUserReputation(counterpartyId).catch(() => null) : Promise.resolve(null)
+    ]);
+    return res.json({
+      order: normalizedOrder,
+      counterparty: counterpartyRep
+        ? { ...counterpartyRep, onlineStatus: getUserOnlineStatus(counterpartyId) }
+        : { onlineStatus: getUserOnlineStatus(counterpartyId) }
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Server error while fetching order.' });
   }
