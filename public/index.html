@@ -84,40 +84,66 @@
       </div>
     </div>
 
-    <section class="cf-hero-video-section cf-reveal is-visible" aria-label="Hero video">
-      <video id="heroBgVideo" class="cf-hero-video" autoplay muted loop playsinline preload="auto" style="display:none">
-        <source src="/videos/hero.mp4" type="video/mp4" />
-      </video>
-      <canvas id="heroBgCanvas" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></canvas>
+    <section class="cf-hero-banner cf-reveal is-visible" aria-label="Bitegit welcome banner">
+      <div class="cf-hero-banner-shell">
+        <div class="cf-hero-banner-copy">
+          <span class="cf-hero-banner-kicker">Bitegit Global</span>
+          <h1>Your crypto journey, simplified.</h1>
+          <p>Sign up to unlock fast market access, P2P trading, and a cleaner start on Bitegit.</p>
+          <div class="cf-hero-banner-actions">
+            <a class="cf-hero-banner-cta" href="#leadForm">Sign Up Now</a>
+          </div>
+        </div>
+
+        <div class="cf-hero-banner-markets" aria-label="Featured market pairs">
+          <article class="cf-hero-banner-card">
+            <div class="cf-hero-banner-card-head">
+              <span class="cf-hero-banner-badge">BTC</span>
+              <span class="cf-hero-banner-change is-up">+0.47%</span>
+            </div>
+            <strong class="cf-hero-banner-pair">BTC/USDT</strong>
+            <span class="cf-hero-banner-price">66,870.4</span>
+          </article>
+
+          <article class="cf-hero-banner-card">
+            <div class="cf-hero-banner-card-head">
+              <span class="cf-hero-banner-badge is-light">ETH</span>
+              <span class="cf-hero-banner-change is-up">+1.91%</span>
+            </div>
+            <strong class="cf-hero-banner-pair">ETH/USDT</strong>
+            <span class="cf-hero-banner-price">2,038.62</span>
+          </article>
+
+          <article class="cf-hero-banner-card">
+            <div class="cf-hero-banner-card-head">
+              <span class="cf-hero-banner-badge is-purple">SOL</span>
+              <span class="cf-hero-banner-change is-up">+1.66%</span>
+            </div>
+            <strong class="cf-hero-banner-pair">SOL/USDT</strong>
+            <span class="cf-hero-banner-price">83.22</span>
+          </article>
+
+          <article class="cf-hero-banner-card">
+            <div class="cf-hero-banner-card-head">
+              <span class="cf-hero-banner-badge is-gold">XAUT</span>
+              <span class="cf-hero-banner-change is-up">+0.53%</span>
+            </div>
+            <strong class="cf-hero-banner-pair">XAUT/USDT</strong>
+            <span class="cf-hero-banner-price">4,509.3</span>
+          </article>
+        </div>
+      </div>
     </section>
-    <script>
-    (function(){
-      const vid = document.getElementById('heroBgVideo');
-      const canvas = document.getElementById('heroBgCanvas');
-      const ctx = canvas.getContext('2d', {willReadFrequently: true});
-      const THRESHOLD = 40;
-      function drawFrame() {
-        if (vid.paused || vid.ended) return;
-        canvas.width = vid.videoWidth || canvas.offsetWidth;
-        canvas.height = vid.videoHeight || canvas.offsetHeight;
-        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-        const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const d = frame.data;
-        for (let i = 0; i < d.length; i += 4) {
-          const r = d[i], g = d[i+1], b = d[i+2];
-          if (r < THRESHOLD && g < THRESHOLD && b < THRESHOLD) d[i+3] = 0;
-        }
-        ctx.putImageData(frame, 0, 0);
-        requestAnimationFrame(drawFrame);
-      }
-      vid.addEventListener('play', drawFrame);
-      vid.play().catch(()=>{});
-    })();
-    </script>
 
     <main class="cf-main">
       <section class="cf-hero cf-reveal is-visible">
         <div class="cf-hero-left">
+          <div class="cf-hero-copy" data-auth-guest-only>
+            <p class="cf-hero-kicker">Create your account</p>
+            <h2 class="cf-hero-panel-title">Register in seconds with your email.</h2>
+            <p class="cf-hero-subtitle">Start with a simple signup and continue to markets, P2P and wallet access without the heavy intro video.</p>
+          </div>
+
           <div id="heroGuestPanel" data-auth-guest-only>
             <form id="leadForm" class="cf-lead-form" novalidate>
               <input id="name" name="name" type="hidden" value="Bitegit Signup Lead" />

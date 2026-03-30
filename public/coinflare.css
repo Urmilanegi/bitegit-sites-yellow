@@ -515,6 +515,179 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   box-shadow: none;
 }
 
+.cf-hero-banner {
+  padding: clamp(1rem, 3vw, 1.5rem) clamp(1rem, 4vw, 2.2rem) 0;
+  background:
+    radial-gradient(circle at top right, rgba(255, 179, 57, 0.24), transparent 28%),
+    linear-gradient(180deg, #090909 0%, #000000 100%);
+}
+
+.cf-hero-banner-shell {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 28px;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  background:
+    linear-gradient(135deg, rgba(19, 19, 19, 0.98), rgba(8, 8, 8, 0.98)),
+    linear-gradient(90deg, rgba(255, 170, 43, 0.1), transparent);
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 1rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.cf-hero-banner-shell::after {
+  content: '';
+  position: absolute;
+  inset: auto -6% -40% 36%;
+  height: 220px;
+  background: radial-gradient(circle, rgba(255, 170, 43, 0.16), transparent 68%);
+  pointer-events: none;
+}
+
+.cf-hero-banner-copy,
+.cf-hero-banner-markets {
+  position: relative;
+  z-index: 1;
+}
+
+.cf-hero-banner-copy {
+  display: grid;
+  align-content: center;
+  gap: 0.9rem;
+}
+
+.cf-hero-banner-kicker {
+  width: fit-content;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 170, 43, 0.14);
+  color: #ffb347;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cf-hero-banner h1 {
+  margin: 0;
+  max-width: 10ch;
+  color: #ffffff;
+  font-size: clamp(2.35rem, 6vw, 4.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+}
+
+.cf-hero-banner p {
+  margin: 0;
+  max-width: 34rem;
+  color: #c8ced9;
+  font-size: clamp(0.98rem, 2vw, 1.14rem);
+  line-height: 1.6;
+}
+
+.cf-hero-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.cf-hero-banner-cta {
+  min-height: 52px;
+  border-radius: 999px;
+  padding: 0.9rem 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #ffb347 0%, #ff9f2e 100%);
+  color: #111111;
+  text-decoration: none;
+  font-size: 0.98rem;
+  font-weight: 800;
+  box-shadow: 0 16px 30px rgba(255, 159, 46, 0.18);
+}
+
+.cf-hero-banner-cta:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+.cf-hero-banner-markets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  align-content: center;
+}
+
+.cf-hero-banner-card {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 22px;
+  padding: 1rem;
+  background:
+    linear-gradient(180deg, rgba(18, 18, 18, 0.96), rgba(10, 10, 10, 0.96));
+  box-shadow: 0 20px 28px rgba(0, 0, 0, 0.22);
+  display: grid;
+  gap: 0.45rem;
+}
+
+.cf-hero-banner-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cf-hero-banner-badge {
+  min-width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 179, 71, 0.16);
+  color: #ffb347;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.cf-hero-banner-badge.is-light {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f7f8fb;
+}
+
+.cf-hero-banner-badge.is-purple {
+  background: rgba(151, 112, 255, 0.18);
+  color: #c4a8ff;
+}
+
+.cf-hero-banner-badge.is-gold {
+  background: rgba(255, 214, 102, 0.16);
+  color: #ffd666;
+}
+
+.cf-hero-banner-pair {
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.cf-hero-banner-price {
+  color: #d6dce7;
+  font-size: 1.05rem;
+}
+
+.cf-hero-banner-change {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.cf-hero-banner-change.is-up {
+  color: #1fd07b;
+}
+
 .cf-hero-video-section {
   position: relative;
   width: 100%;
@@ -642,6 +815,12 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   line-height: 1.55;
 }
 
+.cf-hero-copy {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
 .cf-user-actions {
   display: flex;
   flex-wrap: wrap;
@@ -676,6 +855,14 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   font-size: clamp(0.95rem, 2.2vw, 1.1rem);
   line-height: 1.6;
   max-width: 62ch;
+}
+
+.cf-hero-panel-title {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(1.6rem, 4vw, 2.25rem);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
 }
 
 .cf-lead-form {
@@ -3155,6 +3342,49 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
     font-size: 0.73rem;
   }
 
+  .cf-hero-banner {
+    padding: 0.85rem 20px 0;
+  }
+
+  .cf-hero-banner-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    padding: 1.15rem;
+    border-radius: 24px;
+  }
+
+  .cf-hero-banner-shell::after {
+    inset: auto -12% -48% 20%;
+    height: 180px;
+  }
+
+  .cf-hero-banner h1 {
+    max-width: 11ch;
+    font-size: clamp(2rem, 11vw, 3rem);
+  }
+
+  .cf-hero-banner p {
+    font-size: 0.96rem;
+  }
+
+  .cf-hero-banner-actions {
+    width: 100%;
+  }
+
+  .cf-hero-banner-cta {
+    width: 100%;
+  }
+
+  .cf-hero-banner-markets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+
+  .cf-hero-banner-card {
+    border-radius: 18px;
+    padding: 0.85rem;
+  }
+
   .cf-hero-video-section {
     min-height: 42vh;
   }
@@ -3185,6 +3415,10 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   .cf-hero-subtitle {
     font-size: 0.96rem;
     max-width: none;
+  }
+
+  .cf-hero-panel-title {
+    font-size: clamp(1.35rem, 7vw, 1.85rem);
   }
 
   .cf-lead-form {
