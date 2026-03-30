@@ -3331,11 +3331,11 @@ app.get('/api/p2p/payment-methods', requiresP2PUser, async (req, res) => {
 
 app.post('/api/p2p/payment-methods', requiresP2PUser, async (req, res) => {
   try {
-    const { type, provider, nickname, upiId, bankName, accountNumber, ifsc, accountHolder, details, qrCode } = req.body;
+    const { type, provider, nickname, upiId, bankName, accountNumber, ifsc, accountHolder, details, qrCode, accountType, bankBranch } = req.body;
     if (!type) return res.status(400).json({ message: 'type is required.' });
     const existing = await repos.listPaymentMethods(req.p2pUser.userId);
     if (existing.length >= 20) return res.status(400).json({ message: 'Max 20 payment methods allowed.' });
-    const method = await repos.addPaymentMethod(req.p2pUser.userId, { type, provider, nickname, upiId, bankName, accountNumber, ifsc, accountHolder, details, qrCode });
+    const method = await repos.addPaymentMethod(req.p2pUser.userId, { type, provider, nickname, upiId, bankName, accountNumber, ifsc, accountHolder, details, qrCode, accountType, bankBranch });
     return res.json({ method });
   } catch (e) { return res.status(500).json({ message: 'Server error.' }); }
 });

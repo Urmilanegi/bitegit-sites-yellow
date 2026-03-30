@@ -245,14 +245,25 @@ const KYC_ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/w
 const KYC_MAX_FILE_SIZE = 6 * 1024 * 1024;
 const KYC_TARGET_IMAGE_BYTES = 320 * 1024;
 const PAYMENT_METHOD_OPTIONS = [
-  { key: 'UPI', label: 'UPI', category: 'UPI', chip: 'UP' },
-  { key: 'Bank Transfer(India)', label: 'Bank Transfer(India)', category: 'BANK', chip: 'BK' },
-  { key: 'Paytm', label: 'Paytm', category: 'UPI', chip: 'PT' },
-  { key: 'PhonePe', label: 'PhonePe', category: 'UPI', chip: 'PP' },
-  { key: 'Google Pay', label: 'Google Pay', category: 'UPI', chip: 'GP' },
-  { key: 'Bank Transfer(Union Bank)', label: 'Bank Transfer(Union Bank)', category: 'BANK', chip: 'UB' },
-  { key: 'Digital eRupee', label: 'Digital eRupee', category: 'UPI', chip: '₹' },
-  { key: 'Western Union', label: 'Western Union', category: 'OTHER', chip: 'WU' }
+  { key: 'UPI', label: 'UPI', category: 'UPI', chip: 'UP', color: '#ff9900' },
+  { key: 'Bank Transfer(India)', label: 'Bank Transfer(India)', category: 'BANK', chip: 'BK', color: '#00b4d8' },
+  { key: 'Paytm', label: 'Paytm', category: 'UPI', chip: 'PT', color: '#00baf2' },
+  { key: 'PhonePe', label: 'PhonePe', category: 'UPI', chip: 'PP', color: '#5f259f' },
+  { key: 'Google Pay', label: 'Google Pay', category: 'UPI', chip: 'GP', color: '#4285f4' },
+  { key: 'Bank Transfer(Union Bank)', label: 'Bank Transfer(Union Bank)', category: 'BANK', chip: 'UB', color: '#e8590c' },
+  { key: 'GoPay', label: 'GoPay', category: 'OTHER', chip: 'GO', color: '#00aed6' },
+  { key: 'Bank Jago', label: 'Bank Jago', category: 'BANK', chip: 'BJ', color: '#ff5733' },
+  { key: 'A-Bank', label: 'A-Bank', category: 'BANK', chip: 'AB', color: '#2d9d3a' },
+  { key: 'NETELLER', label: 'NETELLER', category: 'OTHER', chip: 'NT', color: '#83c341' },
+  { key: 'Volet.com(Formerly Advcash)', label: 'Volet.com(Formerly Advcash)', category: 'OTHER', chip: 'VL', color: '#5cb85c' },
+  { key: 'Cashapp', label: 'Cashapp', category: 'OTHER', chip: 'CA', color: '#00d632' },
+  { key: 'STC PAY', label: 'STC PAY', category: 'OTHER', chip: 'ST', color: '#6f42c1' },
+  { key: 'Transfers with specific bank', label: 'Transfers with specific bank', category: 'BANK', chip: 'TB', color: '#0d6efd' },
+  { key: 'Cash Deposit to Bank', label: 'Cash Deposit to Bank', category: 'BANK', chip: 'CD', color: '#198754' },
+  { key: 'Western Union', label: 'Western Union', category: 'OTHER', chip: 'WU', color: '#ffdd00' },
+  { key: 'Faster Payment System', label: 'Faster Payment System', category: 'OTHER', chip: 'FP', color: '#fd7e14' },
+  { key: 'GeoPay', label: 'GeoPay', category: 'OTHER', chip: 'GE', color: '#e8590c' },
+  { key: 'Digital eRupee', label: 'Digital eRupee', category: 'UPI', chip: '₹', color: '#0d6efd' }
 ];
 
 function maskEmail(s) {
@@ -1815,8 +1826,10 @@ function openProfileEditModal() {
     // Prefill
     var nicknameInput = document.getElementById('editNicknameInput');
     if (nicknameInput) nicknameInput.value = currentUser.nickname || currentUser.username || '';
-    if (profileScreen) profileScreen.classList.add('hidden');
+    if (profileScreen) { profileScreen.classList.add('hidden'); profileScreen.style.display = 'none'; }
     editScreen.classList.remove('hidden');
+    editScreen.style.setProperty('display', 'flex', 'important');
+    editScreen.style.flexDirection = 'column';
   }
 }
 
@@ -5557,9 +5570,10 @@ function renderPaymentMethodTypes(query) {
     return;
   }
   container.innerHTML = filtered.map(function(option) {
+    var chipColor = option.color || '#888';
     return (
       '<button type="button" class="mob-payment-type-row" data-payment-type="' + escapeHtml(option.key) + '">' +
-        '<span class="mob-payment-type-chip">' + escapeHtml(option.chip || 'PM') + '</span>' +
+        '<span class="mob-payment-type-chip" style="background:' + chipColor + ';color:#fff;">' + escapeHtml(option.chip || 'PM') + '</span>' +
         '<span class="mob-payment-type-label">' + escapeHtml(option.label) + '</span>' +
         '<span class="mob-payment-type-arrow">›</span>' +
       '</button>'
@@ -5591,8 +5605,8 @@ function getPaymentFormCopy(option) {
   if (option.category === 'BANK') {
     return {
       title: 'Add ' + option.label,
-      identifierLabel: 'Account / Payment ID',
-      identifierPlaceholder: 'Enter account or payment ID'
+      identifierLabel: 'Account number',
+      identifierPlaceholder: 'Enter Account number'
     };
   }
   if (option.category === 'UPI') {
@@ -5664,6 +5678,26 @@ function openPaymentMethodFormFor(methodOrKey) {
   }
   if (backBtn) {
     backBtn.setAttribute('data-payment-back', paymentMethodFormState.backScreen);
+  }
+  // Show/hide bank-specific fields
+  var bankFields = document.getElementById('bankExtraFields');
+  var qrRow = document.querySelector('#mobPaymentMethodFormScreen .mob-payment-upload-row');
+  if (option.category === 'BANK') {
+    if (bankFields) {
+      bankFields.style.display = 'block';
+      var ifscInput = document.getElementById('paymentMethodIfscInput');
+      var accTypeInput = document.getElementById('paymentMethodAccTypeInput');
+      var bankNameInput = document.getElementById('paymentMethodBankNameInput');
+      var branchInput = document.getElementById('paymentMethodBranchInput');
+      if (ifscInput) ifscInput.value = editingMethod ? String(editingMethod.ifsc || '').trim() : '';
+      if (accTypeInput) accTypeInput.value = editingMethod ? String(editingMethod.accountType || '').trim() : '';
+      if (bankNameInput) bankNameInput.value = editingMethod ? String(editingMethod.bankName || '').trim() : '';
+      if (branchInput) branchInput.value = editingMethod ? String(editingMethod.bankBranch || '').trim() : '';
+    }
+    if (qrRow) qrRow.style.display = 'none';
+  } else {
+    if (bankFields) bankFields.style.display = 'none';
+    if (qrRow) qrRow.style.display = '';
   }
   renderPaymentQrPreview(paymentMethodFormState.qrCode);
   showProfileFlowScreen('mobPaymentMethodFormScreen', editingMethod ? 'profile-payment-edit' : 'profile-payment-form');
@@ -5752,9 +5786,16 @@ async function submitPaymentMethod(pmId) {
   if (paymentMethodFormState.category === 'UPI') {
     body.upiId = identifier;
   } else if (paymentMethodFormState.category === 'BANK') {
-    body.bankName = paymentMethodFormState.provider;
     body.accountNumber = identifier;
     body.details = identifier;
+    var ifscVal = (document.getElementById('paymentMethodIfscInput') || {}).value || '';
+    var accTypeVal = (document.getElementById('paymentMethodAccTypeInput') || {}).value || '';
+    var bankNameVal = (document.getElementById('paymentMethodBankNameInput') || {}).value || '';
+    var branchVal = (document.getElementById('paymentMethodBranchInput') || {}).value || '';
+    body.ifsc = ifscVal.trim();
+    body.accountType = accTypeVal.trim();
+    body.bankName = bankNameVal.trim() || paymentMethodFormState.provider;
+    body.bankBranch = branchVal.trim();
   } else {
     body.details = identifier;
   }
@@ -5945,8 +5986,8 @@ function toggleFaqSection(head) {
 function closeMobScreen(fromId, toId) {
   var from = document.getElementById(fromId);
   var to   = document.getElementById(toId);
-  if (from) from.classList.add('hidden');
-  if (to)   to.classList.remove('hidden');
+  if (from) { from.classList.add('hidden'); from.style.display = 'none'; }
+  if (to) { to.classList.remove('hidden'); to.style.setProperty('display', 'flex', 'important'); to.style.flexDirection = 'column'; }
 }
 
 // ── Profile tab switcher ──
@@ -5969,8 +6010,10 @@ function openTradingDataScreen() {
   var s = document.getElementById('mobTradingDataScreen');
   var p = document.getElementById('mobProfileScreen');
   if (!s) return;
-  if (p) p.classList.add('hidden');
+  if (p) { p.classList.add('hidden'); p.style.display = 'none'; }
   s.classList.remove('hidden');
+  s.style.setProperty('display', 'flex', 'important');
+  s.style.flexDirection = 'column';
 
   // Copy 30D data from profile
   var map30 = {
@@ -6012,8 +6055,10 @@ function openProfileSettingsScreen() {
   var s = document.getElementById('mobProfileSettingsScreen');
   var p = document.getElementById('mobProfileScreen');
   if (!s) return;
-  if (p) p.classList.add('hidden');
+  if (p) { p.classList.add('hidden'); p.style.display = 'none'; }
   s.classList.remove('hidden');
+  s.style.setProperty('display', 'flex', 'important');
+  s.style.flexDirection = 'column';
   // pre-fill
   fetch('/api/p2p/settings', { credentials: 'include' })
     .then(function(r){ return r.ok ? r.json() : {}; })
@@ -6073,8 +6118,10 @@ function openFollowBlockScreen() {
   var s = document.getElementById('mobFollowBlockScreen');
   var p = document.getElementById('mobProfileScreen');
   if (!s) return;
-  if (p) p.classList.add('hidden');
+  if (p) { p.classList.add('hidden'); p.style.display = 'none'; }
   s.classList.remove('hidden');
+  s.style.setProperty('display', 'flex', 'important');
+  s.style.flexDirection = 'column';
   loadFollowList('following', s.querySelector('.mob-mtab'));
 }
 
@@ -6117,8 +6164,10 @@ function openAdCodeScreen() {
   var s = document.getElementById('mobAdCodeScreen');
   var p = document.getElementById('mobProfileScreen');
   if (!s) return;
-  if (p) p.classList.add('hidden');
+  if (p) { p.classList.add('hidden'); p.style.display = 'none'; }
   s.classList.remove('hidden');
+  s.style.setProperty('display', 'flex', 'important');
+  s.style.flexDirection = 'column';
   var disp = document.getElementById('adCodeDisplay');
   if (disp) disp.textContent = 'Loading...';
   fetch('/api/p2p/ad-code', { credentials: 'include' })
@@ -6152,8 +6201,10 @@ function openRecentlyViewedScreen() {
   var s = document.getElementById('mobRecentlyViewedScreen');
   var p = document.getElementById('mobProfileScreen');
   if (!s) return;
-  if (p) p.classList.add('hidden');
+  if (p) { p.classList.add('hidden'); p.style.display = 'none'; }
   s.classList.remove('hidden');
+  s.style.setProperty('display', 'flex', 'important');
+  s.style.flexDirection = 'column';
   loadRecentlyViewed();
 }
 
@@ -6192,8 +6243,10 @@ function openFundPasswordScreen() {
   var s = document.getElementById('mobFundPasswordScreen');
   var p = document.getElementById('mobProfileScreen');
   if (!s) return;
-  if (p) p.classList.add('hidden');
+  if (p) { p.classList.add('hidden'); p.style.display = 'none'; }
   s.classList.remove('hidden');
+  s.style.setProperty('display', 'flex', 'important');
+  s.style.flexDirection = 'column';
   // check if user already has a fund password set
   fetch('/api/p2p/fund-password/status', { credentials: 'include' })
     .then(function(r){ return r.ok ? r.json() : {}; })

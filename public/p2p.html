@@ -732,6 +732,21 @@
         <label id="paymentMethodIdentifierLabel" class="mob-payment-label" for="paymentMethodIdentifierInput">UPI ID</label>
         <input id="paymentMethodIdentifierInput" type="text" class="mob-payment-input" placeholder="Enter UPI ID" autocomplete="off" />
 
+        <!-- Bank-specific fields (shown only for BANK category) -->
+        <div id="bankExtraFields" style="display:none;">
+          <label class="mob-payment-label" for="paymentMethodIfscInput">IFSC Code</label>
+          <input id="paymentMethodIfscInput" type="text" class="mob-payment-input" placeholder="Enter IFSC Code" maxlength="11" autocomplete="off" />
+
+          <label class="mob-payment-label" for="paymentMethodAccTypeInput">Account type</label>
+          <input id="paymentMethodAccTypeInput" type="text" class="mob-payment-input" placeholder="Enter Account type" autocomplete="off" />
+
+          <label class="mob-payment-label" for="paymentMethodBankNameInput">Bank Name</label>
+          <input id="paymentMethodBankNameInput" type="text" class="mob-payment-input" placeholder="Enter Bank Name" autocomplete="off" />
+
+          <label class="mob-payment-label" for="paymentMethodBranchInput">Bank branch</label>
+          <input id="paymentMethodBranchInput" type="text" class="mob-payment-input" placeholder="Enter Bank branch" autocomplete="off" />
+        </div>
+
         <div class="mob-payment-upload-row">
           <div>
             <label class="mob-payment-label">QR Code</label>
