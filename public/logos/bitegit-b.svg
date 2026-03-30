@@ -1,36 +1,36 @@
 <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" fill="none">
   <defs>
-    <linearGradient id="g" x1="60" y1="60" x2="440" y2="440" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#00e5d0"/>
-      <stop offset="100%" stop-color="#00b8e6"/>
+    <linearGradient id="g" x1="65" y1="60" x2="410" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00ddd0"/>
+      <stop offset="100%" stop-color="#00aadc"/>
     </linearGradient>
     <mask id="bm">
       <rect width="500" height="500" fill="white"/>
       <!-- upper bump inner D-hole -->
-      <rect x="156" y="82" width="148" height="130" rx="15" fill="black"/>
-      <!-- mid gap between bumps -->
-      <rect x="130" y="228" width="250" height="18" fill="black"/>
-      <!-- lower bump inner D-hole -->
-      <rect x="156" y="264" width="168" height="154" rx="15" fill="black"/>
-      <!-- square notch mid-left of spine -->
-      <rect x="130" y="210" width="42" height="42" fill="black"/>
+      <rect x="154" y="82" width="152" height="122" rx="12" fill="black"/>
+      <!-- mid gap between bumps (cuts through spine too) -->
+      <rect x="130" y="226" width="270" height="28" fill="black"/>
+      <!-- lower bump inner D-hole (shorter — stops before bump bottom) -->
+      <rect x="154" y="272" width="158" height="82" rx="12" fill="black"/>
+      <!-- square notch — center-left of spine in gap zone -->
+      <rect x="130" y="204" width="46" height="46" fill="black"/>
     </mask>
   </defs>
 
-  <!-- Left standalone capsule — same width as spine -->
-  <rect x="60" y="152" width="54" height="196" rx="27" fill="url(#g)"/>
+  <!-- Left standalone capsule (same width as spine, vertically centered) -->
+  <rect x="62" y="148" width="52" height="204" rx="26" fill="url(#g)"/>
 
-  <!-- B shape -->
+  <!-- B shape — spine extends full height including rectangular tail below lower bump -->
   <g mask="url(#bm)" fill="url(#g)">
-    <!-- Full-height spine -->
-    <rect x="130" y="60" width="54" height="380" rx="10"/>
-    <!-- Upper bump body -->
-    <rect x="176" y="60" width="182" height="168"/>
-    <!-- Upper bump semicircular right cap -->
-    <rect x="270" y="60" width="116" height="168" rx="84"/>
-    <!-- Lower bump body (slightly larger) -->
-    <rect x="176" y="246" width="202" height="194"/>
-    <!-- Lower bump semicircular right cap -->
-    <rect x="282" y="246" width="136" height="194" rx="97"/>
+    <!-- Spine: full height — bottom portion becomes the rectangular tail -->
+    <rect x="130" y="60" width="54" height="380" rx="8"/>
+
+    <!-- Upper bump: D shape — perfect semicircle on right -->
+    <rect x="176" y="60" width="172" height="164"/>
+    <rect x="266" y="60" width="122" height="164" rx="82"/>
+
+    <!-- Lower bump: D shape, SHORTER — ends at y=382, spine continues to y=440 -->
+    <rect x="176" y="254" width="180" height="128"/>
+    <rect x="264" y="254" width="128" height="128" rx="64"/>
   </g>
 </svg>
