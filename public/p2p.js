@@ -1808,19 +1808,50 @@ function openProfileEditModal() {
     return;
   }
 
-  // Fetch reputation (includes avgStars from ratings)
-  if (currentUser && currentUser.id) {
-    fetch('/api/p2p/users/' + encodeURIComponent(currentUser.id) + '/reputation', { credentials: 'include' })
-      .then(function(r) { return r.ok ? r.json() : null; })
-      .then(function(rep) {
-        if (!rep) return;
-        if (currentUser) currentUser._rep = rep;
-        syncMobProfile();
-      })
-      .catch(function() {});
+  // Show edit screen
+  var editScreen = document.getElementById('mobProfileEditScreen');
+  var profileScreen = document.getElementById('mobProfileScreen');
+  if (editScreen) {
+    // Prefill
+    var nicknameInput = document.getElementById('editNicknameInput');
+    if (nicknameInput) nicknameInput.value = currentUser.nickname || currentUser.username || '';
+    if (profileScreen) profileScreen.classList.add('hidden');
+    editScreen.classList.remove('hidden');
   }
+}
 
-  syncMobProfile();
+function saveProfileNickname() {
+  var nicknameInput = document.getElementById('editNicknameInput');
+  var msg = document.getElementById('editProfileMsg');
+  var nickname = (nicknameInput && nicknameInput.value || '').trim();
+  if (!nickname || nickname.length < 2) {
+    if (msg) { msg.style.color = '#f6465d'; msg.textContent = 'Nickname must be at least 2 characters.'; }
+    return;
+  }
+  if (msg) { msg.style.color = '#555'; msg.textContent = 'Saving...'; }
+  fetch('/api/p2p/profile', {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname: nickname })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok || d.success || d.nickname) {
+      if (msg) { msg.style.color = '#16c784'; msg.textContent = '✓ Nickname updated!'; }
+      if (currentUser) currentUser.nickname = nickname;
+      // Update displays
+      var el;
+      if ((el = document.getElementById('profileNameMobile'))) el.textContent = nickname;
+      if ((el = document.getElementById('profileName'))) el.textContent = nickname;
+      if ((el = document.getElementById('profileAvatarMobile'))) el.textContent = nickname.charAt(0).toUpperCase();
+      if ((el = document.getElementById('profileAvatar'))) el.textContent = nickname.charAt(0).toUpperCase();
+      setTimeout(function() {
+        closeMobScreen('mobProfileEditScreen', 'mobProfileScreen');
+      }, 800);
+    } else {
+      if (msg) { msg.style.color = '#f6465d'; msg.textContent = d.error || d.message || 'Failed to save.'; }
+    }
+  }).catch(function() {
+    if (msg) { msg.style.color = '#f6465d'; msg.textContent = 'Network error.'; }
+  });
 }
 
 function syncMobileTabFromHash(options = {}) {

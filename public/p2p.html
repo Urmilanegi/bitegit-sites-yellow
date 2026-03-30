@@ -453,9 +453,9 @@
       <ul class="byt-menu-list byt-menu-list-gap">
         <li data-open-kyc="1" style="-webkit-tap-highlight-color:transparent;">
           <span class="byt-menu-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </span>
-          <span class="byt-menu-label">P2P feedback <span id="kycStatusBadge" style="font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:999px;background:rgba(246,70,93,0.15);border:1px solid rgba(246,70,93,0.3);color:#f6465d;margin-left:6px;vertical-align:middle;">Not Done</span></span>
+          <span class="byt-menu-label">Identity verification <span id="kycStatusBadge" style="font-size:0.6rem;font-weight:700;padding:1px 7px;border-radius:999px;background:rgba(246,70,93,0.15);border:1px solid rgba(246,70,93,0.3);color:#f6465d;margin-left:6px;vertical-align:middle;">Not Done</span></span>
           <span class="byt-arrow">›</span>
         </li>
         <li onclick="window.location.href='/p2p#faq'" style="-webkit-tap-highlight-color:transparent;">
@@ -484,6 +484,26 @@
       <strong id="profileCancelledTradesMobile" class="hidden">0</strong>
       <strong id="profileKycMobile" class="hidden">Not Submitted</strong>
       <p id="profileSignupTimeMobile" class="hidden">--</p>
+    </div>
+
+    <!-- ── Edit Profile Screen ── -->
+    <div id="mobProfileEditScreen" class="mob-screen hidden">
+      <div class="mob-screen-head">
+        <button class="mob-back-btn" onclick="closeMobScreen('mobProfileEditScreen','mobProfileScreen')" aria-label="Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2>Edit Profile</h2>
+        <div style="width:34px;"></div>
+      </div>
+      <div style="padding:1.2rem 1rem 3rem;">
+        <div class="p2p-settings-section">
+          <h4 class="p2p-settings-label">Nickname</h4>
+          <input id="editNicknameInput" class="p2p-settings-input" type="text" placeholder="Enter new nickname" maxlength="30" autocomplete="off" />
+          <p style="font-size:0.7rem;color:#6b7690;margin:0.3rem 0 0;">2–30 characters. This will be visible to other traders.</p>
+        </div>
+        <p id="editProfileMsg" style="font-size:0.8rem;min-height:1.2rem;margin:0.8rem 0;text-align:center;"></p>
+        <button onclick="saveProfileNickname()" class="p2p-settings-save-btn" style="width:100%;margin-top:0.5rem;">Save</button>
+      </div>
     </div>
 
     <!-- Trading Data Screen (More →) -->
@@ -1426,7 +1446,7 @@
     <!-- KYC Under Review Screen -->
     <div id="kycUnderReviewScreen" class="mob-screen" style="display:none;z-index:600;">
       <div class="mob-screen-head">
-        <button class="mob-back-btn" onclick="document.getElementById('kycUnderReviewScreen').style.display='none'" aria-label="Back">
+        <button class="mob-back-btn" onclick="var ks=document.getElementById('kycUnderReviewScreen'); if(ks)ks.style.display='none'; var ps=document.getElementById('mobProfileScreen'); if(ps){ps.classList.remove('hidden');ps.style.setProperty('display','flex','important');ps.style.flexDirection='column';} document.body.classList.add('mob-screen-open','mob-profile-open'); document.body.dataset.mobileTab='profile'; history.replaceState(null,'','/p2p#profile');" aria-label="Back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <h2>KYC Status</h2>
@@ -1446,7 +1466,7 @@
             <li>You can trade once approved</li>
           </ul>
         </div>
-        <button onclick="document.getElementById('kycUnderReviewScreen').style.display='none'; window.showMobScreen && window.showMobScreen('mobProfileScreen'); window.loadProfilePanel && window.loadProfilePanel();" class="mob-kyc-fp-btn" style="margin-top:0.5rem;background:linear-gradient(96deg,#00c2b2,#0099a8);box-shadow:0 2px 14px rgba(0,194,178,0.3);">Got it</button>
+        <button onclick="var ks=document.getElementById('kycUnderReviewScreen'); if(ks)ks.style.display='none'; var ps=document.getElementById('mobProfileScreen'); if(ps){ps.classList.remove('hidden');ps.style.setProperty('display','flex','important');ps.style.flexDirection='column';} document.body.classList.add('mob-screen-open','mob-profile-open'); document.body.dataset.mobileTab='profile'; if(window.setMobileNavActive)setMobileNavActive('profile'); if(window.loadProfilePanel)loadProfilePanel(); history.replaceState(null,'','/p2p#profile');" class="mob-kyc-fp-btn" style="margin-top:0.5rem;background:linear-gradient(96deg,#00c2b2,#0099a8);box-shadow:0 2px 14px rgba(0,194,178,0.3);">Got it</button>
       </div>
     </div>
 
