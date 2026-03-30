@@ -1,5 +1,17 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
+// ── Sentry error monitoring (safe: only runs if SENTRY_DSN is set) ──────────
+const Sentry = require('@sentry/node');
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.2,
+  });
+  console.log('[Sentry] Error monitoring active');
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
 const { localFaceMatch } = require('./services/local-face-match');
@@ -4852,6 +4864,10 @@ async function boot() {
       res.sendFile(path.join(__dirname, 'public', 'index.html'));
     });
 
+    // Sentry must be before other error handlers
+    if (process.env.SENTRY_DSN) {
+      app.use(Sentry.expressErrorHandler());
+    }
     app.use(errorHandler);
 
     await startHttpServer();

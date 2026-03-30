@@ -5,8 +5,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test",
+    "start:pm2": "pm2-runtime start ecosystem.config.js --env production",
     "start:prod": "pm2-runtime start ecosystem.config.js --env production",
+    "pm2:logs": "pm2 logs bitegit-app",
+    "pm2:restart": "pm2 restart bitegit-app",
+    "test": "node --test",
     "apk:publish": "bash deploy/publish-flutter-apk.sh",
     "pm2:start": "pm2 start ecosystem.config.js --env production",
     "pm2:stop": "pm2 stop bitegit-app || true",
@@ -22,6 +25,7 @@
   "dependencies": {
     "@capacitor/android": "^8.1.0",
     "@capacitor/core": "^8.1.0",
+    "@sentry/node": "^10.46.0",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
@@ -33,9 +37,9 @@
     "otplib": "^13.4.0",
     "pm2": "^5.4.3",
     "qrcode": "^1.5.4",
+    "sharp": "^0.33.5",
     "speakeasy": "^2.0.0",
     "uuid": "^11.1.0",
-    "sharp": "^0.33.5",
     "ws": "^8.18.1"
   },
   "devDependencies": {
