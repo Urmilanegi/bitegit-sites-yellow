@@ -9,11 +9,11 @@
   --cf-panel-glass: #0d0d0d;
 
   /* ── Brand / Accent ── */
-  --cf-brand:      #00B4D8;
-  --cf-brand-2:    #0096C7;
-  --cf-brand-glow: rgba(0, 180, 216, 0.40);
-  --cf-brand-soft: rgba(0, 180, 216, 0.15);
-  --cf-brand-grad: linear-gradient(135deg, #00B4D8 0%, #0096C7 100%);
+  --cf-brand:      #14e7d9;
+  --cf-brand-2:    #1495ff;
+  --cf-brand-glow: rgba(20, 231, 217, 0.34);
+  --cf-brand-soft: rgba(20, 231, 217, 0.14);
+  --cf-brand-grad: linear-gradient(135deg, #14e7d9 0%, #1495ff 100%);
 
   /* ── Text ── */
   --cf-text:       #FFFFFF;
@@ -30,7 +30,7 @@
 
   /* ── Shadows ── */
   --cf-shadow:     0 16px 48px rgba(0, 0, 0, 0.55);
-  --cf-glow:       0 0 20px rgba(0, 180, 216, 0.22), 0 0 40px rgba(0, 180, 216, 0.08);
+  --cf-glow:       0 0 22px rgba(20, 231, 217, 0.18), 0 0 42px rgba(20, 149, 255, 0.10);
 }
 
 * {
@@ -163,8 +163,8 @@ a {
   flex-shrink: 0;
   display: block;
   transform: translateY(0.4px);
-  opacity: 0.98;
-  filter: drop-shadow(0 0 4px rgba(29, 218, 255, 0.12));
+  opacity: 1;
+  filter: saturate(1.2) brightness(1.08) drop-shadow(0 0 10px rgba(20, 231, 217, 0.30));
 }
 
 .cf-brand-logo {
@@ -210,10 +210,11 @@ a {
 
 .cf-brand-word,
 .cf-drawer-brand span:last-child {
-  font-size: clamp(0.98rem, 2vw, 1.12rem);
+  font-size: clamp(0.98rem, 2vw, 1.14rem);
   font-weight: 800;
-  color: var(--cf-text);
-  letter-spacing: -0.036em;
+  color: #7ff7ef;
+  letter-spacing: -0.04em;
+  text-shadow: 0 0 16px rgba(20, 231, 217, 0.16);
 }
 
 .cf-drawer-brand {
@@ -271,11 +272,11 @@ a {
 .cf-signup,
 .cf-signup-link,
 .cf-apk-cta {
-  background: #00B4D8 !important;
+  background: linear-gradient(135deg, #14e7d9 0%, #1495ff 100%) !important;
   border-color: transparent !important;
-  color: #000 !important;
-  font-weight: 700 !important;
-  box-shadow: none !important;
+  color: #041018 !important;
+  font-weight: 800 !important;
+  box-shadow: 0 10px 24px rgba(20, 149, 255, 0.18) !important;
 }
 
 .cf-user-logout {
@@ -295,7 +296,7 @@ a {
 .cf-signup-link:hover,
 .cf-apk-cta:hover {
   transform: translateY(-1px);
-  box-shadow: none;
+  box-shadow: 0 18px 38px rgba(20, 149, 255, 0.20);
 }
 
 body.coinflare-page.cf-chart-open .cf-signup,
@@ -517,32 +518,23 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 
 .cf-hero-banner {
   padding: clamp(1rem, 3vw, 1.5rem) clamp(1rem, 4vw, 2.2rem) 0;
-  background:
-    radial-gradient(circle at top right, rgba(255, 179, 57, 0.24), transparent 28%),
-    linear-gradient(180deg, #090909 0%, #000000 100%);
+  background: #000000;
 }
 
 .cf-hero-banner-shell {
-  max-width: 920px;
+  max-width: 840px;
   margin: 0 auto;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.04);
   border-radius: 28px;
-  padding: clamp(1.25rem, 3vw, 2rem);
-  background:
-    linear-gradient(135deg, rgba(19, 19, 19, 0.98), rgba(8, 8, 8, 0.98)),
-    linear-gradient(90deg, rgba(255, 170, 43, 0.1), transparent);
+  padding: clamp(1.4rem, 3vw, 2.4rem);
+  background: #000000;
   display: block;
   overflow: hidden;
   position: relative;
 }
 
 .cf-hero-banner-shell::after {
-  content: '';
-  position: absolute;
-  inset: auto -6% -40% 36%;
-  height: 220px;
-  background: radial-gradient(circle, rgba(255, 170, 43, 0.16), transparent 68%);
-  pointer-events: none;
+  display: none;
 }
 
 .cf-hero-banner-copy {
@@ -550,41 +542,31 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   z-index: 1;
   display: grid;
   align-content: center;
-  gap: 0.9rem;
+  gap: 1.15rem;
   justify-items: center;
   text-align: center;
 }
 
 .cf-hero-banner-kicker {
-  width: fit-content;
-  min-height: 30px;
-  border-radius: 999px;
-  padding: 0 0.8rem;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 170, 43, 0.14);
-  color: #ffb347;
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  display: none;
 }
 
 .cf-hero-banner h1 {
   margin: 0;
-  max-width: 10ch;
+  max-width: 8.4ch;
   color: #ffffff;
-  font-size: clamp(2.35rem, 6vw, 4.6rem);
-  line-height: 1.04;
-  letter-spacing: -0.04em;
+  font-size: clamp(3rem, 7vw, 5.35rem);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+  font-weight: 800;
 }
 
 .cf-hero-banner p {
   margin: 0;
-  max-width: 34rem;
-  color: #c8ced9;
-  font-size: clamp(0.98rem, 2vw, 1.14rem);
-  line-height: 1.6;
+  max-width: 28rem;
+  color: #eef4ff;
+  font-size: clamp(1.02rem, 2.1vw, 1.22rem);
+  line-height: 1.55;
 }
 
 .cf-hero-banner-actions {
@@ -596,23 +578,25 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 
 
 .cf-hero-banner-cta {
-  min-height: 52px;
+  min-height: 58px;
+  min-width: min(100%, 320px);
   border-radius: 999px;
-  padding: 0.9rem 1.5rem;
+  padding: 0.95rem 1.8rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #ffb347 0%, #ff9f2e 100%);
-  color: #111111;
+  background: linear-gradient(135deg, #14e7d9 0%, #1495ff 100%);
+  color: #041018;
   text-decoration: none;
-  font-size: 0.98rem;
+  font-size: 1.02rem;
   font-weight: 800;
-  box-shadow: 0 16px 30px rgba(255, 159, 46, 0.18);
+  box-shadow: 0 18px 42px rgba(20, 149, 255, 0.22);
 }
 
 .cf-hero-banner-cta:hover {
-  filter: brightness(1.03);
+  filter: brightness(1.04);
   transform: translateY(-1px);
+  box-shadow: 0 22px 46px rgba(20, 149, 255, 0.26);
 }
 
 
@@ -3286,12 +3270,15 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
   }
 
   .cf-hero-banner h1 {
-    max-width: 11ch;
-    font-size: clamp(2rem, 11vw, 3rem);
+    max-width: 8.6ch;
+    font-size: clamp(2.65rem, 12.5vw, 4.05rem);
+    line-height: 0.98;
   }
 
   .cf-hero-banner p {
-    font-size: 0.96rem;
+    max-width: 20rem;
+    font-size: 1.05rem;
+    line-height: 1.5;
   }
 
   .cf-hero-banner-actions {
@@ -3300,6 +3287,8 @@ body.coinflare-page.cf-chart-open .cf-signup-link {
 
   .cf-hero-banner-cta {
     width: 100%;
+    min-height: 56px;
+    font-size: 1rem;
   }
 
   .cf-hero-video-section {
