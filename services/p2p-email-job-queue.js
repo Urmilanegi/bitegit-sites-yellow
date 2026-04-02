@@ -1,7 +1,7 @@
 const { Queue, Worker } = require('bullmq');
 const { createRedisConnection, isRedisConfigured } = require('./redis-support');
 
-const QUEUE_NAME = String(process.env.P2P_EMAIL_QUEUE_NAME || 'bitegit:p2p:emails').trim();
+const QUEUE_NAME = String(process.env.P2P_EMAIL_QUEUE_NAME || 'bitegit-p2p-emails').trim();
 const DEFAULT_ATTEMPTS = Math.max(
   1,
   Number.parseInt(String(process.env.P2P_EMAIL_JOB_ATTEMPTS || '5'), 10) || 5
