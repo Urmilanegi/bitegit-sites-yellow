@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "start:worker": "node worker.js",
+    "mysql:sync-standby": "node scripts/mysql-sync-standby.js",
     "backup:source": "node scripts/create-source-backup.js",
     "dr:drill": "node scripts/run-dr-drill.js",
     "monitor:health": "node scripts/check-health.js",

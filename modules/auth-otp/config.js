@@ -1,3 +1,5 @@
+const { resolveMySqlHosts } = require('../../lib/mysql-hosts');
+
 function toInt(value, fallback) {
   const parsed = Number.parseInt(String(value || ''), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -9,13 +11,25 @@ function normalizeBool(value) {
 }
 
 function readAuthOtpConfig() {
-  const mysqlHost = String(process.env.AUTH_MYSQL_HOST || process.env.DB_HOST || process.env.MYSQL_HOST || '').trim();
+  const mysqlHosts = resolveMySqlHosts(
+    process.env.AUTH_MYSQL_HOSTS,
+    process.env.DB_HOSTS,
+    process.env.MYSQL_HOSTS,
+    process.env.AUTH_MYSQL_HOST,
+    process.env.AUTH_MYSQL_STANDBY_HOST,
+    process.env.DB_HOST,
+    process.env.DB_STANDBY_HOST,
+    process.env.MYSQL_HOST,
+    process.env.MYSQL_STANDBY_HOST
+  );
+  const mysqlHost = mysqlHosts[0] || '';
   const mysqlUser = String(process.env.AUTH_MYSQL_USER || process.env.DB_USER || process.env.MYSQL_USER || '').trim();
   const mysqlPassword = String(process.env.AUTH_MYSQL_PASSWORD || process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '').trim();
   const mysqlDatabase = String(process.env.AUTH_MYSQL_DATABASE || process.env.DB_NAME || process.env.MYSQL_DATABASE || '').trim();
 
   const mysqlConfig = {
     host: mysqlHost,
+    hosts: mysqlHosts,
     port: toInt(process.env.AUTH_MYSQL_PORT || process.env.DB_PORT || process.env.MYSQL_PORT, 3306),
     user: mysqlUser,
     password: mysqlPassword,
@@ -37,7 +51,7 @@ function readAuthOtpConfig() {
 
   return {
     mysql: {
-      enabled: Boolean(mysqlHost && mysqlUser && mysqlDatabase),
+      enabled: Boolean(mysqlHosts.length && mysqlUser && mysqlDatabase),
       ...mysqlConfig
     },
     geetest: {

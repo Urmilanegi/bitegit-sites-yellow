@@ -1,5 +1,5 @@
-const mysql = require('mysql2/promise');
 const crypto = require('crypto');
+const { createResilientMySqlPool } = require('../../lib/mysql-failover-pool');
 
 function normalizeEmail(raw) {
   return String(raw || '').trim().toLowerCase();
@@ -52,16 +52,9 @@ function createMySqlAuthStore(config, { logger = console } = {}) {
       return true;
     }
 
-    pool = mysql.createPool({
-      host: mysqlConfig.host,
-      port: mysqlConfig.port,
-      user: mysqlConfig.user,
-      password: mysqlConfig.password,
-      database: mysqlConfig.database,
-      waitForConnections: true,
-      connectionLimit: mysqlConfig.connectionLimit || 10,
-      connectTimeout: mysqlConfig.connectTimeoutMs || 5000,
-      ssl: mysqlConfig.ssl
+    pool = createResilientMySqlPool(mysqlConfig, {
+      logger,
+      logPrefix: 'auth-otp'
     });
 
     await pool.query('SELECT 1');
@@ -427,9 +420,20 @@ function createMySqlAuthStore(config, { logger = console } = {}) {
     pool = null;
   }
 
+  function getConnectionState() {
+    if (!pool || typeof pool.getState !== 'function') {
+      return {
+        activeHost: mysqlConfig.host || null,
+        hosts: Array.isArray(mysqlConfig.hosts) ? mysqlConfig.hosts.slice() : []
+      };
+    }
+    return pool.getState();
+  }
+
   return {
     initialize,
     close,
+    getConnectionState,
     enabled,
     countOtpRequestsInLastHour,
     createOtpRecord,

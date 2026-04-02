@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const mysql = require('mysql2/promise');
+const { createResilientMySqlPool } = require('../../lib/mysql-failover-pool');
 
 const SUPPORTED_COINS = ['BTC', 'USDT', 'ETH', 'LTC', 'BCH', 'TRX', 'DOGE', 'XRP', 'SOL', 'BNB'];
 const SUPPORTED_NETWORKS_BY_COIN = {
@@ -106,16 +106,9 @@ function createUserCenterStore(config, { logger = console } = {}) {
       return true;
     }
 
-    pool = mysql.createPool({
-      host: mysqlConfig.host,
-      port: mysqlConfig.port,
-      user: mysqlConfig.user,
-      password: mysqlConfig.password,
-      database: mysqlConfig.database,
-      waitForConnections: true,
-      connectionLimit: mysqlConfig.connectionLimit || 10,
-      connectTimeout: mysqlConfig.connectTimeoutMs || 5000,
-      ssl: mysqlConfig.ssl
+    pool = createResilientMySqlPool(mysqlConfig, {
+      logger,
+      logPrefix: 'user-center'
     });
 
     await pool.query('SELECT 1');
@@ -1173,9 +1166,20 @@ function createUserCenterStore(config, { logger = console } = {}) {
     pool = null;
   }
 
+  function getConnectionState() {
+    if (!pool || typeof pool.getState !== 'function') {
+      return {
+        activeHost: mysqlConfig.host || null,
+        hosts: Array.isArray(mysqlConfig.hosts) ? mysqlConfig.hosts.slice() : []
+      };
+    }
+    return pool.getState();
+  }
+
   return {
     initialize,
     close,
+    getConnectionState,
     enabled,
     normalizeEmail,
     normalizeCoin,

@@ -1,4 +1,4 @@
-const mysql = require('mysql2/promise');
+const { createResilientMySqlPool } = require('../../lib/mysql-failover-pool');
 
 function toInt(value, fallback = 0) {
   const parsed = Number.parseInt(String(value || ''), 10);
@@ -45,16 +45,9 @@ function createSocialFeedStore(config, { logger = console } = {}) {
       return true;
     }
 
-    pool = mysql.createPool({
-      host: mysqlConfig.host,
-      port: mysqlConfig.port,
-      user: mysqlConfig.user,
-      password: mysqlConfig.password,
-      database: mysqlConfig.database,
-      waitForConnections: true,
-      connectionLimit: mysqlConfig.connectionLimit || 10,
-      connectTimeout: mysqlConfig.connectTimeoutMs || 5000,
-      ssl: mysqlConfig.ssl
+    pool = createResilientMySqlPool(mysqlConfig, {
+      logger,
+      logPrefix: 'social-feed'
     });
 
     await pool.query('SELECT 1');
@@ -72,6 +65,16 @@ function createSocialFeedStore(config, { logger = console } = {}) {
     const currentPool = pool;
     pool = null;
     await currentPool.end();
+  }
+
+  function getConnectionState() {
+    if (!pool || typeof pool.getState !== 'function') {
+      return {
+        activeHost: mysqlConfig.host || null,
+        hosts: Array.isArray(mysqlConfig.hosts) ? mysqlConfig.hosts.slice() : []
+      };
+    }
+    return pool.getState();
   }
 
   async function refreshUserColumns() {
@@ -835,6 +838,7 @@ function createSocialFeedStore(config, { logger = console } = {}) {
   return {
     initialize,
     close,
+    getConnectionState,
     resolveUserId,
     listFeed,
     listSuggestedCreators,

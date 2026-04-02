@@ -392,11 +392,27 @@ function getBackgroundJobsMode() {
   return isRedisConfigured() ? 'starting' : 'local';
 }
 
+function getMySqlModuleState(mode, store) {
+  const snapshot = { mode };
+  if (mode !== 'mysql' || !store || typeof store.getConnectionState !== 'function') {
+    return snapshot;
+  }
+
+  const state = store.getConnectionState();
+  if (state.activeHost) {
+    snapshot.activeHost = state.activeHost;
+  }
+  if (Array.isArray(state.hosts) && state.hosts.length) {
+    snapshot.hosts = state.hosts;
+  }
+  return snapshot;
+}
+
 function getModuleStatusSnapshot(workerSnapshot = getWorkerStatusSnapshot()) {
   return {
-    otpAuth: { mode: otpAuthMode },
-    userCenter: { mode: userCenterMode },
-    socialFeed: { mode: socialFeedMode },
+    otpAuth: getMySqlModuleState(otpAuthMode, otpAuthStore),
+    userCenter: getMySqlModuleState(userCenterMode, userCenterStore),
+    socialFeed: getMySqlModuleState(socialFeedMode, socialFeedStore),
     redis: { mode: redisMode },
     emailQueue: { mode: emailQueueMode },
     backgroundJobs: { mode: getBackgroundJobsMode() },
