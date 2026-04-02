@@ -115,7 +115,14 @@ async function recoverExistingActiveOrderForBuyer(repos, user, adId) {
   return activeOrders.length === 1 ? activeOrders[0] : null;
 }
 
-function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 * 1000, p2pEmailService = null, broadcastUserEvent = null }) {
+function createP2POrderController({
+  repos,
+  walletService,
+  orderTtlMs = 15 * 60 * 1000,
+  p2pEmailService = null,
+  p2pEmailQueue = null,
+  broadcastUserEvent = null
+}) {
   if (!repos || !walletService) {
     throw new Error('P2P order controller requires repos and walletService.');
   }
@@ -318,7 +325,11 @@ function createP2POrderController({ repos, walletService, orderTtlMs = 15 * 60 *
       broadcastOrderParticipantEvent(broadcastUserEvent, savedOrder, 'new_order', pushPayload);
 
       // Notify seller AND buyer via email (non-blocking)
-      if (p2pEmailService) {
+      if (p2pEmailQueue && typeof p2pEmailQueue.enqueueOrderCreatedNotifications === 'function') {
+        Promise.resolve(p2pEmailQueue.enqueueOrderCreatedNotifications(savedOrder)).catch((emailErr) => {
+          console.warn('[p2p-email] order-created queue failed:', emailErr.message);
+        });
+      } else if (p2pEmailService) {
         setImmediate(async () => {
           try {
             const [sellerCred, buyerCred] = await Promise.all([

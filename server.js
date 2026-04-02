@@ -30,6 +30,9 @@ const { createAuditLogService } = require('./services/audit-log-service');
 const { createP2POrderExpiryService } = require('./services/p2p-order-expiry-service');
 const { createAuthEmailService } = require('./services/auth-email-service');
 const { createP2PEmailService } = require('./services/p2p-email-service');
+const { createP2PEmailJobQueue } = require('./services/p2p-email-job-queue');
+const { createBackgroundLockService } = require('./services/background-lock-service');
+const { isRedisConfigured } = require('./services/redis-support');
 const tokenService = require('./services/tokenService');
 const { readAuthOtpConfig } = require('./modules/auth-otp/config');
 const { createMySqlAuthStore } = require('./modules/auth-otp/mysql-store');
@@ -206,6 +209,8 @@ let p2pOrderExpiryService = null;
 let p2pOrderController = null;
 let authEmailService = null;
 let p2pEmailService = null;
+let p2pEmailJobQueue = null;
+let backgroundLockService = null;
 let otpAuthStore = null;
 let otpAuthService = null;
 let userCenterStore = null;
@@ -215,6 +220,8 @@ let socialFeedService = null;
 let otpAuthMode = 'starting';
 let userCenterMode = 'starting';
 let socialFeedMode = 'starting';
+let emailQueueMode = 'in-process';
+let redisMode = isRedisConfigured() ? 'configured' : 'disabled';
 let persistenceReady = false;
 let httpServer = null;
 let shuttingDown = false;
@@ -327,7 +334,9 @@ function getModuleStatusSnapshot() {
   return {
     otpAuth: { mode: otpAuthMode },
     userCenter: { mode: userCenterMode },
-    socialFeed: { mode: socialFeedMode }
+    socialFeed: { mode: socialFeedMode },
+    redis: { mode: redisMode },
+    emailQueue: { mode: emailQueueMode }
   };
 }
 
@@ -4115,7 +4124,17 @@ app.post('/api/p2p/orders/:orderId/status', requiresP2PUser, async (req, res) =>
     broadcastOrderParticipantEvent(updatedOrder, 'order_updated', _pushPayload);
 
     // Send email notifications (non-blocking)
-    if (p2pEmailService) {
+    if (p2pEmailJobQueue && typeof p2pEmailJobQueue.enqueueOrderStatusNotifications === 'function') {
+      Promise.resolve(
+        p2pEmailJobQueue.enqueueOrderStatusNotifications({
+          action,
+          order: updatedOrder,
+          actorUsername: req.p2pUser.username || req.p2pUser.email || req.p2pUser.id
+        })
+      ).catch((emailErr) => {
+        console.warn('[p2p-email] notification queue failed:', emailErr.message);
+      });
+    } else if (p2pEmailService) {
       setImmediate(async () => {
         try {
           const [sellerCred, buyerCred] = await Promise.all([
@@ -4704,6 +4723,20 @@ function registerShutdownHandlers() {
             })
           );
         }
+        if (p2pEmailJobQueue && typeof p2pEmailJobQueue.close === 'function') {
+          closeTasks.push(
+            p2pEmailJobQueue.close().then(() => {
+              console.log('[p2p-email-queue] Queue client closed.');
+            })
+          );
+        }
+        if (backgroundLockService && typeof backgroundLockService.close === 'function') {
+          closeTasks.push(
+            backgroundLockService.close().then(() => {
+              console.log('[background-lock] Redis client closed.');
+            })
+          );
+        }
 
         let mongoClient = null;
         try {
@@ -4864,6 +4897,19 @@ async function boot() {
     auditLogService = createAuditLogService(collections);
     authEmailService = createAuthEmailService();
     p2pEmailService = createP2PEmailService();
+    if (p2pEmailJobQueue && typeof p2pEmailJobQueue.close === 'function') {
+      await p2pEmailJobQueue.close().catch(() => {});
+    }
+    if (backgroundLockService && typeof backgroundLockService.close === 'function') {
+      await backgroundLockService.close().catch(() => {});
+    }
+    p2pEmailJobQueue = createP2PEmailJobQueue();
+    backgroundLockService = createBackgroundLockService();
+    redisMode = isRedisConfigured() ? 'configured' : 'disabled';
+    emailQueueMode =
+      p2pEmailJobQueue && typeof p2pEmailJobQueue.enqueueOrderCreatedNotifications === 'function'
+        ? 'redis-worker'
+        : 'in-process';
     logEmailProviderRuntimeEnv();
     walletService = createWalletService(collections, getMongoClient(), {
       hooks: {
@@ -5065,6 +5111,7 @@ async function boot() {
       walletService,
       orderTtlMs: P2P_ORDER_TTL_MS,
       p2pEmailService,
+      p2pEmailQueue: p2pEmailJobQueue,
       broadcastUserEvent
     });
 
@@ -5264,7 +5311,7 @@ async function boot() {
     if (p2pExpirySweepTimer) {
       clearInterval(p2pExpirySweepTimer);
     }
-    p2pExpirySweepTimer = setInterval(async () => {
+    const runP2PExpirySweep = async () => {
       try {
         const result = await p2pOrderExpiryService.runExpirySweep();
         if (result.warningCount > 0 && Array.isArray(result.warningOrders)) {
@@ -5313,6 +5360,21 @@ async function boot() {
       } catch (error) {
         console.error('Failed to run P2P expiry sweep:', error.message);
       }
+    };
+
+    p2pExpirySweepTimer = setInterval(async () => {
+      if (backgroundLockService && typeof backgroundLockService.runWithLock === 'function') {
+        const lockResult = await backgroundLockService.runWithLock(
+          'p2p-expiry-sweep',
+          runP2PExpirySweep,
+          { ttlMs: Math.max(30_000, P2P_EXPIRY_SWEEP_INTERVAL_MS * 4) }
+        );
+        if (lockResult?.skipped) {
+          return;
+        }
+        return;
+      }
+      await runP2PExpirySweep();
     }, P2P_EXPIRY_SWEEP_INTERVAL_MS);
     if (typeof p2pExpirySweepTimer.unref === 'function') {
       p2pExpirySweepTimer.unref();

@@ -49,3 +49,46 @@ services:
         sync: false
       - key: SMTP_PASS
         sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: bitegit-shared-kv
+          property: connectionString
+  - type: worker
+    name: bitegit-email-worker
+    env: node
+    plan: starter
+    branch: main
+    repo: https://github.com/Urmilanegi/bitegit-sites-yellow
+    buildCommand: npm install
+    startCommand: node worker.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: bitegit-shared-kv
+          property: connectionString
+  - type: keyvalue
+    name: bitegit-shared-kv
+    plan: starter
+    region: oregon
+    ipAllowList: []

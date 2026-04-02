@@ -2,12 +2,19 @@ const { sendRawEmail } = require('./auth-email-service');
 const T = require('./email-templates');
 
 async function trySend(to, subjectStr, html, text) {
-  if (!to) return;
-  try {
-    await sendRawEmail({ to, subject: subjectStr, html, text: text || subjectStr });
-  } catch (err) {
-    console.warn('[p2p-email] send failed:', err.message);
+  if (!to) {
+    throw new Error('P2P email recipient is required.');
   }
+
+  const result = await sendRawEmail({ to, subject: subjectStr, html, text: text || subjectStr });
+  if (!result?.delivered) {
+    const error = new Error(`P2P email delivery failed: ${result?.reason || 'delivery_failed'}`);
+    error.code = 'P2P_EMAIL_DELIVERY_FAILED';
+    error.delivery = result || null;
+    throw error;
+  }
+
+  return result;
 }
 
 function createP2PEmailService() {
