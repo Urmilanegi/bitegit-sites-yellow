@@ -1481,6 +1481,7 @@ async function requiresP2PUser(req, res, next) {
       }
       req.p2pUser = normalized;
       req.authUser = normalized;
+      markUserOnline(normalized.id);
       return next();
     });
   }
@@ -1494,6 +1495,7 @@ async function requiresP2PUser(req, res, next) {
       setP2PAuthCookies(res, req._restoredP2PTokenPair);
     }
     req.p2pUser = user;
+    markUserOnline(user.id);
     return next();
   } catch (error) {
     return res.status(500).json({ message: 'Server error while validating user session.' });
@@ -2244,15 +2246,6 @@ function getUserOnlineStatus(userId) {
   if (diff < ONLINE_THRESHOLD_MS)  return 'online';
   if (diff < AWAY_THRESHOLD_MS)    return 'away';
   return 'offline';
-}
-
-// Auto-mark online on every authenticated request
-const _origRequiresP2PUser = requiresP2PUser;
-async function requiresP2PUser(req, res, next) {
-  return _origRequiresP2PUser(req, res, function(err) {
-    if (!err && req.p2pUser) markUserOnline(req.p2pUser.id);
-    next(err);
-  });
 }
 
 // Lightweight ping endpoint — client calls every 60s
