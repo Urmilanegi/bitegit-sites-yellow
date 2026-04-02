@@ -3,6 +3,14 @@ const path = require('path');
 
 const REPORT_PATH = path.join(process.cwd(), 'health-report.md');
 const REQUEST_TIMEOUT_MS = 15_000;
+const MONITOR_RETRIES = Math.max(
+  1,
+  Number.parseInt(String(process.env.MONITOR_RETRIES || '1'), 10) || 1
+);
+const MONITOR_RETRY_DELAY_MS = Math.max(
+  0,
+  Number.parseInt(String(process.env.MONITOR_RETRY_DELAY_MS || '0'), 10) || 0
+);
 const endpoints = [
   {
     name: 'production',
@@ -17,6 +25,10 @@ const endpoints = [
 function safeString(value, fallback = 'n/a') {
   const normalized = String(value || '').trim();
   return normalized || fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchJson(url) {
@@ -107,6 +119,7 @@ function evaluateHealth(name, url, response) {
   return {
     name,
     url,
+    attempt: 1,
     passed: failures.length === 0,
     failures,
     notes,
@@ -169,11 +182,30 @@ function buildEnvironmentSection(result) {
 }
 
 async function main() {
-  const results = [];
+  let results = [];
+  let attemptsUsed = 0;
 
-  for (const endpoint of endpoints) {
-    const response = await fetchJson(endpoint.url);
-    results.push(evaluateHealth(endpoint.name, endpoint.url, response));
+  for (let attempt = 1; attempt <= MONITOR_RETRIES; attempt += 1) {
+    attemptsUsed = attempt;
+    results = [];
+
+    for (const endpoint of endpoints) {
+      const response = await fetchJson(endpoint.url);
+      const result = evaluateHealth(endpoint.name, endpoint.url, response);
+      result.attempt = attempt;
+      results.push(result);
+    }
+
+    const failedCount = results.filter((result) => !result.passed).length;
+    console.log(
+      `Attempt ${attempt}/${MONITOR_RETRIES}: ${failedCount === 0 ? 'all environments healthy' : `${failedCount} environment(s) failing`}`
+    );
+    if (failedCount === 0) {
+      break;
+    }
+    if (attempt < MONITOR_RETRIES && MONITOR_RETRY_DELAY_MS > 0) {
+      await sleep(MONITOR_RETRY_DELAY_MS);
+    }
   }
 
   const failedCount = results.filter((result) => !result.passed).length;
@@ -181,6 +213,8 @@ async function main() {
     '# Bitegit Health Report',
     '',
     `Generated at ${new Date().toISOString()}`,
+    '',
+    `Attempts used: ${attemptsUsed}/${MONITOR_RETRIES}`,
     '',
     buildSummaryTable(results),
     '',
