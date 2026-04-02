@@ -1,0 +1,148 @@
+name: Production Health Monitor
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-health-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HEALTH_URL: https://www.bitegit.com/api/health
+      ISSUE_LABEL: monitoring
+      ISSUE_TITLE: '[monitor] Production health degraded'
+    steps:
+      - name: Check production health
+        id: health
+        shell: bash
+        run: |
+          set +e
+
+          response_file="$(mktemp)"
+          http_code="$(curl -sS --max-time 20 -o "$response_file" -w '%{http_code}' "$HEALTH_URL")"
+          curl_exit="$?"
+          body="$(cat "$response_file")"
+          rm -f "$response_file"
+
+          healthy=false
+          summary="curl failed with exit code $curl_exit"
+
+          if [ "$curl_exit" -eq 0 ] && [ "$http_code" = "200" ]; then
+            if printf '%s' "$body" | node -e 'let input=""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { try { const payload = JSON.parse(input); const ok = payload.ready === true && String(payload.status || "").toUpperCase() === "OK"; process.exit(ok ? 0 : 1); } catch { process.exit(1); } });'; then
+              healthy=true
+              summary="Health endpoint returned ready=true"
+            else
+              summary="Health endpoint returned HTTP 200 but ready=false or invalid JSON"
+            fi
+          elif [ "$curl_exit" -eq 0 ]; then
+            summary="Health endpoint returned HTTP $http_code"
+          fi
+
+          if [ -z "$body" ]; then
+            body='(empty body)'
+          fi
+
+          body_b64="$(printf '%s' "$body" | base64 | tr -d '\n')"
+
+          {
+            echo "healthy=$healthy"
+            echo "http_code=$http_code"
+            echo "summary<<EOF"
+            printf '%s\n' "$summary"
+            echo "EOF"
+            echo "body_b64<<EOF"
+            printf '%s\n' "$body_b64"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Ensure monitoring label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "$ISSUE_LABEL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --color FF5630 \
+            --description "Automated production monitoring alerts" \
+            >/dev/null 2>&1 || true
+
+      - name: Open or refresh alert issue
+        if: steps.health.outputs.healthy != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY_B64: ${{ steps.health.outputs.body_b64 }}
+          SUMMARY: ${{ steps.health.outputs.summary }}
+          HTTP_CODE: ${{ steps.health.outputs.http_code }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --label "$ISSUE_LABEL" \
+            --state open \
+            --search "\"$ISSUE_TITLE\" in:title" \
+            --json number,title \
+            --jq '.[0].number')"
+
+          issue_body_file="$(mktemp)"
+          latest_body="$(printf '%s' "$BODY_B64" | base64 -d)"
+
+          cat > "$issue_body_file" <<EOF
+          Production monitoring detected degraded health for \`$HEALTH_URL\`.
+
+          - Time (UTC): $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          - Summary: $SUMMARY
+          - HTTP status: $HTTP_CODE
+
+          Latest response:
+
+          \`\`\`json
+          $latest_body
+          \`\`\`
+          EOF
+
+          if [ -n "$issue_number" ] && [ "$issue_number" != "null" ]; then
+            gh issue edit "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body-file "$issue_body_file"
+          else
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$ISSUE_TITLE" \
+              --label "$ISSUE_LABEL" \
+              --body-file "$issue_body_file"
+          fi
+
+      - name: Close alert issue after recovery
+        if: steps.health.outputs.healthy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --label "$ISSUE_LABEL" \
+            --state open \
+            --search "\"$ISSUE_TITLE\" in:title" \
+            --json number,title \
+            --jq '.[0].number')"
+
+          if [ -n "$issue_number" ] && [ "$issue_number" != "null" ]; then
+            gh issue comment "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "Recovered at $(date -u '+%Y-%m-%d %H:%M:%S UTC'). Production health returned to ready=true."
+            gh issue close "$issue_number" \
+              --repo "$GITHUB_REPOSITORY"
+          fi

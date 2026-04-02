@@ -9,23 +9,23 @@ function normalizeBool(value) {
 }
 
 function readSocialFeedConfig() {
-  const mysqlHost = String(process.env.SOCIAL_MYSQL_HOST || '').trim();
-  const mysqlUser = String(process.env.SOCIAL_MYSQL_USER || '').trim();
-  const mysqlPassword = String(process.env.SOCIAL_MYSQL_PASSWORD || '').trim();
-  const mysqlDatabase = String(process.env.SOCIAL_MYSQL_DATABASE || '').trim();
+  const mysqlHost = String(process.env.SOCIAL_MYSQL_HOST || process.env.MYSQL_HOST || '').trim();
+  const mysqlUser = String(process.env.SOCIAL_MYSQL_USER || process.env.MYSQL_USER || '').trim();
+  const mysqlPassword = String(process.env.SOCIAL_MYSQL_PASSWORD || process.env.MYSQL_PASSWORD || '').trim();
+  const mysqlDatabase = String(process.env.SOCIAL_MYSQL_DATABASE || process.env.MYSQL_DATABASE || '').trim();
 
   return {
     mysql: {
       enabled: Boolean(mysqlHost && mysqlUser && mysqlDatabase),
       host: mysqlHost,
-      port: toInt(process.env.SOCIAL_MYSQL_PORT, 3306),
+      port: toInt(process.env.SOCIAL_MYSQL_PORT || process.env.MYSQL_PORT, 3306),
       user: mysqlUser,
       password: mysqlPassword,
       database: mysqlDatabase,
-      connectionLimit: toInt(process.env.SOCIAL_MYSQL_POOL_SIZE, 10),
-      ssl: normalizeBool(process.env.SOCIAL_MYSQL_SSL)
+      connectionLimit: toInt(process.env.SOCIAL_MYSQL_POOL_SIZE || process.env.MYSQL_POOL_SIZE, 10),
+      ssl: normalizeBool(process.env.SOCIAL_MYSQL_SSL || process.env.MYSQL_SSL)
         ? {
-            rejectUnauthorized: normalizeBool(process.env.SOCIAL_MYSQL_SSL_STRICT)
+            rejectUnauthorized: normalizeBool(process.env.SOCIAL_MYSQL_SSL_STRICT || process.env.MYSQL_SSL_STRICT)
           }
         : undefined
     },
