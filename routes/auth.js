@@ -1,14 +1,10 @@
-function normalizeIp(req) {
-  const forwardedRaw = String(req.headers['x-forwarded-for'] || '').trim();
-  const firstForwardedIp = forwardedRaw.split(',')[0].trim();
-  return firstForwardedIp || String(req.ip || req.connection?.remoteAddress || 'unknown');
-}
+const { getRequestIp } = require('../lib/request-ip');
 
 function createIpRateLimiter({ windowMs, maxAttempts }) {
   const state = new Map();
 
   function middleware(req, res, next) {
-    const ip = normalizeIp(req);
+    const ip = getRequestIp(req);
     const now = Date.now();
     const existing = state.get(ip);
 
@@ -210,7 +206,7 @@ function registerAuthRoutes(app, deps) {
 
     const payload = createCaptchaPayload(req.body);
     return captchaVerifier.verifyChallenge(payload, {
-      ipAddress: normalizeIp(req),
+      ipAddress: getRequestIp(req),
       userAgent: String(req.headers['user-agent'] || '').trim().slice(0, 1024),
       email
     });
@@ -435,7 +431,7 @@ function registerAuthRoutes(app, deps) {
 
   app.post('/auth/signup/send-otp', signupOtpLimiter, async (req, res) => {
     const email = createEmailFromInput(req.body?.email);
-    const ipAddress = normalizeIp(req);
+    const ipAddress = getRequestIp(req);
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
     }
@@ -472,7 +468,7 @@ function registerAuthRoutes(app, deps) {
 
   app.post('/auth/forgot-password/send-otp', forgotOtpLimiter, async (req, res) => {
     const email = createEmailFromInput(req.body?.email);
-    const ipAddress = normalizeIp(req);
+    const ipAddress = getRequestIp(req);
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
     }
@@ -513,7 +509,7 @@ function registerAuthRoutes(app, deps) {
   app.post('/api/auth/register', registerLimiter, async (req, res) => {
     const email = createEmailFromInput(req.body?.email);
     const password = String(req.body?.password || '').trim();
-    const ipAddress = normalizeIp(req);
+    const ipAddress = getRequestIp(req);
 
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
@@ -568,7 +564,7 @@ function registerAuthRoutes(app, deps) {
   app.post('/api/auth/verify-email', registerLimiter, async (req, res) => {
     const email = createEmailFromInput(req.body?.email);
     const otpCode = String(req.body?.otpCode || '').trim();
-    const ipAddress = normalizeIp(req);
+    const ipAddress = getRequestIp(req);
 
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
@@ -639,7 +635,7 @@ function registerAuthRoutes(app, deps) {
   if (enableLegacyOtpEndpoints) {
     app.post('/auth/send-otp', signupOtpLimiter, async (req, res) => {
       const email = createEmailFromInput(req.body?.email);
-      const ipAddress = normalizeIp(req);
+      const ipAddress = getRequestIp(req);
 
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });
@@ -677,7 +673,7 @@ function registerAuthRoutes(app, deps) {
     app.post('/auth/verify-otp', registerLimiter, async (req, res) => {
       const email = createEmailFromInput(req.body?.email);
       const otpCode = String(req.body?.otp || req.body?.otpCode || '').trim();
-      const ipAddress = normalizeIp(req);
+      const ipAddress = getRequestIp(req);
     const userAgent = String(req.headers['user-agent'] || '').trim().slice(0, 1024);
 
     if (!isValidEmail(email)) {
@@ -762,7 +758,7 @@ function registerAuthRoutes(app, deps) {
   app.post('/auth/login', loginLimiter, async (req, res) => {
     const email = createEmailFromInput(req.body?.email);
     const password = String(req.body?.password || '').trim();
-    const ipAddress = normalizeIp(req);
+    const ipAddress = getRequestIp(req);
     const userAgent = String(req.headers['user-agent'] || '').trim().slice(0, 1024);
 
     if (!isValidEmail(email)) {
@@ -864,7 +860,7 @@ function registerAuthRoutes(app, deps) {
     const email = createEmailFromInput(req.body?.email);
     const password = String(req.body?.password || '').trim();
     const otpCode = String(req.body?.otpCode || '').trim();
-    const ipAddress = normalizeIp(req);
+    const ipAddress = getRequestIp(req);
     const userAgent = String(req.headers['user-agent'] || '').trim().slice(0, 1024);
 
     if (!isValidEmail(email)) {
@@ -997,7 +993,7 @@ function registerAuthRoutes(app, deps) {
     const email = createEmailFromInput(req.body?.email);
     const otpCode = String(req.body?.otpCode || '').trim();
     const nextPassword = String(req.body?.newPassword || '').trim();
-    const ipAddress = normalizeIp(req);
+    const ipAddress = getRequestIp(req);
 
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Enter a valid email address.' });

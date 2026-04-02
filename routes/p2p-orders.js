@@ -1,3 +1,5 @@
+const { buildRateLimiter } = require('../middleware/security');
+
 function registerP2POrderRoutes(app, deps = {}) {
   if (!app) {
     throw new Error('Express app is required to register P2P order routes.');
@@ -26,11 +28,31 @@ function registerP2POrderRoutes(app, deps = {}) {
     throw new Error('raiseDispute handler is required for P2P order routes.');
   }
 
-  app.post('/api/p2p/orders', requiresP2PUser, controller.createOrder);
-  app.post('/api/p2p/orders/:id/mark-paid', requiresP2PUser, controller.markPaymentSent);
-  app.post('/api/p2p/orders/:id/release', requiresP2PUser, controller.releaseCrypto);
-  app.post('/api/p2p/orders/:id/cancel', requiresP2PUser, controller.cancelOrder);
-  app.post('/api/p2p/orders/:id/dispute', requiresP2PUser, controller.raiseDispute);
+  const createOrderLimiter = buildRateLimiter({
+    windowMs: 10 * 60 * 1000,
+    max: 24,
+    keyPrefix: 'p2p-order-create',
+    message: {
+      success: false,
+      message: 'Too many order create attempts. Please retry shortly.'
+    }
+  });
+
+  const orderActionLimiter = buildRateLimiter({
+    windowMs: 10 * 60 * 1000,
+    max: 90,
+    keyPrefix: 'p2p-order-action',
+    message: {
+      success: false,
+      message: 'Too many order actions. Please retry shortly.'
+    }
+  });
+
+  app.post('/api/p2p/orders', createOrderLimiter, requiresP2PUser, controller.createOrder);
+  app.post('/api/p2p/orders/:id/mark-paid', orderActionLimiter, requiresP2PUser, controller.markPaymentSent);
+  app.post('/api/p2p/orders/:id/release', orderActionLimiter, requiresP2PUser, controller.releaseCrypto);
+  app.post('/api/p2p/orders/:id/cancel', orderActionLimiter, requiresP2PUser, controller.cancelOrder);
+  app.post('/api/p2p/orders/:id/dispute', orderActionLimiter, requiresP2PUser, controller.raiseDispute);
 }
 
 module.exports = {

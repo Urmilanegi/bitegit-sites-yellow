@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+const { buildRateLimiter, getRequestIp } = require('../middleware/security');
 
 function registerOtpAuthRoutes(app, {
   otpAuthService,
@@ -8,22 +8,20 @@ function registerOtpAuthRoutes(app, {
   isProduction,
   onLoginSuccess = null
 }) {
-  const sendOtpLimiter = rateLimit({
+  const sendOtpLimiter = buildRateLimiter({
     windowMs: 60 * 60 * 1000,
     max: 30,
-    standardHeaders: true,
-    legacyHeaders: false,
+    keyPrefix: 'otp-auth-send',
     message: {
       success: false,
       message: 'Too many requests. Please try again later.'
     }
   });
 
-  const verifyOtpLimiter = rateLimit({
+  const verifyOtpLimiter = buildRateLimiter({
     windowMs: 15 * 60 * 1000,
     max: 60,
-    standardHeaders: true,
-    legacyHeaders: false,
+    keyPrefix: 'otp-auth-verify',
     message: {
       success: false,
       message: 'Too many requests. Please try again later.'
@@ -41,7 +39,7 @@ function registerOtpAuthRoutes(app, {
   }
 
   function getRequestContext(req) {
-    const ipAddress = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || String(req.ip || '');
+    const ipAddress = getRequestIp(req);
     const userAgent = String(req.headers['user-agent'] || '').trim().slice(0, 1024);
     return {
       ipAddress,

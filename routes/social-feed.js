@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+const { buildRateLimiter } = require('../middleware/security');
 
 function registerSocialFeedRoutes(app, {
   socialFeedService,
@@ -16,33 +16,30 @@ function registerSocialFeedRoutes(app, {
     return;
   }
 
-  const feedLimiter = rateLimit({
+  const feedLimiter = buildRateLimiter({
     windowMs: 60 * 1000,
     max: 120,
-    standardHeaders: true,
-    legacyHeaders: false,
+    keyPrefix: 'social-feed-read',
     message: {
       success: false,
       message: 'Too many feed requests. Please retry shortly.'
     }
   });
 
-  const followLimiter = rateLimit({
+  const followLimiter = buildRateLimiter({
     windowMs: 10 * 60 * 1000,
     max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
+    keyPrefix: 'social-follow-write',
     message: {
       success: false,
       message: 'Too many follow requests. Please retry later.'
     }
   });
 
-  const adminLimiter = rateLimit({
+  const adminLimiter = buildRateLimiter({
     windowMs: 10 * 60 * 1000,
     max: 90,
-    standardHeaders: true,
-    legacyHeaders: false,
+    keyPrefix: 'social-admin-write',
     message: {
       success: false,
       message: 'Too many admin requests. Please retry shortly.'

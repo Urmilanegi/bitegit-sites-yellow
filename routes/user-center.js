@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+const { buildRateLimiter } = require('../middleware/security');
 
 function registerUserCenterRoutes(app, {
   requiresP2PUser,
@@ -11,19 +11,17 @@ function registerUserCenterRoutes(app, {
     return;
   }
 
-  const securityLimiter = rateLimit({
+  const securityLimiter = buildRateLimiter({
     windowMs: 10 * 60 * 1000,
     max: 20,
-    standardHeaders: true,
-    legacyHeaders: false,
+    keyPrefix: 'user-center-security',
     message: { success: false, message: 'Too many security requests. Try again later.' }
   });
 
-  const supportLimiter = rateLimit({
+  const supportLimiter = buildRateLimiter({
     windowMs: 10 * 60 * 1000,
     max: 60,
-    standardHeaders: true,
-    legacyHeaders: false,
+    keyPrefix: 'user-center-support',
     message: { success: false, message: 'Too many support requests. Try again later.' }
   });
 

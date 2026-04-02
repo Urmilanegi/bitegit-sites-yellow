@@ -36,6 +36,7 @@ const { createP2PEmailJobQueue } = require('./services/p2p-email-job-queue');
 const { createBackgroundLockService } = require('./services/background-lock-service');
 const { isRedisConfigured } = require('./services/redis-support');
 const { createWorkerHeartbeatMonitor } = require('./services/worker-heartbeat');
+const { getRequestIp } = require('./lib/request-ip');
 const tokenService = require('./services/tokenService');
 const { readAuthOtpConfig } = require('./modules/auth-otp/config');
 const { createMySqlAuthStore } = require('./modules/auth-otp/mysql-store');
@@ -259,10 +260,10 @@ const socialFeedBootstrapService = createSocialFeedService({
 });
 
 const validation = validationRules();
+applySecurityHardening(app);
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(sanitizeRequestPayload);
-applySecurityHardening(app);
 app.use('/downloads', (req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.set('Pragma', 'no-cache');
@@ -399,6 +400,7 @@ function getModuleStatusSnapshot(workerSnapshot = getWorkerStatusSnapshot()) {
     redis: { mode: redisMode },
     emailQueue: { mode: emailQueueMode },
     backgroundJobs: { mode: getBackgroundJobsMode() },
+    waf: { mode: isRedisConfigured() ? 'redis-app-shield' : 'in-memory-app-shield' },
     emailWorker: workerSnapshot
   };
 }
@@ -1210,12 +1212,6 @@ function createIpAttemptLimiter({ maxAttempts, windowMs }) {
       allowed: true
     };
   };
-}
-
-function getRequestIp(req) {
-  const forwardedRaw = String(req.headers['x-forwarded-for'] || '').trim();
-  const firstForwarded = forwardedRaw.split(',')[0].trim();
-  return firstForwarded || String(req.ip || req.connection?.remoteAddress || 'unknown');
 }
 
 const loginAttemptLimiter = createIpAttemptLimiter({

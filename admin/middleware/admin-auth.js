@@ -1,3 +1,5 @@
+const { getRequestIp } = require('../../lib/request-ip');
+
 function parseCookies(req) {
   const rawCookie = req.headers.cookie || '';
   const parsed = {};
@@ -11,12 +13,6 @@ function parseCookies(req) {
   }
 
   return parsed;
-}
-
-function getRequestIp(req) {
-  const forwardedRaw = String(req.headers['x-forwarded-for'] || '').trim();
-  const firstForwarded = forwardedRaw.split(',')[0].trim();
-  return firstForwarded || String(req.ip || req.connection?.remoteAddress || 'unknown');
 }
 
 function createAdminAuthMiddleware({ adminStore, cookieNames }) {
