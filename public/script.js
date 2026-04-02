@@ -159,6 +159,12 @@ function readP2PSessionHint() {
   }
 }
 
+function clearP2PSessionHint() {
+  try {
+    localStorage.removeItem('_p2p_hint');
+  } catch (_) {}
+}
+
 async function fetchHomeSessionSnapshot() {
   const response = await fetch('/api/p2p/me', {
     credentials: 'include',
@@ -252,9 +258,14 @@ async function loadHomeSession() {
     if (!snapshot.loggedIn && hintUser) {
       snapshot = await fetchHomeSessionSnapshot();
     }
-    updateHomeAuthUi(snapshot.loggedIn && snapshot.user ? snapshot.user : null);
+    const nextUser = snapshot.loggedIn && snapshot.user ? snapshot.user : null;
+    if (!nextUser) {
+      clearP2PSessionHint();
+    }
+    updateHomeAuthUi(nextUser);
   } catch (_) {
     if (!hintUser) {
+      clearP2PSessionHint();
       updateHomeAuthUi(null);
     }
   }
@@ -269,6 +280,7 @@ async function logoutHomeSession() {
   } catch (_) {
     // Ignore logout network failures and reset local UI state anyway.
   }
+  clearP2PSessionHint();
   updateHomeAuthUi(null);
   setHomeNavOpen(false);
   window.location.href = '/';

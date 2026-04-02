@@ -231,6 +231,41 @@ function clearCurrentUserHint() {
   } catch (_) {}
 }
 
+function resetSessionBoundUiState() {
+  if (profilePanelTimerId) {
+    clearTimeout(profilePanelTimerId);
+    profilePanelTimerId = null;
+  }
+  if (profilePanelFrameId && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(profilePanelFrameId);
+    profilePanelFrameId = 0;
+  }
+  if (liveOrdersTimerId) {
+    clearTimeout(liveOrdersTimerId);
+    liveOrdersTimerId = null;
+  }
+  if (liveOrdersFrameId && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(liveOrdersFrameId);
+    liveOrdersFrameId = 0;
+  }
+
+  profilePanelRefreshPromise = null;
+  profilePanelQueuedOptions = null;
+  profilePanelLastCompletedAt = 0;
+  profileWalletBalance = 0;
+  profileWalletLocked = 0;
+  profileWalletSyncedAt = 0;
+
+  liveOrdersRefreshPromise = null;
+  liveOrdersQueuedOptions = null;
+  liveOrdersLastNetworkAt = 0;
+
+  ownProfileReputationCache.userId = '';
+  ownProfileReputationCache.ts = 0;
+  ownProfileReputationCache.data = null;
+  ownProfileReputationCache.promise = null;
+}
+
 async function fetchCurrentUserSessionSnapshot() {
   const response = await fetch('/api/p2p/me', {
     credentials: 'include',
@@ -2825,7 +2860,8 @@ async function loadCurrentUser() {
           updateUserUi();
           // Re-run user-specific loads now that we have a valid session
           loadMyAds();
-          loadProfilePanel({ refreshWallet: true });
+          loadLiveOrders({ force: true, immediate: true });
+          loadProfilePanel({ refreshWallet: true, immediate: true });
           fetchOrdersSafe();
           // Re-render offers so "Buy" buttons appear (not "Login")
           loadOffers();
@@ -2885,7 +2921,12 @@ async function loginUser() {
     setAuthModalOpen(false);
     setP2PNavOpen(false);
     // run all post-login loads in parallel — much faster
-    Promise.all([loadOffers(), loadLiveOrders(), loadMyAds(), loadProfilePanel({ refreshWallet: true })]);
+    Promise.all([
+      loadOffers(),
+      loadLiveOrders({ force: true, immediate: true }),
+      loadMyAds(),
+      loadProfilePanel({ refreshWallet: true, immediate: true })
+    ]);
     // Single entry point — shows cache or skeleton, then fetches fresh
     fetchOrdersSafe();
     _startFallbackPoll(); // 15s fallback (SSE handles real-time; this is backup only)
@@ -2908,6 +2949,7 @@ async function loginUser() {
 function _clearOrdersCache(options) {
   options = options || {};
   var preserveSnapshots = options.preserveSnapshots === true;
+  resetSessionBoundUiState();
   // Cancel any in-flight request immediately
   if (typeof _ordAbort !== 'undefined' && _ordAbort) {
     try { _ordAbort.abort(); } catch(_) {}
@@ -2955,6 +2997,7 @@ async function logoutUser() {
     closeOrderModal();
     closeDealModal();
     closeKycModal();
+    setP2PNavOpen(false);
   }
 }
 
@@ -3501,7 +3544,7 @@ async function createOrder(offerId, options = {}) {
     // Force fresh fetch after creating order — SSE will also trigger this
     fetchOrdersSafe();
 
-    await loadLiveOrders();
+    await loadLiveOrders({ force: true, immediate: true });
     return data;
   } catch (error) {
     clearTimeout(tmr);
@@ -4425,7 +4468,7 @@ async function openOrderById(orderId) {
     }
     openOrder(data.order);
     if (data.counterparty) renderCounterpartyReputation(data.counterparty);
-    await loadLiveOrders();
+    await loadLiveOrders({ force: true, immediate: true });
   } catch (error) {
     liveOrdersMeta.textContent = error.message;
   }
@@ -4462,9 +4505,10 @@ async function updateOrderStatus(action, options = {}) {
   var _spinHtml = '<span style="display:inline-flex;align-items:center;gap:6px;">' +
     '<span style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:ord-spin 0.7s linear infinite;display:inline-block;"></span>' +
     'Processing…</span>';
-  if (action === 'release' && markPaidBtn)       { _lockedBtn = markPaidBtn; }
+  if (action === 'release' && releaseBtn)        { _lockedBtn = releaseBtn; }
   else if (action === 'mark_paid' && paidConfirmBtn) { _lockedBtn = paidConfirmBtn; }
   else if (action === 'cancel' && cancelConfirmBtn)  { _lockedBtn = cancelConfirmBtn; }
+  else if (action === 'dispute' && sellerDisputeBtn) { _lockedBtn = sellerDisputeBtn; }
   else if (action === 'dispute' && disputeBtn)       { _lockedBtn = disputeBtn; }
   if (_lockedBtn) { _lockedBtnOrigHtml = _lockedBtn.innerHTML; _lockedBtn.disabled = true; _lockedBtn.innerHTML = _spinHtml; }
 
@@ -4497,8 +4541,8 @@ async function updateOrderStatus(action, options = {}) {
       await sendOrderMessage('Payment done from buyer side. Please verify and release crypto.');
     }
     await fetchMessages();
-    await loadLiveOrders();
-    await loadProfilePanel({ refreshWallet: true });
+    await loadLiveOrders({ force: true, immediate: true });
+    await loadProfilePanel({ refreshWallet: true, immediate: true });
     if (action === 'cancel' || action === 'expire' || action === 'release') {
       fetchOrdersSafe();
     }
