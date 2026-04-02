@@ -114,6 +114,7 @@ function createUserCenterStore(config, { logger = console } = {}) {
       database: mysqlConfig.database,
       waitForConnections: true,
       connectionLimit: mysqlConfig.connectionLimit || 10,
+      connectTimeout: mysqlConfig.connectTimeoutMs || 5000,
       ssl: mysqlConfig.ssl
     });
 

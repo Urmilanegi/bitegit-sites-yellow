@@ -23,6 +23,10 @@ function readSocialFeedConfig() {
       password: mysqlPassword,
       database: mysqlDatabase,
       connectionLimit: toInt(process.env.SOCIAL_MYSQL_POOL_SIZE || process.env.MYSQL_POOL_SIZE, 10),
+      connectTimeoutMs: Math.max(
+        2000,
+        toInt(process.env.SOCIAL_MYSQL_CONNECT_TIMEOUT_MS || process.env.MYSQL_CONNECT_TIMEOUT_MS || process.env.MYSQL_CONNECT_TIMEOUT_MS, 5000)
+      ),
       ssl: normalizeBool(process.env.SOCIAL_MYSQL_SSL || process.env.MYSQL_SSL)
         ? {
             rejectUnauthorized: normalizeBool(process.env.SOCIAL_MYSQL_SSL_STRICT || process.env.MYSQL_SSL_STRICT)

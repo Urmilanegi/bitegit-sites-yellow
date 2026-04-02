@@ -40,6 +40,7 @@ const { createRepoFallbackOtpAuthService } = require('./modules/auth-otp/repo-fa
 const { registerOtpAuthRoutes } = require('./routes/otp-auth');
 const { readUserCenterConfig } = require('./modules/user-center/config');
 const { createUserCenterStore } = require('./modules/user-center/mysql-store');
+const { createMongoUserCenterStore } = require('./modules/user-center/mongo-store');
 const { createUserCenterService } = require('./modules/user-center/service');
 const { registerUserCenterRoutes } = require('./routes/user-center');
 const { readSocialFeedConfig } = require('./modules/social-feed/config');
@@ -211,6 +212,9 @@ let userCenterStore = null;
 let userCenterService = null;
 let socialFeedStore = null;
 let socialFeedService = null;
+let otpAuthMode = 'starting';
+let userCenterMode = 'starting';
+let socialFeedMode = 'starting';
 let persistenceReady = false;
 let httpServer = null;
 let shuttingDown = false;
@@ -316,6 +320,14 @@ function getBootStatusSnapshot() {
     lastFailureAt: bootState.lastFailureAt,
     lastError: bootState.lastError,
     ready: persistenceReady
+  };
+}
+
+function getModuleStatusSnapshot() {
+  return {
+    otpAuth: { mode: otpAuthMode },
+    userCenter: { mode: userCenterMode },
+    socialFeed: { mode: socialFeedMode }
   };
 }
 
@@ -4491,7 +4503,8 @@ app.get('/healthz', (req, res) => {
     status: persistenceReady ? 'ok' : 'starting',
     ready: persistenceReady,
     db: isDbConnected() ? 'connected' : 'disconnected',
-    boot: getBootStatusSnapshot()
+    boot: getBootStatusSnapshot(),
+    modules: getModuleStatusSnapshot()
   });
 });
 
@@ -4501,7 +4514,8 @@ app.get('/api/health', (req, res) => {
     service: 'bitegit-backend',
     ready: persistenceReady,
     db: isDbConnected() ? 'connected' : 'disconnected',
-    boot: getBootStatusSnapshot()
+    boot: getBootStatusSnapshot(),
+    modules: getModuleStatusSnapshot()
   });
 });
 
@@ -4921,6 +4935,7 @@ async function boot() {
       try {
         otpAuthStore = createMySqlAuthStore(otpAuthConfig.mysql);
         await otpAuthStore.initialize();
+        otpAuthMode = 'mysql';
         const otpEmailService = createOtpEmailService(otpAuthConfig.smtp);
         otpAuthService = createOtpAuthService({
           store: otpAuthStore,
@@ -4967,6 +4982,7 @@ async function boot() {
       } catch (error) {
         otpAuthStore = null;
         otpAuthService = buildFallbackOtpAuthService();
+        otpAuthMode = 'repo-fallback';
         console.error(
           '[auth-otp] MySQL initialization failed. Falling back to repository OTP auth:',
           error?.message || error
@@ -4974,10 +4990,23 @@ async function boot() {
       }
     } else {
       otpAuthService = buildFallbackOtpAuthService();
+      otpAuthMode = 'repo-fallback';
       console.log('[auth-otp] MySQL config missing; fallback OTP auth enabled with repository store + Geetest + SMTP.');
     }
 
     const userCenterConfig = readUserCenterConfig();
+    async function enableMongoUserCenterFallback(reason) {
+      userCenterStore = createMongoUserCenterStore({
+        db: getMongoClient().db(getMongoConfig().dbName)
+      });
+      await userCenterStore.initialize();
+      userCenterService = createUserCenterService({
+        store: userCenterStore,
+        config: userCenterConfig.app
+      });
+      userCenterMode = 'mongo-fallback';
+      console.warn(`[user-center] ${reason}. Mongo fallback store enabled.`);
+    }
     if (userCenterConfig.mysql.enabled) {
       try {
         userCenterStore = createUserCenterStore(userCenterConfig.mysql);
@@ -4986,17 +5015,15 @@ async function boot() {
           store: userCenterStore,
           config: userCenterConfig.app
         });
+        userCenterMode = 'mysql';
         console.log('[user-center] Modular User Center enabled');
       } catch (error) {
-        userCenterStore = null;
-        userCenterService = null;
-        console.error(
-          '[user-center] MySQL initialization failed. User Center APIs will run in degraded mode (503):',
-          error?.message || error
+        await enableMongoUserCenterFallback(
+          `MySQL initialization failed (${error?.message || error})`
         );
       }
     } else {
-      console.log('[user-center] MySQL config missing; User Center APIs will return 503.');
+      await enableMongoUserCenterFallback('MySQL config missing');
     }
 
     const socialFeedConfig = readSocialFeedConfig();
@@ -5018,6 +5045,7 @@ async function boot() {
           store: socialFeedStore,
           config: socialFeedConfig.app
         });
+        socialFeedMode = 'mysql';
         console.log('[social-feed] Social feed module enabled');
       } catch (error) {
         console.error(
@@ -5025,9 +5053,11 @@ async function boot() {
           error?.message || error
         );
         await enableSocialFeedFallback('MySQL store unavailable');
+        socialFeedMode = 'fallback-memory';
       }
     } else {
       await enableSocialFeedFallback('MySQL config missing');
+      socialFeedMode = 'fallback-memory';
     }
 
     p2pOrderController = createP2POrderController({
