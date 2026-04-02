@@ -214,8 +214,20 @@ let socialFeedService = null;
 let persistenceReady = false;
 let httpServer = null;
 let shuttingDown = false;
-// bootRetryTimer removed — no retry logic, boot() runs exactly once
 let p2pExpirySweepTimer = null;
+let bootRetryTimer = null;
+let bootInProgress = false;
+let bootRoutesRegistered = false;
+let shutdownHandlersRegistered = false;
+let bootAttemptCount = 0;
+const bootState = {
+  state: 'starting',
+  attempt: 0,
+  startedAt: new Date().toISOString(),
+  readyAt: null,
+  lastFailureAt: null,
+  lastError: null
+};
 const socialFeedBootstrapConfig = readSocialFeedConfig();
 const socialFeedBootstrapStore = createSocialFeedFallbackStore();
 const socialFeedBootstrapInitPromise = socialFeedBootstrapStore
@@ -275,11 +287,64 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+app.use((req, res, next) => {
+  const pathname = String(req.path || '').trim();
+  if (!pathname.startsWith('/api/')) {
+    return next();
+  }
+
+  if (persistenceReady || isPrebootApiAllowed(pathname)) {
+    return next();
+  }
+
+  return respondServiceInitializing(res);
+});
+
 function readLeads() {
   if (!repos) {
     throw new Error('Persistence layer not initialized');
   }
   return repos.getLeadsLatest();
+}
+
+function getBootStatusSnapshot() {
+  return {
+    state: bootState.state,
+    attempt: bootState.attempt,
+    startedAt: bootState.startedAt,
+    readyAt: bootState.readyAt,
+    lastFailureAt: bootState.lastFailureAt,
+    lastError: bootState.lastError,
+    ready: persistenceReady
+  };
+}
+
+function isPrebootApiAllowed(pathname) {
+  const normalizedPath = String(pathname || '').trim();
+  if (!normalizedPath) {
+    return false;
+  }
+
+  if (normalizedPath === '/api/health' || normalizedPath === '/healthz') {
+    return true;
+  }
+
+  if (normalizedPath.startsWith('/api/social/')) {
+    return true;
+  }
+
+  return (
+    normalizedPath === '/api/admin/auth/login' ||
+    normalizedPath === '/api/admin/login'
+  );
+}
+
+function respondServiceInitializing(res) {
+  return res.status(503).json({
+    message: 'Bitegit is starting up. Please try again in a moment.',
+    code: 'SERVICE_INITIALIZING',
+    boot: getBootStatusSnapshot()
+  });
 }
 
 function validateStartupConfig() {
@@ -4430,14 +4495,21 @@ app.get('/trade/:market/:symbol', (req, res) => {
 
 app.get('/healthz', (req, res) => {
   return res.status(200).json({
-    status: 'ok',
+    status: persistenceReady ? 'ok' : 'starting',
     ready: persistenceReady,
-    db: isDbConnected() ? 'connected' : 'disconnected'
+    db: isDbConnected() ? 'connected' : 'disconnected',
+    boot: getBootStatusSnapshot()
   });
 });
 
 app.get('/api/health', (req, res) => {
-  return res.status(200).json({ status: 'OK', service: 'bitegit-backend' });
+  return res.status(200).json({
+    status: persistenceReady ? 'OK' : 'STARTING',
+    service: 'bitegit-backend',
+    ready: persistenceReady,
+    db: isDbConnected() ? 'connected' : 'disconnected',
+    boot: getBootStatusSnapshot()
+  });
 });
 
 // Keep social feed live even before full boot/module registration completes.
@@ -4571,6 +4643,11 @@ if (ENABLE_DEV_TEST_ROUTES) {
 }
 
 function registerShutdownHandlers() {
+  if (shutdownHandlersRegistered) {
+    return;
+  }
+  shutdownHandlersRegistered = true;
+
   ['SIGINT', 'SIGTERM'].forEach((signal) => {
     process.on(signal, () => {
       if (shuttingDown) {
@@ -4582,6 +4659,10 @@ function registerShutdownHandlers() {
       if (p2pExpirySweepTimer) {
         clearInterval(p2pExpirySweepTimer);
         p2pExpirySweepTimer = null;
+      }
+      if (bootRetryTimer) {
+        clearTimeout(bootRetryTimer);
+        bootRetryTimer = null;
       }
 
       const forceExitTimer = setTimeout(() => {
@@ -4685,6 +4766,10 @@ async function retryStartupStep(label, task, {
 }
 
 async function startHttpServer() {
+  if (httpServer) {
+    return;
+  }
+
   await new Promise((resolve, reject) => {
     httpServer = app.listen(PORT, HOST, () => {
       console.log(`[boot] Server started — PID ${process.pid} on port ${PORT}`);
@@ -4725,16 +4810,41 @@ async function startHttpServer() {
   });
 }
 
-let _bootStarted = false; // hard once-only guard — second call is a no-op
-
-async function boot() {
-  if (_bootStarted) {
-    console.warn('[boot] boot() called more than once — ignoring duplicate call');
+function scheduleBootRetry() {
+  if (persistenceReady || bootRetryTimer) {
     return;
   }
-  _bootStarted = true;
+
+  const delayMs = Math.min(60_000, STARTUP_RETRY_BASE_DELAY_MS * Math.max(1, bootAttemptCount));
+  console.log(`[boot] Scheduling retry in ${delayMs}ms.`);
+  bootRetryTimer = setTimeout(() => {
+    bootRetryTimer = null;
+    boot().catch((error) => {
+      console.error('[boot] Retry crashed unexpectedly:', error?.message || error);
+    });
+  }, delayMs);
+  if (typeof bootRetryTimer.unref === 'function') {
+    bootRetryTimer.unref();
+  }
+}
+
+async function boot() {
+  if (persistenceReady) {
+    return;
+  }
+  if (bootInProgress) {
+    console.warn('[boot] boot() called while initialization is already in progress — ignoring duplicate call');
+    return;
+  }
+  bootInProgress = true;
+  bootAttemptCount += 1;
+  bootState.state = 'initializing';
+  bootState.attempt = bootAttemptCount;
+  bootState.lastError = null;
 
   try {
+    await startHttpServer();
+    registerShutdownHandlers();
     validateStartupConfig();
     tokenService.ensureJwtSecret();
     const mongoConfig = getMongoConfig();
@@ -4874,55 +4984,6 @@ async function boot() {
       console.log('[auth-otp] MySQL config missing; fallback OTP auth enabled with repository store + Geetest + SMTP.');
     }
 
-    registerAuthRoutes(app, {
-      repos,
-      authStore: otpAuthStore,
-      walletService,
-      authMiddleware,
-      tokenService,
-      buildP2PUserFromEmail,
-      createLegacyP2PUserSession: createP2PUserSession,
-      setCookie,
-      clearCookie,
-      cookieNames: {
-        accessToken: P2P_ACCESS_COOKIE_NAME,
-        refreshToken: P2P_REFRESH_COOKIE_NAME,
-        legacyP2PSession: P2P_USER_COOKIE_NAME
-      },
-      p2pUserTtlMs: P2P_USER_TTL_MS,
-      auditLogService,
-      authEmailService,
-      captchaVerifier: geetestService,
-      otpTtlMs: SIGNUP_OTP_TTL_MS,
-      enableLegacyOtpEndpoints: false,
-      onLoginSuccess: async ({ user, ipAddress, userAgent }) => {
-        if (!userCenterService) {
-          return;
-        }
-        await userCenterService.recordLoginEvent(user, {
-          ip: ipAddress,
-          device: userAgent
-        });
-      }
-    });
-
-    registerOtpAuthRoutes(app, {
-      otpAuthService,
-      setCookie,
-      tokenService,
-      cookieNames: otpAuthConfig.cookieNames,
-      isProduction: IS_PRODUCTION,
-      onLoginSuccess: async ({ user, ipAddress, userAgent }) => {
-        if (!userCenterService) {
-          return;
-        }
-        await userCenterService.recordLoginEvent(user, {
-          ip: ipAddress,
-          device: userAgent
-        });
-      }
-    });
-
     const userCenterConfig = readUserCenterConfig();
     if (userCenterConfig.mysql.enabled) {
       try {
@@ -4944,11 +5005,6 @@ async function boot() {
     } else {
       console.log('[user-center] MySQL config missing; User Center APIs will return 503.');
     }
-
-    registerUserCenterRoutes(app, {
-      requiresP2PUser,
-      userCenterService
-    });
 
     const socialFeedConfig = readSocialFeedConfig();
     async function enableSocialFeedFallback(reason) {
@@ -4981,23 +5037,12 @@ async function boot() {
       await enableSocialFeedFallback('MySQL config missing');
     }
 
-    registerSocialFeedRoutes(app, {
-      socialFeedService,
-      requiresP2PUser,
-      getP2PUserFromRequest,
-      requiresAdminSession
-    });
-
     p2pOrderController = createP2POrderController({
       repos,
       walletService,
       orderTtlMs: P2P_ORDER_TTL_MS,
       p2pEmailService,
       broadcastUserEvent
-    });
-    registerP2POrderRoutes(app, {
-      requiresP2PUser,
-      controller: p2pOrderController
     });
 
     adminStore = createAdminStore({
@@ -5033,19 +5078,7 @@ async function boot() {
       }
     });
 
-    registerAdminRoutes(app, {
-      adminStore,
-      adminAuthMiddleware,
-      adminControllers,
-      auditLogService
-    });
-
     const extendedStore = createAdminExtendedStore({ collections });
-    registerAdminExtendedRoutes(app, {
-      adminStore,
-      extendedStore,
-      adminAuthMiddleware
-    });
 
     await retryStartupStep('MongoDB index setup', async () => {
       await repos.ensureIndexes();
@@ -5111,20 +5144,99 @@ async function boot() {
       console.log(`Admin seed ensured for ${seededAdmin.email} (${seededAdmin.role})`);
     }
 
-    app.use(apiNotFoundHandler);
+    if (!bootRoutesRegistered) {
+      registerAuthRoutes(app, {
+        repos,
+        authStore: otpAuthStore,
+        walletService,
+        authMiddleware,
+        tokenService,
+        buildP2PUserFromEmail,
+        createLegacyP2PUserSession: createP2PUserSession,
+        setCookie,
+        clearCookie,
+        cookieNames: {
+          accessToken: P2P_ACCESS_COOKIE_NAME,
+          refreshToken: P2P_REFRESH_COOKIE_NAME,
+          legacyP2PSession: P2P_USER_COOKIE_NAME
+        },
+        p2pUserTtlMs: P2P_USER_TTL_MS,
+        auditLogService,
+        authEmailService,
+        captchaVerifier: geetestService,
+        otpTtlMs: SIGNUP_OTP_TTL_MS,
+        enableLegacyOtpEndpoints: false,
+        onLoginSuccess: async ({ user, ipAddress, userAgent }) => {
+          if (!userCenterService) {
+            return;
+          }
+          await userCenterService.recordLoginEvent(user, {
+            ip: ipAddress,
+            device: userAgent
+          });
+        }
+      });
 
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(__dirname, 'public', 'index.html'));
-    });
+      registerOtpAuthRoutes(app, {
+        otpAuthService,
+        setCookie,
+        tokenService,
+        cookieNames: otpAuthConfig.cookieNames,
+        isProduction: IS_PRODUCTION,
+        onLoginSuccess: async ({ user, ipAddress, userAgent }) => {
+          if (!userCenterService) {
+            return;
+          }
+          await userCenterService.recordLoginEvent(user, {
+            ip: ipAddress,
+            device: userAgent
+          });
+        }
+      });
 
-    // Sentry must be before other error handlers
-    if (process.env.SENTRY_DSN) {
-      app.use(Sentry.expressErrorHandler());
+      registerUserCenterRoutes(app, {
+        requiresP2PUser,
+        userCenterService
+      });
+
+      registerSocialFeedRoutes(app, {
+        socialFeedService,
+        requiresP2PUser,
+        getP2PUserFromRequest,
+        requiresAdminSession
+      });
+
+      registerP2POrderRoutes(app, {
+        requiresP2PUser,
+        controller: p2pOrderController
+      });
+
+      registerAdminRoutes(app, {
+        adminStore,
+        adminAuthMiddleware,
+        adminControllers,
+        auditLogService
+      });
+
+      registerAdminExtendedRoutes(app, {
+        adminStore,
+        extendedStore,
+        adminAuthMiddleware
+      });
+
+      app.use(apiNotFoundHandler);
+
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+      });
+
+      // Sentry must be before other error handlers
+      if (process.env.SENTRY_DSN) {
+        app.use(Sentry.expressErrorHandler());
+      }
+      app.use(errorHandler);
+      bootRoutesRegistered = true;
     }
-    app.use(errorHandler);
-
-    await startHttpServer();
-    registerShutdownHandlers();
 
     if (p2pExpirySweepTimer) {
       clearInterval(p2pExpirySweepTimer);
@@ -5184,15 +5296,29 @@ async function boot() {
     }
 
     persistenceReady = true;
+    bootState.state = 'ready';
+    bootState.readyAt = new Date().toISOString();
+    bootState.lastFailureAt = null;
+    bootState.lastError = null;
+    if (bootRetryTimer) {
+      clearTimeout(bootRetryTimer);
+      bootRetryTimer = null;
+    }
     console.log(`MongoDB connected to ${mongoConfig.dbName}`);
   } catch (error) {
+    persistenceReady = false;
+    bootState.state = 'error';
+    bootState.lastFailureAt = new Date().toISOString();
+    bootState.lastError = String(error?.message || error);
     if (error?.code === 'EADDRINUSE') {
-      console.error(`[boot] Fatal startup error: port ${PORT} is already in use.`);
+      console.error(`[boot] Startup error: port ${PORT} is already in use.`);
     } else {
-      console.error('[boot] Fatal startup error:', error.message);
+      console.error('[boot] Startup error:', error.message);
     }
     if (error.stack) console.error(error.stack);
-    process.exit(1); // no retry — fail fast, let the process manager restart if needed
+    scheduleBootRetry();
+  } finally {
+    bootInProgress = false;
   }
 }
 
