@@ -288,6 +288,16 @@ const mobileOrdersCache = new Map();
 let profileWalletBalance = 0;
 let profileWalletLocked = 0;
 let profileWalletSyncedAt = 0;
+let profilePanelRefreshPromise = null;
+let profilePanelQueuedOptions = null;
+let profilePanelLastCompletedAt = 0;
+let profilePanelTimerId = null;
+let profilePanelFrameId = 0;
+let liveOrdersRefreshPromise = null;
+let liveOrdersQueuedOptions = null;
+let liveOrdersLastNetworkAt = 0;
+let liveOrdersTimerId = null;
+let liveOrdersFrameId = 0;
 let paymentMethodsCache = [];
 let paymentMethodFormState = {
   methodId: '',
@@ -310,6 +320,15 @@ const KYC_REQUIRED_CODES = new Set(['KYC_REQUIRED', 'KYC_PENDING', 'KYC_REJECTED
 const KYC_ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
 const KYC_MAX_FILE_SIZE = 6 * 1024 * 1024;
 const KYC_TARGET_IMAGE_BYTES = 320 * 1024;
+const PROFILE_PANEL_MIN_REFRESH_MS = 180;
+const PROFILE_REPUTATION_CACHE_MS = 30 * 1000;
+const LIVE_ORDERS_MIN_REFRESH_MS = 3500;
+const ownProfileReputationCache = {
+  userId: '',
+  ts: 0,
+  data: null,
+  promise: null
+};
 // SVG icon helpers for payment methods
 var PM_ICONS = {
   UPI: '<svg viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#ff9900"/><path d="M10 22L14 10l4 8 4-12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -1629,7 +1648,150 @@ window.confirmEmailOtp = async function() {
   }
 };
 
-async function loadProfilePanel(options = {}) {
+function _mergeProfilePanelOptions(base, next) {
+  return {
+    refreshWallet: Boolean(base && base.refreshWallet) || Boolean(next && next.refreshWallet),
+    immediate: Boolean(base && base.immediate) || Boolean(next && next.immediate)
+  };
+}
+
+function _scheduleUiRefresh(delayMs, timerRef, frameRef, callback) {
+  if (timerRef && timerRef.value) {
+    clearTimeout(timerRef.value);
+    timerRef.value = null;
+  }
+  if (frameRef && frameRef.value && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(frameRef.value);
+    frameRef.value = 0;
+  }
+
+  var run = function() {
+    if (frameRef && typeof window.requestAnimationFrame === 'function') {
+      frameRef.value = window.requestAnimationFrame(function() {
+        frameRef.value = 0;
+        callback();
+      });
+      return;
+    }
+    callback();
+  };
+
+  if (delayMs > 0) {
+    timerRef.value = setTimeout(function() {
+      timerRef.value = null;
+      run();
+    }, delayMs);
+    return;
+  }
+
+  run();
+}
+
+function _renderOwnProfileReputation(rep) {
+  if (!rep || !currentUser) {
+    return;
+  }
+  currentUser._rep = rep;
+  var ratingRow = document.getElementById('profileRatingRow');
+  var avgStarsVal = document.getElementById('profileAvgStarsVal');
+  var ratingCountEl = document.getElementById('profileRatingCount');
+  if (ratingRow && rep.avgStars != null) {
+    ratingRow.style.display = 'block';
+    if (avgStarsVal) avgStarsVal.textContent = Number(rep.avgStars).toFixed(1);
+    if (ratingCountEl) ratingCountEl.textContent = '(' + (rep.ratingCount || 0) + ' ratings)';
+  }
+}
+
+function _loadOwnProfileReputation() {
+  if (!currentUser || !getCurrentUserId()) {
+    ownProfileReputationCache.userId = '';
+    ownProfileReputationCache.ts = 0;
+    ownProfileReputationCache.data = null;
+    ownProfileReputationCache.promise = null;
+    return Promise.resolve(null);
+  }
+
+  var userId = getCurrentUserId();
+  var now = Date.now();
+  if (
+    ownProfileReputationCache.userId === userId &&
+    ownProfileReputationCache.data &&
+    now - ownProfileReputationCache.ts < PROFILE_REPUTATION_CACHE_MS
+  ) {
+    _renderOwnProfileReputation(ownProfileReputationCache.data);
+    return Promise.resolve(ownProfileReputationCache.data);
+  }
+
+  if (ownProfileReputationCache.userId === userId && ownProfileReputationCache.promise) {
+    return ownProfileReputationCache.promise;
+  }
+
+  ownProfileReputationCache.userId = userId;
+  ownProfileReputationCache.promise = fetch(
+    '/api/p2p/users/' + encodeURIComponent(userId) + '/reputation',
+    { credentials: 'include' }
+  )
+    .then(function(response) {
+      return response.ok ? response.json() : null;
+    })
+    .then(function(rep) {
+      ownProfileReputationCache.promise = null;
+      if (!rep || ownProfileReputationCache.userId !== userId) {
+        return null;
+      }
+      ownProfileReputationCache.ts = Date.now();
+      ownProfileReputationCache.data = rep;
+      _renderOwnProfileReputation(rep);
+      return rep;
+    })
+    .catch(function() {
+      ownProfileReputationCache.promise = null;
+      return null;
+    });
+
+  return ownProfileReputationCache.promise;
+}
+
+async function _drainProfilePanelQueue() {
+  while (profilePanelQueuedOptions) {
+    const nextOptions = profilePanelQueuedOptions;
+    profilePanelQueuedOptions = null;
+    await _loadProfilePanelNow(nextOptions);
+    profilePanelLastCompletedAt = Date.now();
+  }
+}
+
+function loadProfilePanel(options = {}) {
+  profilePanelQueuedOptions = _mergeProfilePanelOptions(profilePanelQueuedOptions, options);
+
+  if (profilePanelRefreshPromise) {
+    return profilePanelRefreshPromise;
+  }
+
+  const delayMs = !currentUser || profilePanelQueuedOptions.immediate
+    ? 0
+    : Math.max(0, PROFILE_PANEL_MIN_REFRESH_MS - (Date.now() - profilePanelLastCompletedAt));
+
+  profilePanelRefreshPromise = new Promise(function(resolve, reject) {
+    _scheduleUiRefresh(
+      delayMs,
+      { get value() { return profilePanelTimerId; }, set value(value) { profilePanelTimerId = value; } },
+      { get value() { return profilePanelFrameId; }, set value(value) { profilePanelFrameId = value; } },
+      function() {
+        _drainProfilePanelQueue()
+          .then(resolve)
+          .catch(reject)
+          .finally(function() {
+            profilePanelRefreshPromise = null;
+          });
+      }
+    );
+  });
+
+  return profilePanelRefreshPromise;
+}
+
+async function _loadProfilePanelNow(options = {}) {
   if (!profileSection && !document.getElementById('mobProfileScreen')) {
     return;
   }
@@ -1659,6 +1821,10 @@ async function loadProfilePanel(options = {}) {
     profileWalletBalance = 0;
     profileWalletLocked = 0;
     profileWalletSyncedAt = 0;
+    ownProfileReputationCache.userId = '';
+    ownProfileReputationCache.ts = 0;
+    ownProfileReputationCache.data = null;
+    ownProfileReputationCache.promise = null;
     mobileOrdersCache.clear();
     applyProfileAvatarToNode(profileAvatar, null, 'U');
     applyProfileAvatarToNode(profileAvatarMobile, null, 'U');
@@ -1842,23 +2008,7 @@ async function loadProfilePanel(options = {}) {
     `All trades: ${totalOrdersAll} | 30D trades: ${totalOrders30d} | Cancelled: ${cancelledOrders30d.length} | Wallet: ${formatNumber(profileWalletBalance)}`
   );
 
-  // Fetch own reputation (stars + rating count) and show on profile
-  if (currentUser && getCurrentUserId()) {
-    fetch('/api/p2p/users/' + encodeURIComponent(getCurrentUserId()) + '/reputation', { credentials: 'include' })
-      .then(function(r) { return r.ok ? r.json() : null; })
-      .then(function(rep) {
-        if (!rep || !currentUser) return;
-        currentUser._rep = rep;
-        var ratingRow = document.getElementById('profileRatingRow');
-        var avgStarsVal = document.getElementById('profileAvgStarsVal');
-        var ratingCountEl = document.getElementById('profileRatingCount');
-        if (ratingRow && rep.avgStars != null) {
-          ratingRow.style.display = 'block';
-          if (avgStarsVal) avgStarsVal.textContent = Number(rep.avgStars).toFixed(1);
-          if (ratingCountEl) ratingCountEl.textContent = '(' + (rep.ratingCount || 0) + ' ratings)';
-        }
-      }).catch(function() {});
-  }
+  await _loadOwnProfileReputation();
 }
 
 function compressImageFileToDataUrl(file, options = {}) {
@@ -2060,11 +2210,11 @@ function syncMobileTabFromHash(options = {}) {
   if (resolvedTab === 'orders') {
     _applyOrdersFocusState();
     renderMobileOrdersList();
-    loadLiveOrders();
+    loadLiveOrders({ immediate: true });
   } else if (resolvedTab === 'ads') {
     loadMyAds();
   } else if (resolvedTab === 'profile') {
-    loadProfilePanel();
+    loadProfilePanel({ immediate: true });
   } else if (options.refreshP2P !== false) {
     loadOffers();
   }
@@ -2087,11 +2237,11 @@ function setMobileTab(tab, options = {}) {
     if (normalized === 'orders') {
       _applyOrdersFocusState();
       renderMobileOrdersList();
-      loadLiveOrders();
+      loadLiveOrders({ immediate: true });
     } else if (normalized === 'ads') {
       loadMyAds();
     } else if (normalized === 'profile') {
-      loadProfilePanel();
+      loadProfilePanel({ immediate: true });
     } else {
       loadOffers();
     }
@@ -2817,6 +2967,9 @@ async function loadExchangeTicker() {
   if (!exchangeTicker) {
     return;
   }
+  if (document.visibilityState === 'hidden') {
+    return;
+  }
 
   try {
     const response = await fetch('/api/p2p/exchange-ticker?symbols=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT');
@@ -3414,7 +3567,52 @@ async function submitDealOrder() {
   }
 }
 
-function renderLiveOrders(orders) {
+function _mergeLiveOrdersOptions(base, next) {
+  return {
+    force: Boolean(base && base.force) || Boolean(next && next.force),
+    immediate: Boolean(base && base.immediate) || Boolean(next && next.immediate)
+  };
+}
+
+function _renderKnownLiveOrdersState() {
+  if (!currentUser) {
+    return;
+  }
+  var cachedOrders = [];
+  if (_ordLoaded && Array.isArray(_ordAllOrders) && _ordAllOrders.length) {
+    cachedOrders = _ordAllOrders;
+  } else {
+    cachedOrders = _ordLoadSavedSnapshots({ activeOnly: true });
+  }
+  if (!cachedOrders.length) {
+    return;
+  }
+  var visibleCount = renderLiveOrders(cachedOrders, { skipProfileRefresh: true });
+  if (liveOrdersMeta) {
+    liveOrdersMeta.textContent = `Ongoing Orders: ${visibleCount}`;
+  }
+}
+
+async function _drainLiveOrdersQueue() {
+  while (liveOrdersQueuedOptions) {
+    const nextOptions = liveOrdersQueuedOptions;
+    liveOrdersQueuedOptions = null;
+
+    const tooSoonForNetwork =
+      !nextOptions.force &&
+      liveOrdersLastNetworkAt > 0 &&
+      Date.now() - liveOrdersLastNetworkAt < LIVE_ORDERS_MIN_REFRESH_MS;
+
+    if (tooSoonForNetwork) {
+      _renderKnownLiveOrdersState();
+      continue;
+    }
+
+    await _loadLiveOrdersNow(nextOptions);
+  }
+}
+
+function renderLiveOrders(orders, options = {}) {
   const incomingOrders = Array.isArray(orders) ? orders : [];
   const currentUserId = String(currentUser?.id || '').trim();
   const hydratedOrders = _ordMergeById(incomingOrders, _ordLoadSavedSnapshots({ activeOnly: false }));
@@ -3449,7 +3647,9 @@ function renderLiveOrders(orders) {
       liveOrdersCards.innerHTML = '<article class="p2p-live-order-card"><p class="empty-row">No ongoing orders available.</p></article>';
     }
     renderMobileOrdersList();
-    loadProfilePanel();
+    if (!options.skipProfileRefresh) {
+      loadProfilePanel();
+    }
     return 0;
   }
 
@@ -3501,11 +3701,47 @@ function renderLiveOrders(orders) {
   }
 
   renderMobileOrdersList();
-  loadProfilePanel();
+  if (!options.skipProfileRefresh) {
+    loadProfilePanel();
+  }
   return visibleOrders.length;
 }
 
-async function loadLiveOrders() {
+function loadLiveOrders(options = {}) {
+  liveOrdersQueuedOptions = _mergeLiveOrdersOptions(liveOrdersQueuedOptions, options);
+
+  if (liveOrdersRefreshPromise) {
+    return liveOrdersRefreshPromise;
+  }
+
+  const delayMs = !currentUser || liveOrdersQueuedOptions.immediate
+    ? 0
+    : Math.max(0, LIVE_ORDERS_MIN_REFRESH_MS - (Date.now() - liveOrdersLastNetworkAt));
+
+  if (delayMs > 0) {
+    _renderKnownLiveOrdersState();
+  }
+
+  liveOrdersRefreshPromise = new Promise(function(resolve, reject) {
+    _scheduleUiRefresh(
+      delayMs,
+      { get value() { return liveOrdersTimerId; }, set value(value) { liveOrdersTimerId = value; } },
+      { get value() { return liveOrdersFrameId; }, set value(value) { liveOrdersFrameId = value; } },
+      function() {
+        _drainLiveOrdersQueue()
+          .then(resolve)
+          .catch(reject)
+          .finally(function() {
+            liveOrdersRefreshPromise = null;
+          });
+      }
+    );
+  });
+
+  return liveOrdersRefreshPromise;
+}
+
+async function _loadLiveOrdersNow() {
   if (!liveOrdersMeta) {
     return;
   }
@@ -3527,12 +3763,13 @@ async function loadLiveOrders() {
 
   try {
     if (_ordLoaded && Array.isArray(_ordAllOrders) && _ordAllOrders.length) {
-      const warmVisibleCount = renderLiveOrders(_ordAllOrders);
+      const warmVisibleCount = renderLiveOrders(_ordAllOrders, { skipProfileRefresh: true });
       if (warmVisibleCount > 0) {
         liveOrdersMeta.textContent = `Ongoing Orders: ${warmVisibleCount}`;
       }
     }
 
+    liveOrdersLastNetworkAt = Date.now();
     const response = await fetch('/api/p2p/orders/my-active', {
       credentials: 'include',
       headers: { 'Cache-Control': 'no-store' }
@@ -5916,7 +6153,7 @@ setInterval(function() {
 }, 13 * 60 * 1000);
 
 setInterval(() => {
-  if (currentUser && !activeOrderId && liveOrdersMeta) {
+  if (currentUser && !activeOrderId && liveOrdersMeta && document.visibilityState !== 'hidden') {
     loadLiveOrders();
   }
 }, 20000); // 20s — was 1.5s; reduces server hammering; SSE handles real-time
@@ -5925,7 +6162,7 @@ setInterval(loadExchangeTicker, 7000);
 
 // Auto-refresh KYC status every 20s so profile updates immediately after admin approves
 setInterval(() => {
-  if (currentUser) refreshCurrentUserKyc();
+  if (currentUser && document.visibilityState !== 'hidden') refreshCurrentUserKyc();
 }, 20000);
 
 // ===== KYC FULL-PAGE SCREENS =====
