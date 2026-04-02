@@ -1029,6 +1029,69 @@ function getMobileNavTabValue(link) {
   return link.dataset.mobileTab || link.dataset.mob || 'p2p';
 }
 
+const recentUiActionTimestamps = new Map();
+
+function shouldSkipRapidUiAction(actionKey, windowMs) {
+  var key = String(actionKey || '').trim();
+  if (!key) {
+    return false;
+  }
+  var now = Date.now();
+  var threshold = Math.max(120, Number(windowMs) || 420);
+  var previousTs = recentUiActionTimestamps.get(key) || 0;
+  recentUiActionTimestamps.set(key, now);
+  return (now - previousTs) < threshold;
+}
+
+function openMobileDestination(tabName) {
+  if (!isMobileViewport()) {
+    return false;
+  }
+
+  var raw = String(tabName || '').trim().toLowerCase();
+  var normalized = raw === 'ads' ? 'ads' : normalizeMobileTabName(raw);
+
+  if (normalized === 'orders') {
+    if (typeof window.showMobScreen === 'function') {
+      window.showMobScreen('mobOrdersScreen');
+    } else {
+      setMobileTab('orders');
+    }
+    return true;
+  }
+
+  if (normalized === 'ads' || normalized === 'post') {
+    if (typeof window.showMobScreen === 'function') {
+      window.showMobScreen('mobPostAdScreen');
+      if (typeof initMobPostAdScreen === 'function') {
+        initMobPostAdScreen();
+      }
+    } else {
+      setMobileTab('ads');
+    }
+    return true;
+  }
+
+  if (normalized === 'profile') {
+    if (typeof window.showMobScreen === 'function') {
+      window.showMobScreen('mobProfileScreen');
+      if (typeof loadProfilePanel === 'function') {
+        loadProfilePanel();
+      }
+    } else {
+      setMobileTab('profile');
+    }
+    return true;
+  }
+
+  if (typeof window.hideMobScreens === 'function') {
+    window.hideMobScreens();
+  } else {
+    setMobileTab('p2p');
+  }
+  return true;
+}
+
 function setMobileNavActive(tab) {
   if (!p2pMobileBottomNav) {
     return;
@@ -5732,8 +5795,13 @@ if (p2pMobileBottomNav) {
       return;
     }
     if (isMobileViewport()) {
+      const targetTab = getMobileNavTabValue(targetLink);
       event.preventDefault();
-      setMobileTab(getMobileNavTabValue(targetLink));
+      event.stopPropagation();
+      if (shouldSkipRapidUiAction(`mobile-nav:${targetTab}`, 420)) {
+        return;
+      }
+      openMobileDestination(targetTab);
     }
   });
 }
@@ -5745,11 +5813,18 @@ document.querySelectorAll('[data-mobile-tab-target]').forEach((link) => {
     }
     const tab = normalizeMobileTabName(link.getAttribute('data-mobile-tab-target'));
     event.preventDefault();
-    setMobileTab(tab);
+    if (shouldSkipRapidUiAction(`mobile-nav:${tab}`, 420)) {
+      return;
+    }
+    setP2PNavOpen(false);
+    openMobileDestination(tab);
   });
 });
 
 window.addEventListener('hashchange', () => {
+  if (isMobileViewport() && openMobileDestination(String(window.location.hash || '').replace('#', ''))) {
+    return;
+  }
   syncMobileTabFromHash({ refreshP2P: false });
 });
 
@@ -5757,6 +5832,9 @@ window.addEventListener('resize', () => {
   if (!isMobileViewport()) {
     setMobileNavActive('p2p');
     document.body.dataset.mobileTab = 'p2p';
+    return;
+  }
+  if (openMobileDestination(String(window.location.hash || '').replace('#', ''))) {
     return;
   }
   syncMobileTabFromHash({ refreshP2P: false });
@@ -6754,8 +6832,47 @@ function openKycScreen() {
   if (kycStatus === 'VERIFIED') {
     return;
   }
-  document.getElementById('kycBasicScreen').style.setProperty('display','flex','important');
-  document.getElementById('kycBasicScreen').style.flexDirection = 'column';
+  openKycSubmissionFlow();
+}
+
+function openKycSubmissionFlow() {
+  ['kycRejectedScreen', 'kycUnderReviewScreen', 'kycAdvanceScreen'].forEach(function(id) {
+    var screen = document.getElementById(id);
+    if (screen) {
+      screen.style.display = 'none';
+    }
+  });
+  var basicScreen = document.getElementById('kycBasicScreen');
+  if (basicScreen) {
+    basicScreen.style.setProperty('display','flex','important');
+    basicScreen.style.flexDirection = 'column';
+  }
+}
+
+function closeKycRejectedScreen() {
+  var rejectedScreen = document.getElementById('kycRejectedScreen');
+  if (rejectedScreen) {
+    rejectedScreen.style.display = 'none';
+  }
+}
+
+function returnToProfileFromKycStatus() {
+  closeKycRejectedScreen();
+  var reviewScreen = document.getElementById('kycUnderReviewScreen');
+  if (reviewScreen) {
+    reviewScreen.style.display = 'none';
+  }
+  showProfileFlowScreen('mobProfileScreen', 'profile');
+  if (typeof loadProfilePanel === 'function') {
+    loadProfilePanel();
+  }
+}
+
+var _kycAdvanceSubmitting = false;
+
+function reopenKycSubmissionFlow() {
+  closeKycRejectedScreen();
+  openKycSubmissionFlow();
 }
 
 function closeKycScreens() {
@@ -6794,6 +6911,9 @@ function _kycHint(id, msg, type) {
 }
 
 function submitKycBasicAndNext() {
+  if (shouldSkipRapidUiAction('kyc-basic-next', 420)) {
+    return;
+  }
   var name  = ((document.getElementById('kycFullName')||{}).value||'').trim();
   var dob   = ((document.getElementById('kycDob')||{}).value||'').trim();
   var phone = ((document.getElementById('kycPhone')||{}).value||'').trim();
@@ -6810,6 +6930,9 @@ function submitKycBasicAndNext() {
 }
 
 function submitKycAdvance() {
+  if (_kycAdvanceSubmitting) {
+    return;
+  }
   var aadhaarNum = ((document.getElementById('kycAadhaarNumber')||{}).value||'').replace(/\s/g,'');
   var front   = (document.getElementById('kycAadhaarFront')||{}).files;
   var back    = (document.getElementById('kycAadhaarBack')||{}).files;
@@ -6823,6 +6946,7 @@ function submitKycAdvance() {
 
   // Disable button while submitting
   var btn = document.querySelector('#kycAdvanceScreen [data-kyc-submit]');
+  _kycAdvanceSubmitting = true;
   if(btn){ btn.disabled=true; btn.textContent='Uploading…'; }
   _kycHint('kycAdvHint','Uploading documents, please wait…','');
 
@@ -6895,14 +7019,17 @@ function submitKycAdvance() {
           reviewScreen.style.flexDirection = 'column';
         }
       }, 450);
+      _kycAdvanceSubmitting = false;
     } else {
       var msg = (result.data && result.data.message) || 'Submission failed. Please try again.';
       _kycHint('kycAdvHint', msg, 'error');
       if(btn){ btn.disabled=false; btn.textContent='Submit for Verification'; }
+      _kycAdvanceSubmitting = false;
     }
   }).catch(function(err) {
     _kycHint('kycAdvHint','Network error. Please check connection and retry.','error');
     if(btn){ btn.disabled=false; btn.textContent='Submit for Verification'; }
+    _kycAdvanceSubmitting = false;
   });
 }
 
@@ -7087,50 +7214,68 @@ window.deleteMobAd = async function(offerId) {
     else if (hash === 'profile-payment') { openPaymentMethodsScreen(); }
     else if (hash === 'profile-payment-add') { openPaymentMethodPickerScreen(); }
     else if (hash === 'orders') { showMobScreen('mobOrdersScreen'); }
+    else if (hash === 'ads') { showMobScreen('mobPostAdScreen'); initMobPostAdScreen(); }
   })();
+
+  function runMobileUiAction(event, actionKey, callback) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (shouldSkipRapidUiAction(actionKey, 420)) {
+      return true;
+    }
+    callback();
+    return true;
+  }
 
   // Unified click handler — nav tabs + back + KYC actions
   document.addEventListener('click', function(e) {
     // Bottom nav tabs
     var tab = e.target.closest('.mob-tab[data-mob]');
     if (tab) {
-      e.preventDefault();
       var mob = tab.getAttribute('data-mob');
-      document.querySelectorAll('.mob-tab').forEach(function(t){ t.classList.remove('active'); });
-      tab.classList.add('active');
-      if (mob === 'profile') showMobScreen('mobProfileScreen');
-      else if (mob === 'orders') showMobScreen('mobOrdersScreen');
-      else if (mob === 'post') { showMobScreen('mobPostAdScreen'); initMobPostAdScreen(); }
-      else hideMobScreens();
+      runMobileUiAction(e, 'mob-tab:' + mob, function() {
+        document.querySelectorAll('.mob-tab').forEach(function(t){ t.classList.remove('active'); });
+        tab.classList.add('active');
+        openMobileDestination(mob);
+      });
       return;
     }
     // Back to main
     var back = e.target.closest('[data-mob-back]');
-    if (back) { e.preventDefault(); hideMobScreens(); return; }
+    if (back) { runMobileUiAction(e, 'mob-back:' + (back.getAttribute('data-mob-back') || 'p2p'), hideMobScreens); return; }
     // Open Payment Methods from profile menu
     var pmRow = e.target.closest('[data-open-payment]');
     if (pmRow) {
       if (window._pmJustClosed && Date.now() - window._pmJustClosed < 500) return;
-      e.preventDefault();
-      window._pmJustOpened = Date.now();
-      openPaymentMethodsScreen();
+      runMobileUiAction(e, 'profile-open-payment', function() {
+        window._pmJustOpened = Date.now();
+        openPaymentMethodsScreen();
+      });
       return;
     }
     // Open KYC from profile menu
     var kycRow = e.target.closest('[data-open-kyc]');
-    if (kycRow) { e.preventDefault(); openKycScreen(); return; }
+    if (kycRow) { runMobileUiAction(e, 'profile-open-kyc', openKycScreen); return; }
     // KYC Step 1 → Step 2
     var kycNext = e.target.closest('[data-kyc-next]');
-    if (kycNext) { e.preventDefault(); submitKycBasicAndNext(); return; }
+    if (kycNext) { runMobileUiAction(e, 'kyc-next', submitKycBasicAndNext); return; }
     // KYC Submit
     var kycSubmit = e.target.closest('[data-kyc-submit]');
-    if (kycSubmit) { e.preventDefault(); submitKycAdvance(); return; }
+    if (kycSubmit) { runMobileUiAction(e, 'kyc-submit', submitKycAdvance); return; }
     // Close KYC (back from step 1 to profile)
     var kycClose = e.target.closest('[data-kyc-close]');
-    if (kycClose) { e.preventDefault(); closeKycScreens(); return; }
+    if (kycClose) { runMobileUiAction(e, 'kyc-close', closeKycScreens); return; }
     // Back to step 1 from step 2
     var kycBack = e.target.closest('[data-kyc-back]');
-    if (kycBack) { e.preventDefault(); backToKycBasic(); return; }
+    if (kycBack) { runMobileUiAction(e, 'kyc-back', backToKycBasic); return; }
+    var kycRejectedClose = e.target.closest('[data-kyc-rejected-close]');
+    if (kycRejectedClose) { runMobileUiAction(e, 'kyc-rejected-close', closeKycRejectedScreen); return; }
+    var kycResubmit = e.target.closest('[data-kyc-resubmit]');
+    if (kycResubmit) { runMobileUiAction(e, 'kyc-resubmit', reopenKycSubmissionFlow); return; }
+    var kycReviewBack = e.target.closest('[data-kyc-review-back]');
+    if (kycReviewBack) { runMobileUiAction(e, 'kyc-review-back', returnToProfileFromKycStatus); return; }
   });
 
   // iOS touchend — ensures taps work inside fixed/overflow elements
@@ -7139,18 +7284,27 @@ window.deleteMobAd = async function(offerId) {
     if (pmRow) {
       if (window._pmJustClosed && Date.now() - window._pmJustClosed < 500) return;
       if (window._pmJustOpened && Date.now() - window._pmJustOpened < 500) return;
-      e.preventDefault(); openPaymentMethodsScreen(); return;
+      runMobileUiAction(e, 'profile-open-payment', function() {
+        window._pmJustOpened = Date.now();
+        openPaymentMethodsScreen();
+      }); return;
     }
     var kycRow = e.target.closest('[data-open-kyc]');
-    if (kycRow) { e.preventDefault(); openKycScreen(); return; }
+    if (kycRow) { runMobileUiAction(e, 'profile-open-kyc', openKycScreen); return; }
     var kycNext = e.target.closest('[data-kyc-next]');
-    if (kycNext) { e.preventDefault(); submitKycBasicAndNext(); return; }
+    if (kycNext) { runMobileUiAction(e, 'kyc-next', submitKycBasicAndNext); return; }
     var kycSubmit = e.target.closest('[data-kyc-submit]');
-    if (kycSubmit) { e.preventDefault(); submitKycAdvance(); return; }
+    if (kycSubmit) { runMobileUiAction(e, 'kyc-submit', submitKycAdvance); return; }
     var kycClose = e.target.closest('[data-kyc-close]');
-    if (kycClose) { e.preventDefault(); closeKycScreens(); return; }
+    if (kycClose) { runMobileUiAction(e, 'kyc-close', closeKycScreens); return; }
     var kycBack = e.target.closest('[data-kyc-back]');
-    if (kycBack) { e.preventDefault(); backToKycBasic(); return; }
+    if (kycBack) { runMobileUiAction(e, 'kyc-back', backToKycBasic); return; }
+    var kycRejectedClose = e.target.closest('[data-kyc-rejected-close]');
+    if (kycRejectedClose) { runMobileUiAction(e, 'kyc-rejected-close', closeKycRejectedScreen); return; }
+    var kycResubmit = e.target.closest('[data-kyc-resubmit]');
+    if (kycResubmit) { runMobileUiAction(e, 'kyc-resubmit', reopenKycSubmissionFlow); return; }
+    var kycReviewBack = e.target.closest('[data-kyc-review-back]');
+    if (kycReviewBack) { runMobileUiAction(e, 'kyc-review-back', returnToProfileFromKycStatus); return; }
   }, { passive: false });
 })();
 
