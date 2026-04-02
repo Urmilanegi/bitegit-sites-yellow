@@ -1,0 +1,143 @@
+name: Health Monitor
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bitegit-health-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run production and staging health checks
+        run: node scripts/check-health.js
+        env:
+          PRODUCTION_HEALTH_URL: https://www.bitegit.com/api/health
+          STAGING_HEALTH_URL: https://bitegit-sites-staging.onrender.com/api/health
+
+      - name: Publish monitoring report
+        if: always()
+        run: cat health-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update monitoring issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = 'Monitoring alert: Bitegit health check failed';
+            const labelName = 'monitoring';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.readFileSync('health-report.md', 'utf8');
+            const body = `${report}\n\n[Open workflow run](${runUrl})`;
+
+            async function ensureLabel() {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: labelName });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: labelName,
+                  color: 'D73A49',
+                  description: 'Automated Bitegit health monitoring alerts'
+                });
+              }
+            }
+
+            await ensureLabel();
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: labelName,
+              per_page: 100
+            });
+            const existing = issues.find((issue) => issue.title === title);
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body
+              });
+              core.info(`Updated monitoring issue #${existing.number}`);
+              return;
+            }
+
+            const created = await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+              labels: [labelName]
+            });
+            core.info(`Created monitoring issue #${created.data.number}`);
+
+      - name: Close monitoring issue on recovery
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = 'Monitoring alert: Bitegit health check failed';
+            const labelName = 'monitoring';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.readFileSync('health-report.md', 'utf8');
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: labelName,
+              per_page: 100
+            });
+            const existing = issues.find((issue) => issue.title === title);
+
+            if (!existing) {
+              core.info('No open monitoring issue to close.');
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existing.number,
+              body: `Recovery detected.\n\n${report}\n\n[Open workflow run](${runUrl})`
+            });
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: existing.number,
+              state: 'closed'
+            });
+            core.info(`Closed monitoring issue #${existing.number}`);

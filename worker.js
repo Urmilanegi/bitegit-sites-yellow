@@ -5,9 +5,11 @@ const { createRepositories } = require('./lib/repositories');
 const { createP2PEmailService } = require('./services/p2p-email-service');
 const { createP2PEmailJobWorker } = require('./services/p2p-email-job-queue');
 const { isRedisConfigured } = require('./services/redis-support');
+const { createWorkerHeartbeatReporter } = require('./services/worker-heartbeat');
 
 let shuttingDown = false;
 let emailWorker = null;
+let workerHeartbeatReporter = null;
 
 async function closeMongoClient() {
   let mongoClient = null;
@@ -28,6 +30,15 @@ async function shutdown(signal) {
   }
   shuttingDown = true;
   console.log(`[worker] ${signal} received, shutting down...`);
+
+  try {
+    if (workerHeartbeatReporter && typeof workerHeartbeatReporter.stop === 'function') {
+      await workerHeartbeatReporter.stop();
+      console.log('[worker] Heartbeat reporter closed.');
+    }
+  } catch (error) {
+    console.warn(`[worker] Failed to close heartbeat reporter cleanly: ${error.message}`);
+  }
 
   try {
     if (emailWorker && typeof emailWorker.close === 'function') {
@@ -66,6 +77,10 @@ async function main() {
     repos,
     p2pEmailService
   });
+  workerHeartbeatReporter = createWorkerHeartbeatReporter({
+    queueName: emailWorker.queueName
+  });
+  workerHeartbeatReporter.start();
 
   ['SIGINT', 'SIGTERM'].forEach((signal) => {
     process.on(signal, () => {

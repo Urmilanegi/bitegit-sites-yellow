@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitegit Ops Status</title>
+  <style>
+    :root {
+      --bg: #06131d;
+      --panel: rgba(10, 26, 38, 0.84);
+      --panel-border: rgba(142, 196, 255, 0.18);
+      --text: #ebf5ff;
+      --muted: #9ab8d0;
+      --ok: #42d392;
+      --warn: #f5b655;
+      --bad: #ff6b6b;
+      --accent: #72c8ff;
+      --accent-soft: rgba(114, 200, 255, 0.18);
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(114, 200, 255, 0.24), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(66, 211, 146, 0.18), transparent 28%),
+        linear-gradient(145deg, #041019 0%, #071823 48%, #0d2431 100%);
+      padding: 32px 18px 48px;
+    }
+
+    .shell {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+
+    .hero {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    .hero-card,
+    .panel {
+      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+      border-radius: 26px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      padding: 26px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 14px 0 10px;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      line-height: 0.95;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .button {
+      border: 1px solid var(--panel-border);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 12px 18px;
+      font: inherit;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .button:hover {
+      border-color: rgba(255, 255, 255, 0.28);
+    }
+
+    .metrics {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin-bottom: 24px;
+    }
+
+    .panel {
+      padding: 20px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .metric-value {
+      margin-top: 10px;
+      font-size: 1.75rem;
+      font-weight: 700;
+    }
+
+    .metric-subtext {
+      margin-top: 10px;
+      font-size: 0.95rem;
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: 1.4fr 1fr;
+    }
+
+    .module-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      margin-top: 16px;
+    }
+
+    .module-card {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 8px 14px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .status-pill::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 12px currentColor;
+    }
+
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+
+    dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 10px 14px;
+      margin: 16px 0 0;
+    }
+
+    dt {
+      color: var(--muted);
+    }
+
+    dd {
+      margin: 0;
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      word-break: break-word;
+    }
+
+    pre {
+      margin: 16px 0 0;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(0, 0, 0, 0.28);
+      color: #c6e4ff;
+      overflow: auto;
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-card">
+        <span class="eyebrow">Bitegit Ops</span>
+        <h1 id="page-title">Status Dashboard</h1>
+        <p id="page-subtitle">Live status for this Bitegit environment.</p>
+        <div class="hero-actions">
+          <button class="button" id="refresh-button" type="button">Refresh now</button>
+          <a class="button" href="/api/health" target="_blank" rel="noreferrer">Open JSON health</a>
+        </div>
+      </div>
+      <div class="hero-card">
+        <div id="overall-pill" class="status-pill warn">Checking</div>
+        <dl>
+          <dt>Host</dt>
+          <dd id="host-value">-</dd>
+          <dt>Last refresh</dt>
+          <dd id="refreshed-value">-</dd>
+          <dt>Latency</dt>
+          <dd id="latency-value">-</dd>
+          <dt>Commit</dt>
+          <dd id="commit-value">-</dd>
+        </dl>
+      </div>
+    </section>
+
+    <section class="metrics" id="metric-grid"></section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="metric-label">Module Status</div>
+        <div class="module-grid" id="module-grid"></div>
+      </div>
+      <div class="panel">
+        <div class="metric-label">Runtime</div>
+        <dl id="runtime-grid"></dl>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top: 18px;">
+      <div class="metric-label">Raw Payload</div>
+      <pre id="raw-json">{}</pre>
+    </section>
+  </main>
+
+  <script>
+    const refreshButton = document.getElementById('refresh-button');
+    const overallPill = document.getElementById('overall-pill');
+    const pageTitle = document.getElementById('page-title');
+    const pageSubtitle = document.getElementById('page-subtitle');
+    const hostValue = document.getElementById('host-value');
+    const refreshedValue = document.getElementById('refreshed-value');
+    const latencyValue = document.getElementById('latency-value');
+    const commitValue = document.getElementById('commit-value');
+    const metricGrid = document.getElementById('metric-grid');
+    const moduleGrid = document.getElementById('module-grid');
+    const runtimeGrid = document.getElementById('runtime-grid');
+    const rawJson = document.getElementById('raw-json');
+
+    function statusTone(value) {
+      const normalized = String(value || '').toLowerCase();
+      if (['ok', 'healthy', 'ready', 'connected', 'configured', 'redis-worker', 'redis-locked', 'mysql'].includes(normalized)) {
+        return 'ok';
+      }
+      if (['starting', 'repo-fallback', 'mongo-fallback', 'fallback-memory', 'local'].includes(normalized)) {
+        return 'warn';
+      }
+      return 'bad';
+    }
+
+    function formatValue(value) {
+      if (value === null || value === undefined || value === '') {
+        return 'n/a';
+      }
+      if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+      }
+      if (typeof value === 'number') {
+        return Number.isInteger(value) ? String(value) : value.toFixed(1);
+      }
+      return String(value);
+    }
+
+    function setPill(element, label, tone) {
+      element.className = `status-pill ${tone}`;
+      element.textContent = label;
+    }
+
+    function renderMetrics(payload) {
+      const worker = payload.worker || {};
+      const cards = [
+        {
+          label: 'Overall',
+          value: payload.status,
+          subtext: payload.ready ? 'Requests are fully ready.' : 'Startup safeguards are active.'
+        },
+        {
+          label: 'Database',
+          value: payload.db,
+          subtext: payload.boot?.state ? `Boot state: ${payload.boot.state}` : 'Database connectivity state.'
+        },
+        {
+          label: 'Email Worker',
+          value: worker.status || 'unknown',
+          subtext: worker.updatedAt ? `Last heartbeat ${worker.updatedAt}` : 'Waiting for worker heartbeat.'
+        },
+        {
+          label: 'Queue',
+          value: payload.modules?.emailQueue?.mode || 'unknown',
+          subtext: payload.modules?.backgroundJobs?.mode ? `Background jobs: ${payload.modules.backgroundJobs.mode}` : ''
+        }
+      ];
+
+      metricGrid.innerHTML = cards.map((card) => {
+        const tone = statusTone(card.value);
+        return `
+          <article class="panel">
+            <div class="metric-label">${card.label}</div>
+            <div class="metric-value ${tone}">${formatValue(card.value)}</div>
+            <div class="metric-subtext">${card.subtext}</div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    function renderModules(payload) {
+      const entries = Object.entries(payload.modules || {});
+      moduleGrid.innerHTML = entries.map(([name, details]) => {
+        const value = typeof details === 'object' ? (details.status || details.mode || 'unknown') : details;
+        const detailLines = typeof details === 'object'
+          ? Object.entries(details)
+              .filter(([key]) => !['key'].includes(key))
+              .map(([key, innerValue]) => `<div class="metric-subtext">${key}: ${formatValue(innerValue)}</div>`)
+              .join('')
+          : '';
+        return `
+          <article class="module-card">
+            <div class="metric-label">${name}</div>
+            <div class="metric-value ${statusTone(value)}" style="font-size:1.2rem;">${formatValue(value)}</div>
+            ${detailLines}
+          </article>
+        `;
+      }).join('');
+    }
+
+    function renderRuntime(payload) {
+      const runtime = payload.runtime || {};
+      const entries = [
+        ['serviceName', runtime.serviceName],
+        ['environment', runtime.environment],
+        ['version', runtime.version],
+        ['node', runtime.node],
+        ['uptimeSeconds', runtime.uptimeSeconds],
+        ['memoryRssMb', runtime.memoryRssMb],
+        ['hostname', runtime.hostname],
+        ['instanceId', runtime.instanceId],
+        ['gitBranch', runtime.gitBranch]
+      ];
+
+      runtimeGrid.innerHTML = entries.map(([label, value]) => `
+        <dt>${label}</dt>
+        <dd>${formatValue(value)}</dd>
+      `).join('');
+    }
+
+    async function refreshDashboard() {
+      refreshButton.disabled = true;
+      const startedAt = performance.now();
+
+      try {
+        const response = await fetch('/api/health', {
+          headers: {
+            accept: 'application/json'
+          },
+          cache: 'no-store'
+        });
+        const payload = await response.json();
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        const tone = payload.ready && payload.worker?.status === 'healthy'
+          ? 'ok'
+          : statusTone(payload.worker?.status || payload.status);
+
+        pageTitle.textContent = `${payload.runtime?.serviceName || 'Bitegit'} Status`;
+        pageSubtitle.textContent = `Live status for ${window.location.origin}`;
+        hostValue.textContent = window.location.host;
+        refreshedValue.textContent = new Date().toLocaleString();
+        latencyValue.textContent = `${elapsedMs} ms`;
+        commitValue.textContent = payload.runtime?.gitCommit || 'n/a';
+        setPill(overallPill, `${payload.status} / worker ${payload.worker?.status || 'unknown'}`, tone);
+        renderMetrics(payload);
+        renderModules(payload);
+        renderRuntime(payload);
+        rawJson.textContent = JSON.stringify(payload, null, 2);
+      } catch (error) {
+        setPill(overallPill, 'Dashboard error', 'bad');
+        rawJson.textContent = error.message;
+      } finally {
+        refreshButton.disabled = false;
+      }
+    }
+
+    refreshButton.addEventListener('click', refreshDashboard);
+    refreshDashboard();
+    setInterval(refreshDashboard, 30000);
+  </script>
+</body>
+</html>

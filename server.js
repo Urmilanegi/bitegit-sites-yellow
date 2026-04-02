@@ -14,6 +14,8 @@ if (process.env.SENTRY_DSN) {
 
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
+const os = require('os');
+const packageInfo = require('./package.json');
 const { localFaceMatch } = require('./services/local-face-match');
 const express = require('express');
 const path = require('path');
@@ -33,6 +35,7 @@ const { createP2PEmailService } = require('./services/p2p-email-service');
 const { createP2PEmailJobQueue } = require('./services/p2p-email-job-queue');
 const { createBackgroundLockService } = require('./services/background-lock-service');
 const { isRedisConfigured } = require('./services/redis-support');
+const { createWorkerHeartbeatMonitor } = require('./services/worker-heartbeat');
 const tokenService = require('./services/tokenService');
 const { readAuthOtpConfig } = require('./modules/auth-otp/config');
 const { createMySqlAuthStore } = require('./modules/auth-otp/mysql-store');
@@ -211,6 +214,7 @@ let authEmailService = null;
 let p2pEmailService = null;
 let p2pEmailJobQueue = null;
 let backgroundLockService = null;
+let workerHeartbeatMonitor = null;
 let otpAuthStore = null;
 let otpAuthService = null;
 let userCenterStore = null;
@@ -278,6 +282,7 @@ app.use('/downloads', (req, res, next) => {
     '/p2p-buy.html' : '/p2p-buy',
     '/kyc.html'     : '/kyc',
     '/trade.html'   : '/trade',
+    '/status.html'  : '/status',
   };
   Object.entries(HTML_REDIRECTS).forEach(([from, to]) => {
     app.get(from, (req, res) => {
@@ -330,13 +335,89 @@ function getBootStatusSnapshot() {
   };
 }
 
-function getModuleStatusSnapshot() {
+function getRuntimeStatusSnapshot() {
+  const runtimeServiceName = String(
+    process.env.RENDER_SERVICE_NAME ||
+    process.env.APP_NAME ||
+    'bitegit-sites-yellow'
+  ).trim();
+
+  return {
+    serviceName: runtimeServiceName,
+    appName: String(process.env.APP_NAME || runtimeServiceName || packageInfo.name || 'bitegit').trim(),
+    serviceId: String(process.env.RENDER_SERVICE_ID || '').trim() || null,
+    instanceId: String(process.env.RENDER_INSTANCE_ID || '').trim() || null,
+    hostname: os.hostname(),
+    environment: String(process.env.RENDER_ENVIRONMENT || process.env.NODE_ENV || 'development').trim(),
+    version: String(packageInfo.version || '').trim() || null,
+    node: process.version,
+    gitCommit: String(process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || '').trim() || null,
+    gitBranch: String(process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || '').trim() || null,
+    uptimeSeconds: Math.max(0, Math.round(process.uptime())),
+    memoryRssMb: Number((process.memoryUsage().rss / (1024 * 1024)).toFixed(1))
+  };
+}
+
+function getWorkerStatusSnapshot() {
+  if (workerHeartbeatMonitor && typeof workerHeartbeatMonitor.getSnapshot === 'function') {
+    return workerHeartbeatMonitor.getSnapshot();
+  }
+
+  if (!isRedisConfigured()) {
+    return {
+      mode: 'disabled',
+      status: 'disabled',
+      ready: false,
+      updatedAt: null,
+      ageSeconds: null,
+      staleAfterSeconds: null
+    };
+  }
+
+  return {
+    mode: 'starting',
+    status: 'starting',
+    ready: false,
+    updatedAt: null,
+    ageSeconds: null,
+    staleAfterSeconds: null
+  };
+}
+
+function getBackgroundJobsMode() {
+  if (backgroundLockService && typeof backgroundLockService.isEnabled === 'boolean') {
+    return backgroundLockService.isEnabled ? 'redis-locked' : 'local';
+  }
+  return isRedisConfigured() ? 'starting' : 'local';
+}
+
+function getModuleStatusSnapshot(workerSnapshot = getWorkerStatusSnapshot()) {
   return {
     otpAuth: { mode: otpAuthMode },
     userCenter: { mode: userCenterMode },
     socialFeed: { mode: socialFeedMode },
     redis: { mode: redisMode },
-    emailQueue: { mode: emailQueueMode }
+    emailQueue: { mode: emailQueueMode },
+    backgroundJobs: { mode: getBackgroundJobsMode() },
+    emailWorker: workerSnapshot
+  };
+}
+
+function buildHealthPayload({ status, service = null } = {}) {
+  const workerSnapshot = getWorkerStatusSnapshot();
+  return {
+    status,
+    ...(service ? { service } : {}),
+    ready: persistenceReady,
+    db: isDbConnected() ? 'connected' : 'disconnected',
+    boot: getBootStatusSnapshot(),
+    runtime: getRuntimeStatusSnapshot(),
+    worker: workerSnapshot,
+    modules: getModuleStatusSnapshot(workerSnapshot),
+    links: {
+      statusPage: '/status',
+      healthJson: '/api/health'
+    }
   };
 }
 
@@ -4517,25 +4598,21 @@ app.get('/trade/:market/:symbol', (req, res) => {
   return res.sendFile(path.join(__dirname, 'public', 'trade.html'));
 });
 
+app.get('/status', (req, res) => {
+  return res.sendFile(path.join(__dirname, 'public', 'status.html'));
+});
+
 app.get('/healthz', (req, res) => {
-  return res.status(200).json({
-    status: persistenceReady ? 'ok' : 'starting',
-    ready: persistenceReady,
-    db: isDbConnected() ? 'connected' : 'disconnected',
-    boot: getBootStatusSnapshot(),
-    modules: getModuleStatusSnapshot()
-  });
+  return res.status(200).json(buildHealthPayload({
+    status: persistenceReady ? 'ok' : 'starting'
+  }));
 });
 
 app.get('/api/health', (req, res) => {
-  return res.status(200).json({
+  return res.status(200).json(buildHealthPayload({
     status: persistenceReady ? 'OK' : 'STARTING',
-    service: 'bitegit-backend',
-    ready: persistenceReady,
-    db: isDbConnected() ? 'connected' : 'disconnected',
-    boot: getBootStatusSnapshot(),
-    modules: getModuleStatusSnapshot()
-  });
+    service: 'bitegit-backend'
+  }));
 });
 
 // Keep social feed live even before full boot/module registration completes.
@@ -4737,6 +4814,13 @@ function registerShutdownHandlers() {
             })
           );
         }
+        if (workerHeartbeatMonitor && typeof workerHeartbeatMonitor.close === 'function') {
+          closeTasks.push(
+            workerHeartbeatMonitor.close().then(() => {
+              console.log('[monitoring] Worker heartbeat monitor closed.');
+            })
+          );
+        }
 
         let mongoClient = null;
         try {
@@ -4903,8 +4987,17 @@ async function boot() {
     if (backgroundLockService && typeof backgroundLockService.close === 'function') {
       await backgroundLockService.close().catch(() => {});
     }
+    if (workerHeartbeatMonitor && typeof workerHeartbeatMonitor.close === 'function') {
+      await workerHeartbeatMonitor.close().catch(() => {});
+    }
     p2pEmailJobQueue = createP2PEmailJobQueue();
     backgroundLockService = createBackgroundLockService();
+    workerHeartbeatMonitor = createWorkerHeartbeatMonitor();
+    if (workerHeartbeatMonitor && typeof workerHeartbeatMonitor.start === 'function') {
+      await workerHeartbeatMonitor.start().catch((error) => {
+        console.warn(`[monitoring] Worker heartbeat monitor failed to start: ${error.message}`);
+      });
+    }
     redisMode = isRedisConfigured() ? 'configured' : 'disabled';
     emailQueueMode =
       p2pEmailJobQueue && typeof p2pEmailJobQueue.enqueueOrderCreatedNotifications === 'function'
