@@ -380,7 +380,12 @@ async function checkExistingSession() {
     return;
   }
   try {
-    const response = await fetch('/api/p2p/me');
+    const response = await fetch('/api/p2p/me', {
+      credentials: 'include',
+      headers: {
+        'Cache-Control': 'no-store'
+      }
+    });
     const data = await response.json();
     if (response.ok && data?.loggedIn) {
       window.location.href = redirectTo;

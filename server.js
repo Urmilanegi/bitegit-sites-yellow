@@ -1492,6 +1492,12 @@ function clearP2PAuthCookies(res) {
   clearCookie(res, P2P_REFRESH_COOKIE_NAME);
 }
 
+function applyRestoredP2PAuthCookies(req, res) {
+  if (req?._restoredP2PTokenPair) {
+    setP2PAuthCookies(res, req._restoredP2PTokenPair);
+  }
+}
+
 function setAdminAuthCookies(res, tokenPair) {
   setCookie(res, ADMIN_ACCESS_COOKIE_NAME, tokenPair.accessToken, tokenService.ACCESS_TOKEN_TTL_SECONDS);
   setCookie(res, ADMIN_REFRESH_COOKIE_NAME, tokenPair.refreshToken, tokenService.REFRESH_TOKEN_TTL_SECONDS);
@@ -1574,9 +1580,7 @@ async function requiresP2PUser(req, res, next) {
       if (!normalized) {
         return res.status(401).json({ message: 'Unauthorized' });
       }
-      if (req._restoredP2PTokenPair) {
-        setP2PAuthCookies(res, req._restoredP2PTokenPair);
-      }
+      applyRestoredP2PAuthCookies(req, res);
       req.p2pUser = normalized;
       req.authUser = normalized;
       markUserOnline(normalized.id);
@@ -1589,9 +1593,7 @@ async function requiresP2PUser(req, res, next) {
       return res.status(401).json({ message: 'Please login to continue.' });
     }
 
-    if (req._restoredP2PTokenPair) {
-      setP2PAuthCookies(res, req._restoredP2PTokenPair);
-    }
+    applyRestoredP2PAuthCookies(req, res);
     req.p2pUser = user;
     markUserOnline(user.id);
     return next();
@@ -2392,6 +2394,8 @@ app.get('/api/p2p/me', async (req, res) => {
   if (!user) {
     return res.json({ loggedIn: false, user: null });
   }
+
+  applyRestoredP2PAuthCookies(req, res);
 
   const [kycProfile, cred] = await Promise.all([
     getP2PKycProfileByEmail(user.email),

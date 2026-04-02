@@ -208,6 +208,65 @@ function getCurrentUserId() {
   return currentUser ? String(currentUser.id || currentUser.userId || '').trim() : '';
 }
 
+function persistCurrentUserHint(user) {
+  var normalizedUser = normalizeCurrentUserPayload(user);
+  if (!normalizedUser) {
+    return;
+  }
+  try {
+    localStorage.setItem('_p2p_hint', JSON.stringify({
+      id: normalizedUser.id,
+      username: normalizedUser.username,
+      email: normalizedUser.email,
+      role: normalizedUser.role,
+      avatar: normalizedUser.avatar || '',
+      createdAt: normalizedUser.createdAt || null
+    }));
+  } catch (_) {}
+}
+
+function clearCurrentUserHint() {
+  try {
+    localStorage.removeItem('_p2p_hint');
+  } catch (_) {}
+}
+
+async function fetchCurrentUserSessionSnapshot() {
+  const response = await fetch('/api/p2p/me', {
+    credentials: 'include',
+    headers: {
+      'Cache-Control': 'no-store'
+    }
+  });
+
+  if (!response.ok && response.status >= 500) {
+    var serverError = new Error('server_error');
+    serverError.retryable = true;
+    throw serverError;
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch (_) {
+    var parseError = new Error('invalid_session_payload');
+    parseError.retryable = true;
+    throw parseError;
+  }
+
+  if (data && data.retry) {
+    var retryError = new Error('retry');
+    retryError.retryable = true;
+    throw retryError;
+  }
+
+  return {
+    loggedIn: Boolean(data && data.loggedIn),
+    user: normalizeCurrentUserPayload(data && data.user),
+    data: data || {}
+  };
+}
+
 // ── Global per-action locks — prevent duplicate API calls ──────────────────
 var _loginInFlight     = false; // login button
 var _orderActionLock   = false; // release / mark_paid / cancel / dispute
@@ -2493,11 +2552,13 @@ function closeOrderModal() {
 async function loadCurrentUser() {
   // ── Optimistic hint: if user was logged in previously, show logged-in state
   //    instantly while the real fetch is in-flight — eliminates refresh flicker ──
+  var hadOptimisticHint = false;
   try {
     const hint = localStorage.getItem('_p2p_hint');
     if (hint) {
       const hintUser = normalizeCurrentUserPayload(JSON.parse(hint));
       if (hintUser) {
+        hadOptimisticHint = true;
         currentUser = hintUser;
         updateUserUi(); // show logged-in UI immediately, no waiting
         // Show cached orders instantly — no network fetch yet to avoid aborting the confirmed fetch below
@@ -2509,27 +2570,26 @@ async function loadCurrentUser() {
 
   let _networkErr = false; // true only on real network/parse failure
   try {
-    const response = await fetch('/api/p2p/me', { credentials: 'include' });
-    // Treat 5xx as network error — don't log out on server hiccups
-    if (!response.ok && response.status >= 500) { _networkErr = true; throw new Error('server_error'); }
-    const data = await response.json();
-    // Server explicitly says retry (e.g. DB cold start)
-    if (data && data.retry) { _networkErr = true; throw new Error('retry'); }
-    var normalizedUser = normalizeCurrentUserPayload(data.user);
-    if (data.loggedIn && normalizedUser) {
+    var sessionSnapshot = await fetchCurrentUserSessionSnapshot();
+    if (!sessionSnapshot.loggedIn && !sessionSnapshot.user && (hadOptimisticHint || Boolean(currentUser))) {
+      sessionSnapshot = await fetchCurrentUserSessionSnapshot();
+    }
+
+    if (sessionSnapshot.loggedIn && sessionSnapshot.user) {
+      var normalizedUser = sessionSnapshot.user;
       var _prevId = getCurrentUserId();
       if (_prevId !== normalizedUser.id) {
         _clearOrdersCache({ preserveSnapshots: true }); // keep per-order snapshots for instant reloads
       }
       currentUser = normalizedUser;
       updateCurrentUserKyc(currentUser.kyc || {});
-      try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role, avatar: currentUser.avatar || '', createdAt: currentUser.createdAt || null })); } catch(_) {}
+      persistCurrentUserHint(currentUser);
       // Single call — fetchOrdersSafe shows cache instantly then fetches fresh
       fetchOrdersSafe();
       _startFallbackPoll(); // 15s fallback poll in case SSE is down
     } else {
       currentUser = null;
-      try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
+      clearCurrentUserHint();
       _clearOrdersCache({ preserveSnapshots: true });
       fetchOrdersSafe(); // session expired — replace stuck skeleton with login prompt
     }
@@ -2544,12 +2604,11 @@ async function loadCurrentUser() {
   if (!currentUser && _networkErr) {
     setTimeout(async function() {
       try {
-        const r = await fetch('/api/p2p/me', { credentials: 'include' });
-        const d = await r.json();
-        var retryUser = normalizeCurrentUserPayload(d.user);
-        if (d.loggedIn && retryUser) {
-          currentUser = retryUser;
+        var retrySession = await fetchCurrentUserSessionSnapshot();
+        if (retrySession.loggedIn && retrySession.user) {
+          currentUser = retrySession.user;
           updateCurrentUserKyc(currentUser.kyc || {});
+          persistCurrentUserHint(currentUser);
           updateUserUi();
           // Re-run user-specific loads now that we have a valid session
           loadMyAds();
@@ -2608,7 +2667,7 @@ async function loginUser() {
     }
     updateCurrentUserKyc(currentUser?.kyc || {});
     // Persist a session hint so refresh shows logged-in UI instantly (no flicker)
-    try { localStorage.setItem('_p2p_hint', JSON.stringify({ id: getCurrentUserId(), username: currentUser.username, email: currentUser.email, role: currentUser.role, avatar: currentUser.avatar || '', createdAt: currentUser.createdAt || null })); } catch(_) {}
+    persistCurrentUserHint(currentUser);
     updateUserUi();
     setAuthModalOpen(false);
     setP2PNavOpen(false);
@@ -2670,10 +2729,10 @@ function _clearOrdersCache(options) {
 
 async function logoutUser() {
   try {
-    await fetch('/api/p2p/logout', { method: 'POST' });
+    await fetch('/api/p2p/logout', { method: 'POST', credentials: 'include' });
   } finally {
     currentUser = null;
-    try { localStorage.removeItem('_p2p_hint'); } catch(_) {}
+    clearCurrentUserHint();
     _clearOrdersCache(); // cancels any in-flight request, wipes state + cache
     _stopFallbackPoll();
     mobileOrdersCache.clear();

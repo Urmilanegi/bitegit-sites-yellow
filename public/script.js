@@ -132,6 +132,60 @@ let currentSessionUser = null;
 
 const openSignupFromQuery = new URLSearchParams(window.location.search).get('signup') === '1';
 
+function normalizeSessionUser(user) {
+  if (!user || typeof user !== 'object') {
+    return null;
+  }
+  const email = String(user.email || '').trim().toLowerCase();
+  const username = String(user.username || '').trim();
+  const id = String(user.id || user.userId || email || username || '').trim();
+  if (!id) {
+    return null;
+  }
+  return {
+    ...user,
+    id,
+    userId: id,
+    email,
+    username
+  };
+}
+
+function readP2PSessionHint() {
+  try {
+    return normalizeSessionUser(JSON.parse(localStorage.getItem('_p2p_hint') || 'null'));
+  } catch (_) {
+    return null;
+  }
+}
+
+async function fetchHomeSessionSnapshot() {
+  const response = await fetch('/api/p2p/me', {
+    credentials: 'include',
+    headers: {
+      'Cache-Control': 'no-store'
+    }
+  });
+
+  if (!response.ok && response.status >= 500) {
+    const error = new Error('server_error');
+    error.retryable = true;
+    throw error;
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (data && data.retry) {
+    const error = new Error('retry');
+    error.retryable = true;
+    throw error;
+  }
+
+  return {
+    loggedIn: Boolean(response.ok && data?.loggedIn),
+    user: normalizeSessionUser(data?.user)
+  };
+}
+
 function setMessage(text, type = '') {
   if (!message) {
     return;
@@ -188,12 +242,21 @@ function updateHomeAuthUi(user) {
 }
 
 async function loadHomeSession() {
+  const hintUser = readP2PSessionHint();
+  if (hintUser) {
+    updateHomeAuthUi(hintUser);
+  }
+
   try {
-    const response = await fetch('/api/p2p/me', { credentials: 'include' });
-    const data = await response.json().catch(() => ({}));
-    updateHomeAuthUi(response.ok && data?.loggedIn ? data.user : null);
+    let snapshot = await fetchHomeSessionSnapshot();
+    if (!snapshot.loggedIn && hintUser) {
+      snapshot = await fetchHomeSessionSnapshot();
+    }
+    updateHomeAuthUi(snapshot.loggedIn && snapshot.user ? snapshot.user : null);
   } catch (_) {
-    updateHomeAuthUi(null);
+    if (!hintUser) {
+      updateHomeAuthUi(null);
+    }
   }
 }
 
