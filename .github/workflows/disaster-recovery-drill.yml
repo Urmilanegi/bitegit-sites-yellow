@@ -1,0 +1,158 @@
+name: Disaster Recovery Drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bitegit-disaster-recovery-drill
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DR_OUTPUT_DIR: artifacts/disaster-recovery/latest
+      PRODUCTION_HEALTH_URL: https://www.bitegit.com/api/health
+      STAGING_HEALTH_URL: https://bitegit-sites-staging.onrender.com/api/health
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all tracked refs
+        run: git fetch --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run health monitor
+        run: npm run monitor:health
+
+      - name: Run disaster recovery drill
+        run: node scripts/run-dr-drill.js
+
+      - name: Publish drill report
+        if: always()
+        run: cat artifacts/disaster-recovery/latest/disaster-recovery-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload source backup and drill artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitegit-disaster-recovery-${{ github.run_id }}
+          path: artifacts/disaster-recovery/latest
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Open or update DR failure issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = 'Disaster recovery drill failed';
+            const labelName = 'disaster-recovery';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.readFileSync('artifacts/disaster-recovery/latest/disaster-recovery-report.md', 'utf8');
+            const body = `${report}\n\n[Open workflow run](${runUrl})`;
+
+            async function ensureLabel() {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: labelName });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: labelName,
+                  color: 'B60205',
+                  description: 'Automated disaster recovery drill alerts'
+                });
+              }
+            }
+
+            await ensureLabel();
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: labelName,
+              per_page: 100
+            });
+            const existing = issues.find((issue) => issue.title === title);
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body
+              });
+              core.info(`Updated DR issue #${existing.number}`);
+              return;
+            }
+
+            const created = await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+              labels: [labelName]
+            });
+            core.info(`Created DR issue #${created.data.number}`);
+
+      - name: Close DR failure issue on recovery
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = 'Disaster recovery drill failed';
+            const labelName = 'disaster-recovery';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.readFileSync('artifacts/disaster-recovery/latest/disaster-recovery-report.md', 'utf8');
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: labelName,
+              per_page: 100
+            });
+            const existing = issues.find((issue) => issue.title === title);
+
+            if (!existing) {
+              core.info('No open DR issue to close.');
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: existing.number,
+              body: `Recovery detected.\n\n${report}\n\n[Open workflow run](${runUrl})`
+            });
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: existing.number,
+              state: 'closed'
+            });
+            core.info(`Closed DR issue #${existing.number}`);

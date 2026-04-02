@@ -1,6 +1,2 @@
+artifacts/
 node_modules/
-.env
-*.log
-data/
-.claude/
-logs/*.log

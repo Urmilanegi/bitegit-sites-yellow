@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "start:worker": "node worker.js",
+    "backup:source": "node scripts/create-source-backup.js",
+    "dr:drill": "node scripts/run-dr-drill.js",
     "monitor:health": "node scripts/check-health.js",
     "start:pm2": "pm2-runtime start ecosystem.config.js --env production",
     "start:prod": "pm2-runtime start ecosystem.config.js --env production",
