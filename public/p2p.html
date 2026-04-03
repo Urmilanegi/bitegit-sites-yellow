@@ -36,7 +36,7 @@
         </div>
         <nav class="p2p-main-nav" aria-label="Primary navigation">
           <a href="/">Buy Crypto</a>
-          <a href="/markets.html">Markets</a>
+          <a href="/markets">Markets</a>
           <a href="/trade/spot/BTCUSDT">Trade</a>
           <a href="/trade/perp/BTCUSDT">Futures</a>
           <a href="/p2p" class="active">P2P</a>
@@ -44,8 +44,8 @@
         </nav>
         <div class="p2p-header-actions">
           <button id="openAuthBtn" class="p2p-login-btn" type="button" data-auth-guest-only>Log In</button>
-          <a class="p2p-signup-btn" href="/auth.html?mode=signup&redirect=%2Fp2p" data-auth-guest-only>Sign Up</a>
-          <a id="openAssetsBtn" class="p2p-user-btn hidden" href="/assets" data-auth-user-only>Assets</a>
+          <a class="p2p-signup-btn" href="/auth?mode=signup&redirect=%2Fp2p" data-auth-guest-only>Sign Up</a>
+          <a id="openAssetsBtn" class="p2p-user-btn hidden" href="/assets/" data-auth-user-only>Assets</a>
           <button id="p2pMenuToggle" class="p2p-hamburger" type="button" aria-label="Open menu" aria-controls="p2pNavDrawer" aria-expanded="false">
             <span></span><span></span><span></span>
           </button>
@@ -88,18 +88,18 @@
       </div>
       <nav class="p2p-drawer-links" aria-label="Mobile navigation">
         <a href="/">Buy Crypto</a>
-        <a href="/markets.html">Markets</a>
-        <a href="/chart.html?symbol=BTCUSDT">Spot</a>
-        <a href="/chart.html?symbol=BTCUSDT">Futures</a>
+        <a href="/markets">Markets</a>
+        <a href="/trade/spot/BTCUSDT">Spot</a>
+        <a href="/trade/perp/BTCUSDT">Futures</a>
         <a href="/p2p">P2P</a>
         <a href="/">Earn</a>
         <a href="/">Support</a>
-        <a href="/assets">Assets</a>
+        <a href="/assets/">Assets</a>
       </nav>
       <div class="p2p-drawer-actions">
         <button id="openAuthBtnDrawer" type="button" data-auth-guest-only>Log In</button>
-        <a href="/auth.html?mode=signup&redirect=%2Fp2p" data-auth-guest-only>Sign Up</a>
-        <a id="drawerAssetsBtn" href="/assets" class="hidden" data-auth-user-only>Assets</a>
+        <a href="/auth?mode=signup&redirect=%2Fp2p" data-auth-guest-only>Sign Up</a>
+        <a id="drawerAssetsBtn" href="/assets/" class="hidden" data-auth-user-only>Assets</a>
       </div>
     </aside>
 

@@ -4603,7 +4603,7 @@ app.get('/p2p', (req, res) => {
 });
 
 app.get('/wallet', (req, res) => {
-  res.redirect(301, '/assets');
+  res.redirect(301, '/assets/');
 });
 
 app.get('/p2p-buy', (req, res) => {

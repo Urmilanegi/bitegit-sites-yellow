@@ -20,17 +20,17 @@
 
         <nav class="cf-nav" aria-label="Primary navigation">
           <a href="/" class="active-link">Buy Crypto</a>
-          <a href="/markets.html">Markets</a>
+          <a href="/markets">Markets</a>
           <a href="/p2p">P2P</a>
-          <a href="/chart.html?symbol=BTCUSDT">Derivatives</a>
+          <a href="/trade/perp/BTCUSDT">Derivatives</a>
           <a href="/">Earn</a>
           <a href="/">Learn</a>
         </nav>
 
         <div class="cf-actions">
-          <a id="topLoginBtn" class="cf-login" href="/auth.html?mode=login" data-auth-guest-only>Login</a>
-          <a id="topSignupBtn" class="cf-signup" href="/auth.html?mode=signup" data-auth-guest-only>Register</a>
-          <a id="topAssetsBtn" href="/assets" class="cf-login hidden" data-auth-user-only>Assets</a>
+          <a id="topLoginBtn" class="cf-login" href="/auth?mode=login" data-auth-guest-only>Login</a>
+          <a id="topSignupBtn" class="cf-signup" href="/auth?mode=signup" data-auth-guest-only>Register</a>
+          <a id="topAssetsBtn" href="/assets/" class="cf-login hidden" data-auth-user-only>Assets</a>
           <button id="topLogoutBtn" type="button" class="cf-login hidden" data-auth-user-only>Logout</button>
           <button id="homeNavToggle" class="cf-nav-toggle" type="button" aria-label="Open navigation" aria-controls="homeNavDrawer" aria-expanded="false">
             <span></span>
@@ -53,18 +53,18 @@
       </div>
       <nav class="cf-nav-drawer-links" aria-label="Mobile navigation">
         <a href="/">Buy Crypto</a>
-        <a href="/markets.html">Markets</a>
-        <a href="/chart.html?symbol=BTCUSDT">Spot</a>
-        <a href="/chart.html?symbol=BTCUSDT">Futures</a>
+        <a href="/markets">Markets</a>
+        <a href="/trade/spot/BTCUSDT">Spot</a>
+        <a href="/trade/perp/BTCUSDT">Futures</a>
         <a href="/p2p">P2P</a>
         <a href="/">Earn</a>
         <a href="/">Support</a>
-        <a href="/assets">Assets</a>
+        <a href="/assets/">Assets</a>
       </nav>
       <div class="cf-nav-drawer-actions">
-        <a id="drawerLoginLink" href="/auth.html" class="cf-login" data-auth-guest-only>Log In</a>
-        <a id="drawerSignupLink" href="/auth.html?mode=signup" class="cf-signup-link" data-auth-guest-only>Register</a>
-        <a id="drawerAssetsLink" href="/assets" class="cf-login hidden" data-auth-user-only>Assets</a>
+        <a id="drawerLoginLink" href="/auth" class="cf-login" data-auth-guest-only>Log In</a>
+        <a id="drawerSignupLink" href="/auth?mode=signup" class="cf-signup-link" data-auth-guest-only>Register</a>
+        <a id="drawerAssetsLink" href="/assets/" class="cf-login hidden" data-auth-user-only>Assets</a>
         <button id="drawerLogoutBtn" type="button" class="cf-login hidden" data-auth-user-only>Logout</button>
       </div>
     </aside>
@@ -121,9 +121,9 @@
 
             <div class="cf-social-row">
               <span>Or continue with</span>
-              <a class="social-pill" data-provider="google" href="/auth.html?mode=signup&via=google">G</a>
-              <a class="social-pill" data-provider="apple" href="/auth.html?mode=signup&via=apple">A</a>
-              <a class="social-pill" data-provider="qr" href="/auth.html?mode=signup&via=qr">QR</a>
+              <a class="social-pill" data-provider="google" href="/auth?mode=signup&via=google">G</a>
+              <a class="social-pill" data-provider="apple" href="/auth?mode=signup&via=apple">A</a>
+              <a class="social-pill" data-provider="qr" href="/auth?mode=signup&via=qr">QR</a>
             </div>
           </div>
 
@@ -152,7 +152,7 @@
             <h3 style="font-size:1.35rem;font-weight:800;color:#fff;margin:0 0 1rem;line-height:1.2;">Deposit and start trading</h3>
 
             <!-- Deposit button — blue-teal pill -->
-            <a href="/assets" style="display:block;width:100%;padding:0.85rem;background:#00B4D8;color:#000;font-size:0.95rem;font-weight:700;border-radius:50px;text-decoration:none;text-align:center;box-sizing:border-box;margin-bottom:1.2rem;">Deposit</a>
+            <a href="/assets/" style="display:block;width:100%;padding:0.85rem;background:#00B4D8;color:#000;font-size:0.95rem;font-weight:700;border-radius:50px;text-decoration:none;text-align:center;box-sizing:border-box;margin-bottom:1.2rem;">Deposit</a>
 
             <!-- 4 Quick-action icon tiles -->
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;">
@@ -171,7 +171,7 @@
                 <span style="font-size:0.68rem;color:#aad6df;font-weight:500;">P2P</span>
               </a>
 
-              <a href="/assets" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
+              <a href="/assets/" style="display:flex;flex-direction:column;align-items:center;gap:0.4rem;text-decoration:none;">
                 <div style="width:56px;height:56px;border-radius:14px;background:#0a1a1f;border:1px solid #1e3a42;display:flex;align-items:center;justify-content:center;">
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#00B4D8" stroke-width="1.8"/><path d="M8 12l4 4 4-4" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v8" stroke="#00B4D8" stroke-width="1.8" stroke-linecap="round"/></svg>
                 </div>
@@ -330,7 +330,7 @@
                 <tr class="cf-fullmkt-loading"><td colspan="3"><span class="cf-fullmkt-spinner"></span>Loading markets…</td></tr>
               </tbody>
             </table>
-            <a class="cf-fullmkt-viewall" href="/markets.html">View More &rsaquo;</a>
+            <a class="cf-fullmkt-viewall" href="/markets">View More &rsaquo;</a>
           </div>
 
         </div>
@@ -531,7 +531,7 @@
       <section class="cf-trading-exp cf-reveal" aria-label="New user guide cards">
         <div class="cf-guide-grid">
           <article class="cf-guide-card cf-guide-card--register cf-reveal">
-            <a href="/auth.html?mode=signup" class="cf-guide-card-link" aria-label="Register now">
+            <a href="/auth?mode=signup" class="cf-guide-card-link" aria-label="Register now">
               <div class="cf-guide-card-visual">
                 <img src="/assets/home-guide/guide-card-art-1.png" alt="Create account card" loading="lazy" />
               </div>
@@ -752,10 +752,10 @@
               <span class="cf-acc-arrow">⌄</span>
             </summary>
             <div class="cf-footer-accordion-links">
-              <a href="/chart.html?symbol=BTCUSDT">Spot Trading</a>
-              <a href="/chart.html?symbol=BTCUSDT">Futures</a>
+              <a href="/trade/spot/BTCUSDT">Spot Trading</a>
+              <a href="/trade/perp/BTCUSDT">Futures</a>
               <a href="/p2p">P2P</a>
-              <a href="/assets">Assets</a>
+              <a href="/assets/">Assets</a>
             </div>
           </details>
         </div>
@@ -804,10 +804,10 @@
         </article>
         <article>
           <h4>Trade</h4>
-          <a href="/chart.html?symbol=BTCUSDT">BTCUSDT</a>
-          <a href="/chart.html?symbol=ETHUSDT">ETHUSDT</a>
-          <a href="/chart.html?symbol=XRPUSDT">XRPUSDT</a>
-          <a href="/chart.html?symbol=BTCUSDT">BTCUSDT-P</a>
+          <a href="/trade/spot/BTCUSDT">BTCUSDT</a>
+          <a href="/trade/spot/ETHUSDT">ETHUSDT</a>
+          <a href="/trade/spot/XRPUSDT">XRPUSDT</a>
+          <a href="/trade/perp/BTCUSDT">BTCUSDT-P</a>
         </article>
         <article class="cf-footer-qr">
           <div class="cf-qr"></div>
@@ -822,19 +822,19 @@
         <span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span>
         <span class="nav-label">Home</span>
       </a>
-      <a href="/markets.html">
+      <a href="/markets">
         <span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 15h2v5H4v-5zm4-5h2v10H8V10zm4-4h2v14h-2V6zm4 7h2v7h-2v-7z"/></svg></span>
         <span class="nav-label">Market</span>
       </a>
-      <a href="/chart.html?symbol=BTCUSDT">
+      <a href="/trade/spot/BTCUSDT">
         <span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.5 12a4.5 4.5 0 100-9 4.5 4.5 0 000 9zm9 0a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM7.5 21a4.5 4.5 0 100-9 4.5 4.5 0 000 9zm9 0a4.5 4.5 0 100-9 4.5 4.5 0 000 9z" opacity=".5"/><path d="M7.5 12a4.5 4.5 0 100-9 4.5 4.5 0 000 9zm9-4.5A4.5 4.5 0 117.5 12a4.5 4.5 0 019 0z"/></svg></span>
         <span class="nav-label">Trade</span>
       </a>
-      <a href="/chart.html?symbol=BTCUSDT">
+      <a href="/trade/perp/BTCUSDT">
         <span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="5" width="18" height="14" rx="2" opacity=".3"/><rect x="3" y="5" width="18" height="4" rx="2"/><rect x="6" y="13" width="5" height="2" rx="1"/></svg></span>
         <span class="nav-label">Futures</span>
       </a>
-      <a href="/assets">
+      <a href="/assets/">
         <span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="7" width="20" height="14" rx="2" opacity=".3"/><rect x="2" y="7" width="20" height="5" rx="2"/><circle cx="17" cy="16" r="2.5"/></svg></span>
         <span class="nav-label">Assets</span>
       </a>

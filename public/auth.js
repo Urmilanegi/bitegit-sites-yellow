@@ -192,7 +192,7 @@ function openQrLoginModal() {
   if (!authQrImage) {
     return;
   }
-  const loginUrl = `${window.location.origin}/auth.html?mode=login&redirect=${encodeURIComponent(redirectTo)}`;
+  const loginUrl = `${window.location.origin}/auth?mode=login&redirect=${encodeURIComponent(redirectTo)}`;
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&format=png&data=${encodeURIComponent(loginUrl)}`;
   authQrImage.src = qrSrc;
   setStatus('Scan QR on another device to open login.', 'success');

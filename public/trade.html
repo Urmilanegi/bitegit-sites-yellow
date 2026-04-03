@@ -34,15 +34,15 @@
 
       <nav class="topbar-nav" aria-label="Trade navigation">
         <a href="/">Buy Crypto</a>
-        <a href="/markets.html">Markets</a>
+        <a href="/markets">Markets</a>
         <a href="/p2p">P2P</a>
-        <a href="/chart.html?symbol=BTCUSDT" class="active">Trade</a>
-        <a href="/chart.html?symbol=BTCUSDT">Derivatives</a>
+        <a href="/trade/spot/BTCUSDT" class="active">Trade</a>
+        <a href="/trade/perp/BTCUSDT">Derivatives</a>
       </nav>
 
       <div class="topbar-actions">
-        <a id="tradeLoginBtn" class="link-btn" href="/auth.html">Log In</a>
-        <a id="tradeSignupBtn" class="solid-btn trade-signup-btn" href="/auth.html?mode=signup">Sign Up</a>
+        <a id="tradeLoginBtn" class="link-btn" href="/auth">Log In</a>
+        <a id="tradeSignupBtn" class="solid-btn trade-signup-btn" href="/auth?mode=signup">Sign Up</a>
         <button id="tradeThemeToggle" type="button" class="theme-toggle-btn" aria-label="Toggle theme">🌙</button>
         <button id="tradeMenuToggle" class="icon-btn" type="button" aria-label="Open menu" aria-controls="tradeNavDrawer" aria-expanded="false">☰</button>
         <button id="tradeUserAvatar" type="button" class="avatar-btn" aria-label="Open account menu">U</button>
@@ -57,16 +57,16 @@
       </div>
       <nav class="trade-nav-links" aria-label="Mobile trade navigation">
         <a href="/">Buy Crypto</a>
-        <a href="/markets.html">Markets</a>
-        <a href="/chart.html?symbol=BTCUSDT">Spot</a>
-        <a href="/chart.html?symbol=BTCUSDT">Futures</a>
+        <a href="/markets">Markets</a>
+        <a href="/trade/spot/BTCUSDT">Spot</a>
+        <a href="/trade/perp/BTCUSDT">Futures</a>
         <a href="/p2p">P2P</a>
         <a href="/#crypto-for-everyone">Earn</a>
         <a href="/#events">ICO</a>
         <a href="/#support">Support</a>
-        <a href="/assets">Assets</a>
-        <a data-drawer-login href="/auth.html">Log In</a>
-        <a data-drawer-signup href="/auth.html?mode=signup">Sign Up</a>
+        <a href="/assets/">Assets</a>
+        <a data-drawer-login href="/auth">Log In</a>
+        <a data-drawer-signup href="/auth?mode=signup">Sign Up</a>
         <button id="tradeDrawerLogout" type="button">Logout</button>
       </nav>
       <div class="trade-nav-extra">
@@ -83,7 +83,7 @@
     </aside>
 
     <div class="bg-mob-header" id="bgMobHeader">
-      <a href="/markets.html" class="bg-back-btn">&#8592;</a>
+      <a href="/markets" class="bg-back-btn">&#8592;</a>
       <div class="bg-pair-title">
         <span id="bgPairName">BTC/USDT</span>
         <span id="bgPairChg" class="bg-pair-chg dn">-2.59%</span>
@@ -362,10 +362,10 @@
 
     <nav class="mobile-app-nav" aria-label="App navigation">
       <a href="/"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span><span class="nav-label">Home</span></a>
-      <a href="/markets.html"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 15h2v5H4v-5zm4-5h2v10H8V10zm4-4h2v14h-2V6zm4 7h2v7h-2v-7z"/></svg></span><span class="nav-label">Market</span></a>
-      <a href="/chart.html?symbol=BTCUSDT" class="active" aria-current="page"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.5 12a4.5 4.5 0 100-9 4.5 4.5 0 000 9zm9-4.5A4.5 4.5 0 117.5 12a4.5 4.5 0 019 0z"/></svg></span><span class="nav-label">Trade</span></a>
-      <a href="/chart.html?symbol=BTCUSDT"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="5" width="18" height="14" rx="2" opacity=".3"/><rect x="3" y="5" width="18" height="4" rx="2"/><rect x="6" y="13" width="5" height="2" rx="1"/></svg></span><span class="nav-label">Futures</span></a>
-      <a href="/assets"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="7" width="20" height="14" rx="2" opacity=".3"/><rect x="2" y="7" width="20" height="5" rx="2"/><circle cx="17" cy="16" r="2.5"/></svg></span><span class="nav-label">Assets</span></a>
+      <a href="/markets"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 15h2v5H4v-5zm4-5h2v10H8V10zm4-4h2v14h-2V6zm4 7h2v7h-2v-7z"/></svg></span><span class="nav-label">Market</span></a>
+      <a href="/trade/spot/BTCUSDT" class="active" aria-current="page"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.5 12a4.5 4.5 0 100-9 4.5 4.5 0 000 9zm9-4.5A4.5 4.5 0 117.5 12a4.5 4.5 0 019 0z"/></svg></span><span class="nav-label">Trade</span></a>
+      <a href="/trade/perp/BTCUSDT"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="5" width="18" height="14" rx="2" opacity=".3"/><rect x="3" y="5" width="18" height="4" rx="2"/><rect x="6" y="13" width="5" height="2" rx="1"/></svg></span><span class="nav-label">Futures</span></a>
+      <a href="/assets/"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="7" width="20" height="14" rx="2" opacity=".3"/><rect x="2" y="7" width="20" height="5" rx="2"/><circle cx="17" cy="16" r="2.5"/></svg></span><span class="nav-label">Assets</span></a>
     </nav>
 
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>

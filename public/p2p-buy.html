@@ -683,25 +683,25 @@ html,body{background:#000;color:#fff;font-family:system-ui,-apple-system,'Segoe 
     </span>
     <span class="nav-label">Home</span>
   </a>
-  <a href="/markets.html">
+  <a href="/markets">
     <span class="nav-icon">
       <svg viewBox="0 0 24 24"><path d="M3 3v18h18M7 16l4-4 4 4 4-4"/></svg>
     </span>
     <span class="nav-label">Market</span>
   </a>
-  <a href="/chart.html?symbol=BTCUSDT">
+  <a href="/trade/spot/BTCUSDT">
     <span class="nav-icon">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     </span>
     <span class="nav-label">Trade</span>
   </a>
-  <a href="/chart.html?symbol=BTCUSDT">
+  <a href="/trade/perp/BTCUSDT">
     <span class="nav-icon">
       <svg viewBox="0 0 24 24"><path d="M2 20h20M4 20V10l8-7 8 7v10M10 20v-5h4v5"/></svg>
     </span>
     <span class="nav-label">Futures</span>
   </a>
-  <a href="/assets">
+  <a href="/assets/">
     <span class="nav-icon">
       <svg viewBox="0 0 24 24"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2zM1 7l3-4h16l3 4M12 12v.01"/></svg>
     </span>
@@ -1153,7 +1153,7 @@ html,body{background:#000;color:#fff;font-family:system-ui,-apple-system,'Segoe 
   if (authParam === '0') {
     // Not logged in — redirect to login with return URL
     var returnUrl = encodeURIComponent(location.href);
-    window.location.replace('/auth.html?mode=login&redirect=' + returnUrl);
+    window.location.replace('/auth?mode=login&redirect=' + returnUrl);
     return; // stop execution
   }
 
