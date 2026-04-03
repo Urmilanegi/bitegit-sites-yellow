@@ -126,7 +126,7 @@ function renderTable() {
     const chg   = Number(item.change24h || 0);
     const sign  = chg >= 0 ? '+' : '';
     const cls   = chg >= 0 ? 'up' : 'dn';
-    const href  = `/trade/spot/${encodeURIComponent(item.symbol)}`;
+    const href  = `/chart.html?symbol=${encodeURIComponent(item.symbol)}`;
 
     return `<tr class="mk-market-row" onclick="window.location.href='${href}'" style="cursor:pointer">
       <td>
