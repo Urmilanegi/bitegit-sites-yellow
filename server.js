@@ -278,9 +278,12 @@ app.use('/downloads', (req, res, next) => {
     '/auth.html'    : '/auth',
     '/login.html'   : '/auth',   // alias — p2p-order-flow.html links here
     '/markets.html' : '/markets',
+    '/signup.html'  : '/signup',
     '/chart.html'   : '/chart',
+    '/download.html': '/download',
     '/p2p.html'     : '/p2p',
     '/p2p-buy.html' : '/p2p-buy',
+    '/wallet.html'  : '/wallet',
     '/kyc.html'     : '/kyc',
     '/trade.html'   : '/trade',
     '/status.html'  : '/status',
@@ -4583,13 +4586,24 @@ app.get('/chart', (req, res) => {
 app.get('/auth', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'auth.html'));
 });
+app.get('/signup', (req, res) => {
+  const qs = req.url.includes('?') ? `&${req.url.slice(req.url.indexOf('?') + 1)}` : '';
+  res.redirect(301, `/auth?mode=signup${qs}`);
+});
 app.get('/login', (req, res) => {
   // /login is a canonical alias for /auth — preserves query string
   const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
   res.redirect(301, '/auth' + qs);
 });
+app.get('/download', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'download.html'));
+});
 app.get('/p2p', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'p2p.html'));
+});
+
+app.get('/wallet', (req, res) => {
+  res.redirect(301, '/assets');
 });
 
 app.get('/p2p-buy', (req, res) => {
@@ -4616,6 +4630,10 @@ app.get('/trade/:market/:symbol', (req, res) => {
 
 app.get('/status', (req, res) => {
   return res.sendFile(path.join(__dirname, 'public', 'status.html'));
+});
+
+app.get('/favicon.ico', (req, res) => {
+  return res.sendFile(path.join(__dirname, 'public', 'logos', 'bitegit-b.png'));
 });
 
 app.get('/healthz', (req, res) => {
